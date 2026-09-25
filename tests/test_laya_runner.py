@@ -73,10 +73,10 @@ async def test_cancelled_caller_does_not_break_the_batch():
         await doomed
 
 
-async def test_forward_passes_are_capped_at_max_batch():
+async def test_forward_passes_are_capped_at_batch_size():
     router = FakeRouter()
     laya = runner(router)
-    laya.max_batch = 32
+    laya.batch_size = 32
     await laya.predict_batch([{"state": f"s{i}"} for i in range(100)])
     assert router.batch_sizes == [32]  # Laya splits the 100 into passes of <= 32 rows
 

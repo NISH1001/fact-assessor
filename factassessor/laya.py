@@ -19,10 +19,10 @@ from typing import Any
 
 
 class LayaRunner:
-    def __init__(self, device: str = "auto", max_wait_ms: float = 5.0, max_batch: int = 32) -> None:
+    def __init__(self, device: str = "auto", max_wait_ms: float = 5.0, batch_size: int = 32) -> None:
         self.device = device
         self.max_wait_ms = max_wait_ms
-        self.max_batch = max_batch  # rows per forward pass: bounds GPU memory, free in speed
+        self.batch_size = batch_size  # rows per forward pass (Laya's own name): bounds GPU memory, free in speed
         self._router: Any = None
         self._lock = asyncio.Lock()
         self._thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="laya")
@@ -59,7 +59,7 @@ class LayaRunner:
         order = sorted(range(len(merged)), key=lambda i: _length(merged[i]))  # short rows with short rows
         try:
             ordered = await asyncio.get_running_loop().run_in_executor(
-                self._thread, lambda: self._router.predict_batch([merged[i] for i in order], batch_size=self.max_batch)
+                self._thread, lambda: self._router.predict_batch([merged[i] for i in order], batch_size=self.batch_size)
             )
         except Exception as exc:
             for _, future in batch:
