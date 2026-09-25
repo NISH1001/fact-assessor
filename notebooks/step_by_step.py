@@ -222,7 +222,7 @@ def _(mo):
     mo.md("""
     ---
     # Run everything
-    One call: `await fa.acheck(text)`. Snippets are judged first; pages are only crawled when the snippets
+    One call: `await fa.assess(text)`. Snippets are judged first; pages are only crawled when the snippets
     aren't conclusive, and each page is judged the moment its own crawl finishes.
     """)
     return
@@ -246,7 +246,7 @@ def _(mo):
 @app.cell
 async def _(fa, mo, run_button, text_box):
     mo.stop(not run_button.value, mo.md("*Press **Fact-check** to run.*"))
-    result = await fa.acheck(text_box.value)
+    result = await fa.assess(text_box.value)
     return (result,)
 
 

@@ -8,7 +8,7 @@ an overall fact score, and a knowledge graph linking claims to their sources.
 from factassessor import FactAssessor
 
 async with FactAssessor() as fa:
-    result = await fa.acheck("Nepal's earthquake in 2017 of 7.8 magnitude caused massive damage. Total lives lost were 1 million people.")
+    result = await fa.assess("Nepal's earthquake in 2017 of 7.8 magnitude caused massive damage. Total lives lost were 1 million people.")
 
 for atom in result.atoms:
     print(atom.verdict, atom.atom.text)
@@ -110,7 +110,7 @@ from factassessor import FactAssessor
 
 async def main():
     async with FactAssessor() as fa:
-        result = await fa.acheck("Marie Curie won the Nobel Prize in Physics in 1903. The Eiffel Tower is 500 meters tall.")
+        result = await fa.assess("Marie Curie won the Nobel Prize in Physics in 1903. The Eiffel Tower is 500 meters tall.")
     print(f"fact score {result.fact_score:.0%} in {result.latency_ms / 1000:.1f}s")
     for a in result.atoms:
         print(f"{a.verdict:10s} {a.confidence:.2f}  {a.atom.text}")
@@ -122,7 +122,21 @@ asyncio.run(main())
 # refuted    0.96  The Eiffel Tower is 500 meters tall.
 ```
 
-In Jupyter or marimo, `await` works at the top level: `result = await fa.acheck(text)`.
+In Jupyter or marimo, `await` works at the top level: `result = await fa.assess(text)`.
+
+Not in async code? `assess_sync` blocks and returns the same result:
+
+```python
+from factassessor import FactAssessor
+
+with FactAssessor() as fa:                     # closes the browser and HTTP pool on exit
+    result = fa.assess_sync("NASA was founded in 1958.")
+    result = fa.assess_sync("Python was created by James Gosling.")   # reuses the warm assessor
+```
+
+It runs on a background event loop owned by the assessor, so it also works where a loop is already running
+(Jupyter), and repeated calls stay fast. Pick one style per instance: `assess` or `assess_sync`, not both.
+(`acheck` is an alias for `assess`.)
 
 ### Keep one assessor alive
 
@@ -133,7 +147,7 @@ service, create one, warm it up once, and reuse it for every check:
 fa = FactAssessor(n_atoms=8)
 await fa.aload()              # load Laya + start the browser now (~3s), not on the first user request
 ...
-result = await fa.acheck(text)   # reuse for every check
+result = await fa.assess(text)   # reuse for every check
 ...
 await fa.aclose()             # on shutdown: closes the browser and HTTP pool (or use `async with`)
 ```

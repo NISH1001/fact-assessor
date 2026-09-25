@@ -62,7 +62,7 @@ def _(mo):
 @app.cell
 async def _(fa, mo, run_button, text_box):
     mo.stop(not run_button.value, mo.md("*Press **Fact-check** to run.*"))
-    result = await fa.acheck(text_box.value)
+    result = await fa.assess(text_box.value)
     return (result,)
 
 

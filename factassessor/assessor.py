@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 import time
 from typing import Any
 from urllib.parse import urlparse
@@ -76,6 +77,8 @@ class FactAssessor:
         self._http: httpx.AsyncClient | None = None  # shared connection pool, created on first use
         self._crawler: Any = None  # one shared headless browser (crawl4ai), started on first use
         self._crawler_lock = asyncio.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None  # background loop behind assess_sync()
+        self._loop_thread: threading.Thread | None = None
 
     async def __aenter__(self) -> FactAssessor:
         return self
@@ -95,7 +98,14 @@ class FactAssessor:
             await self._crawler.close()
             self._crawler = None
 
-    async def acheck(self, text: str) -> CheckResult:
+    def __enter__(self) -> FactAssessor:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    async def assess(self, text: str) -> CheckResult:
+        """Fact-check `text`: atomize, filter, verify every claim concurrently, then score and build the graph."""
         start = time.perf_counter()
 
         atoms = await self.atomizer.aatomize(text)
@@ -112,6 +122,33 @@ class FactAssessor:
             graph=graph,
             latency_ms=(time.perf_counter() - start) * 1000,
         )
+
+    async def acheck(self, text: str) -> CheckResult:
+        """Alias for `assess`."""
+        return await self.assess(text)
+
+    def assess_sync(self, text: str) -> CheckResult:
+        """Blocking `assess` for plain scripts (and Jupyter, where a loop is already running).
+
+        Runs on one background event loop owned by this assessor, so the browser, HTTP pool, and Laya stay warm
+        across calls. Use either `assess` or `assess_sync` on a given instance, not both: their resources belong
+        to different loops. Call `close()` (or use `with FactAssessor() as fa:`) when done.
+        """
+        if self._loop is None:
+            self._loop = asyncio.new_event_loop()
+            self._loop_thread = threading.Thread(target=self._loop.run_forever, name="factassessor-loop", daemon=True)
+            self._loop_thread.start()
+        return asyncio.run_coroutine_threadsafe(self.assess(text), self._loop).result()
+
+    def close(self) -> None:
+        """Blocking `aclose` for `assess_sync` users: closes the browser and HTTP pool, stops the background loop."""
+        if self._loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(self.aclose(), self._loop).result()
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join()
+        self._loop.close()
+        self._loop = self._loop_thread = None
 
     # --- stages ---------------------------------------------------------------
 

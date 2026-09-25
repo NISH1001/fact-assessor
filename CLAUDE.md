@@ -8,7 +8,7 @@ docs/design/streaming-pipeline.md for the planned composable design (draft, awai
 
 - Always use uv: `uv add <pkg>`, `uv sync`, `uv run <cmd>`. Never pip or `.venv/bin/python`.
 - Tests: `uv run pytest` (offline; fakes for Serper, crawl4ai, Laya, and the LLM). TDD: write the failing test first.
-- Speed matters most. Measure before optimizing (trace the timeline of a real `acheck`), and check accuracy on
+- Speed matters most. Measure before optimizing (trace the timeline of a real `assess`), and check accuracy on
   frozen evidence, not live runs: live web results change between runs.
 - Every step stays swappable behind a small async interface. Component-level concerns (caching, retries,
   hedging) belong in wrappers around a component, not in the orchestrator.

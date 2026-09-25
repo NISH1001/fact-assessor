@@ -14,7 +14,7 @@ orchestration (per-atom concurrency, early exit, hedging) is hand-written around
 4. **Component-level concerns stay at the component**: hedging, timeouts, retries, and later caching wrap a
    searcher or crawler; the pipeline doesn't know about them.
 5. **No regressions**: keep every latency win (hedged search, early exit while crawling, pages judged on
-   arrival, Laya micro-batching), and `FactAssessor().acheck(text)` keeps working unchanged.
+   arrival, Laya micro-batching), and `FactAssessor().assess(text)` / `assess_sync(text)` keep working unchanged.
 
 Non-goals for now: caching, distributed execution, batching many texts in one call.
 
@@ -124,7 +124,7 @@ Streaming puts more atoms in flight at once, which gives the micro-batcher more 
 from factassessor import FactAssessor
 
 fa = FactAssessor()                       # the default pipeline, same knobs as today
-result = await fa.acheck(text)            # CheckResult (unchanged)
+result = await fa.assess(text)            # CheckResult (unchanged); assess_sync for blocking code
 async for atom_result in fa.astream(text):   # new: each AtomResult the moment its atom is verified
     ...
 
@@ -171,7 +171,7 @@ factassessor/
 2. **Streaming atomizer.** pydantic-ai can stream structured output; we emit an atom once its list item is
    complete. Needs a short spike to confirm partial output is reliable with gpt-5.6-luna. Fallback: emit all atoms
    when the call finishes (today's behaviour), still under the same interface.
-3. **Result order.** `astream` yields in completion order; `acheck` sorts by atom id.
+3. **Result order.** `astream` yields in completion order; `assess` sorts by atom id.
 
 ## Testing
 
