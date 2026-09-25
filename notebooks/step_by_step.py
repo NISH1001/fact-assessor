@@ -1,3 +1,12 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "marimo>=0.25.0",
+#     "fact-assessor @ git+https://github.com/NISH1001/fact-assessor",
+# ]
+# ///
+# Runs standalone: `uvx marimo edit --sandbox <this file or its raw GitHub URL>`. Inside the repo, `uv run marimo edit`
+# ignores this header and uses the local package.
 import marimo
 
 __generated_with = "0.25.0"
@@ -15,28 +24,20 @@ def _():
 
 
 @app.cell
-def _():
-    from factassessor import Atomizer, FactAssessor, LayaCheckworthy, collect, once
-
-    return Atomizer, FactAssessor, LayaCheckworthy, collect, once
-
-
-@app.cell
-async def _(FactAssessor, time):
-    # One assessor for the whole notebook: shares the Laya model, HTTP pool, and browser across every step.
-    fa = FactAssessor(n_atoms=8, top_k=5)  # atoms are single facts now, so a sentence can yield several
-    _t = time.perf_counter()
-    await fa.aload()  # warm spaCy, Laya, and the browser up front
-    print(f"warmed up in {time.perf_counter() - _t:.1f}s")
-    return (fa,)
-
-
-@app.cell
 def _(mo):
     mo.md("""
-    # FactAssessor, step by step
-    text → atoms (one fact each, self-contained) → filter → search → crawl → judge → knowledge graph + fact score.
-    Jump to **Run everything** at the bottom for the one-shot version.
+    # fact-assessor, step by step
+
+    A guided tour, from the three-line version to building your own pipeline:
+
+    1. **The three-line version**: `FactAssessor().assess(text)`
+    2. **Building blocks**: steps, `>>`, `Map`, `Filter`, `Take` (toy data, no network)
+    3. **Each component on its own**: what goes in, what comes out
+    4. **Chaining components**: atomizer, searcher, crawler chains
+    5. **Putting it together**: a custom `FactAssessor`, streamed live
+    6. **Writing your own step**
+
+    Needs `SERPER_API_KEY` and `OPENAI_API_KEY` in a `.env` (or the environment).
     """)
     return
 
@@ -53,173 +54,310 @@ def _():
 @app.cell
 def _(mo):
     mo.md("""
-    ## Step 1: Atomize
-    One LLM call (gpt-5.6-luna, reasoning off) splits the text into atomic claims, one fact each, and makes each
-    self-contained: pronouns and implicit references resolved, hedges like "It was believed that" unwrapped,
-    values kept exactly as written. Each atom keeps the span of the words it came from, for UI highlighting.
+    ## 1. The three-line version
+
+    `FactAssessor()` builds the default pipeline. `assess` returns everything once all claims are checked.
+    (`assess_sync` is the same for non-async code.)
     """)
     return
 
 
 @app.cell
-async def _(Atomizer, mo, text, time):
-    _t = time.perf_counter()
-    atoms = await Atomizer().aatomize(text)
-    print(f"{len(atoms)} atoms in {(time.perf_counter() - _t) * 1000:.0f} ms")
-    mo.ui.table([{"atom": a.text, "from": text[a.span[0] : a.span[1]]} for a in atoms])
-    return (atoms,)
+async def _(mo, text):
+    from factassessor import FactAssessor
 
+    async with FactAssessor() as _fa:
+        quick = await _fa.assess(text)
 
-@app.cell
-def _(mo):
-    mo.md("""
-    ## Step 2: Filter
-    `LayaCheckworthy` (local Laya model) scores each atom; only factual claims (P ≥ 0.4) go on. In the pipeline
-    it's chained right after the atomizer: `Atomizer() >> LayaCheckworthy() >> Take(n_atoms)`.
-    """)
-    return
-
-
-@app.cell
-async def _(LayaCheckworthy, asyncio, atoms, fa, mo, time):
-    _t = time.perf_counter()
-    _threshold = 0.4  # FactAssessor's default checkworthy_threshold
-    # score every atom (threshold 0 keeps them all) so the table can show what was dropped and why
-    _scored = await asyncio.gather(*(LayaCheckworthy(fa.laya, threshold=0.0).score(a) for a in atoms))
-    kept = [a for a in _scored if a.checkworthiness >= _threshold]
-    skipped = [a for a in _scored if a.checkworthiness < _threshold]
-    print(f"filtered {len(atoms)} atoms in {(time.perf_counter() - _t) * 1000:.0f} ms: {len(kept)} kept")
-    mo.ui.table(
-        [{"keep": True, "p_factual": round(a.checkworthiness, 2), "atom": a.text} for a in kept]
-        + [{"keep": False, "p_factual": round(a.checkworthiness, 2), "atom": a.text} for a in skipped]
-    )
-    return (kept,)
-
-
-@app.cell
-def _(mo):
-    mo.md("""
-    ## Step 3: Search
-    `fa.searcher` is the chain `Serper() >> Filter(not_blocked()) >> Take(top_k)`: Google results with social and
-    video sites dropped. Every atom searched in parallel. Key from `SERPER_API_KEY` in `.env`.
-    """)
-    return
-
-
-@app.cell
-async def _(asyncio, collect, fa, kept, once, time):
-    _t = time.perf_counter()
-    hits = await asyncio.gather(*(collect(fa.searcher(once(a.text))) for a in kept))
-    print(f"{len(kept)} searches in {(time.perf_counter() - _t) * 1000:.0f} ms")
-    return (hits,)
-
-
-@app.cell
-def _(hits):
-    hits[0]
-    return
-
-
-@app.cell
-def _(hits, kept, mo):
-    mo.ui.table(
-        [
-            {"atom": a.text, "rank": i + 1, "title": h["title"], "snippet": h["snippet"], "url": h["url"]}
-            for a, atom_hits in zip(kept, hits)
-            for i, h in enumerate(atom_hits)
-        ]
-    )
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md("""
-    ## Step 4: Crawl
-    crawl4ai fetches every hit as clean plain text (no links, citations, or menus), all in parallel through
-    one shared browser, each under a hard timeout. Failures are `None`; the snippet still counts.
-    """)
-    return
-
-
-@app.cell
-async def _(asyncio, fa, hits, time):
-    _t = time.perf_counter()
-    # fa.crawler is a Crawl4ai step; .crawl(url) fetches one page (None on failure), so the table can line up with hits
-    pages = await asyncio.gather(*(asyncio.gather(*(fa.crawler.crawl(h["url"]) for h in atom_hits)) for atom_hits in hits))
-    _n = sum(len(p) for p in pages)
-    _ok = sum(page is not None for p in pages for page in p)
-    print(f"crawled {_n} pages in {(time.perf_counter() - _t) * 1000:.0f} ms: {_ok} ok, {_n - _ok} failed")
-    return (pages,)
-
-
-@app.cell
-def _(hits, kept, mo, pages):
-    mo.ui.table(
-        [
-            {
-                "atom": a.text,
-                "url": h["url"],
-                "ok": page is not None,
-                "chars": len(page["text"]) if page else 0,
-                "preview": page["text"][:200] if page else "",
-            }
-            for a, atom_hits, atom_pages in zip(kept, hits, pages)
-            for h, page in zip(atom_hits, atom_pages)
-        ]
-    )
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md("""
-    ## Step 5: Judge
-    Snippets are judged as-is; each page is chunked with Laya's own tokenizer to exactly fit its budget,
-    and BM25 keeps the 3 most relevant chunks. Every (atom, passage) pair is one Laya decision:
-    supports / refutes / not_enough_info. Pairs from **all** atoms go through one shared micro-batcher,
-    so they share forward passes. Strong evidence (≥ 0.7) is then weighed into one verdict per atom.
-    """)
-    return
-
-
-@app.cell
-async def _(asyncio, fa, hits, kept, pages, time):
-    _t = time.perf_counter()
-    evidence = await asyncio.gather(
-        *(
-            fa.judge.ajudge(a.text, atom_hits + [p for p in atom_pages if p])
-            for a, atom_hits, atom_pages in zip(kept, hits, pages)
-        )
-    )
-    print(f"judged {sum(len(e) for e in evidence)} (atom, passage) pairs in {(time.perf_counter() - _t) * 1000:.0f} ms")
-    return (evidence,)
-
-
-@app.cell
-def _(evidence, fa, kept, mo):
-    _verdicts = [fa.policy.verdict(e) for e in evidence]
     mo.vstack(
         [
+            mo.md(f"**Fact score:** {quick.fact_score:.0%} in {quick.latency_ms / 1000:.1f}s"),
             mo.ui.table(
-                [
-                    {
-                        "atom": a.text,
-                        "verdict": v,
-                        "confidence": round(c, 2),
-                        "strong_evidence": sum(x.label != "not_enough_info" and x.prob >= fa.policy.strong for x in e),
-                    }
-                    for a, e, (v, c) in zip(kept, evidence, _verdicts)
-                ]
-            ),
-            mo.ui.table(
-                [
-                    {"atom": a.text, "label": x.label, "prob": round(x.prob, 2), "source": x.source, "url": x.url, "passage": x.text}
-                    for a, e in zip(kept, evidence)
-                    for x in sorted(e, key=lambda x: -x.prob)
-                ]
+                [{"verdict": a.verdict, "confidence": round(a.confidence, 2), "claim": a.atom.text} for a in quick.atoms],
+                selection=None,
             ),
         ]
+    )
+    return (FactAssessor,)
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## 2. Building blocks
+
+    Everything is a **step**: it takes an async stream of items and yields an async stream of items. Steps chain
+    with `>>`. Here on plain numbers, so you can see the behaviour without any network:
+
+    | Step | Does |
+    |---|---|
+    | `Map(fn)` | one item in, one out (return `None` to drop it) |
+    | `FlatMap(fn)` | one item in, many out |
+    | `Filter(pred)` | keep items where `pred(item)` is true |
+    | `Take(n)` | first n items, then stop (and cancel unfinished work upstream) |
+
+    `once(x)` makes a one-item stream to feed a chain; `collect(stream)` gathers a stream into a list.
+    """)
+    return
+
+
+@app.cell
+async def _():
+    from factassessor import Filter, FlatMap, Map, Take, collect, once
+
+    async def numbers():
+        for n in range(10):
+            yield n
+
+    chain = Filter(lambda n: n % 2 == 0) >> Map(lambda n: n * 10) >> Take(3)
+    await collect(chain(numbers()))
+    return Filter, FlatMap, Map, Take, collect, once
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    **Async functions run concurrently** and each result is passed on the moment it's ready (completion order).
+    That's what makes the whole pipeline fast: a slow item never holds up a fast one. Sync functions keep the input
+    order (useful for ranked search results).
+    """)
+    return
+
+
+@app.cell
+async def _(Map, asyncio, collect, time):
+    async def slow_square(n):
+        await asyncio.sleep(n / 10)  # 3 -> 0.3s, 1 -> 0.1s, 2 -> 0.2s
+        return n * n
+
+    async def _three():
+        for n in (3, 1, 2):
+            yield n
+
+    _t = time.perf_counter()
+    _out = await collect(Map(slow_square)(_three()))
+    print(f"{_out} in {time.perf_counter() - _t:.2f}s (all at once: ~0.3s, not 0.6s; fastest first)")
+    return
+
+
+@app.cell
+async def _(FlatMap, collect, once):
+    async def words(sentence):
+        for w in sentence.split():
+            yield w
+
+    await collect(FlatMap(words)(once("one text becomes many items")))  # the atomizer works like this: text -> atoms
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## 3. Each component on its own
+
+    The real pipeline uses the same building blocks. One shared **`LayaRunner`** holds the local Laya model; the
+    filter and the judge both use it (it batches their requests together).
+    """)
+    return
+
+
+@app.cell
+async def _(time):
+    from factassessor import LayaRunner
+
+    laya = LayaRunner()  # device="auto": cuda -> mps -> cpu
+    _t = time.perf_counter()
+    await laya.agent("english")  # load the weights now (~3s; ~0.8 GB download the very first time)
+    print(f"Laya ready in {time.perf_counter() - _t:.1f}s")
+    return (laya,)
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ### 3a. `Atomizer`: text → atoms
+
+    One LLM call splits the text into single-fact claims, each understandable on its own. Each atom remembers the
+    `span` of the words it came from, for highlighting.
+    """)
+    return
+
+
+@app.cell
+async def _(mo, text):
+    from factassessor import Atomizer
+
+    atoms = await Atomizer().aatomize(text)
+    mo.ui.table([{"id": a.id, "atom": a.text, "from the text": text[a.span[0] : a.span[1]]} for a in atoms], selection=None)
+    return Atomizer, atoms
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ### 3b. `LayaCheckworthy`: atoms → factual atoms
+
+    Scores P(factual claim) for each atom and drops opinions, greetings, and questions. It's a step, so it chains
+    straight after the atomizer. Here every atom is scored (plus one opinion) to show what would be kept at 0.4.
+    """)
+    return
+
+
+@app.cell
+async def _(asyncio, atoms, laya, mo):
+    from factassessor import LayaCheckworthy
+
+    _opinion = atoms[0].model_copy(update={"id": 99, "text": "I think this is the saddest thing ever."})
+    _scorer = LayaCheckworthy(laya, threshold=0.0)  # threshold 0 keeps everything, so we can see every score
+    _scored = await asyncio.gather(*(_scorer.score(a) for a in [*atoms, _opinion]))
+    mo.ui.table(
+        [{"kept at 0.4": a.checkworthiness >= 0.4, "p_factual": round(a.checkworthiness, 2), "atom": a.text} for a in _scored],
+        selection=None,
+    )
+    return (LayaCheckworthy,)
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ### 3c. `Serper`: query → search hits
+
+    Google results as `{"url", "title", "snippet"}`, in rank order. On its own it returns everything Google gives;
+    chaining a `Filter` and `Take` shapes it (section 4).
+    """)
+    return
+
+
+@app.cell
+async def _(atoms, mo):
+    from factassessor import Serper
+
+    serper = Serper(num=10)
+    raw_hits = await serper.search(atoms[0].text)
+    mo.ui.table(
+        [{"rank": i + 1, "title": h["title"], "url": h["url"], "snippet": h["snippet"]} for i, h in enumerate(raw_hits)],
+        selection=None,
+    )
+    return raw_hits, serper
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ### 3d. `Crawl4ai`: url → page
+
+    Fetches a page with a headless browser and returns clean plain text (no links, citations, or menus). A failed or
+    slow page comes back `None`; as a step, it's simply dropped.
+    """)
+    return
+
+
+@app.cell
+async def _(mo, raw_hits):
+    from factassessor import Crawl4ai
+
+    crawler = Crawl4ai(timeout=2.5)
+    page = await crawler.crawl(raw_hits[0]["url"])
+    mo.md(f"**{page['title']}** ({len(page['text']):,} chars)\n\n> {page['text'][:400]}…" if page else "*(crawl failed)*")
+    return crawler, page
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ### 3e. `LayaJudge` + `WeightedPolicy`: evidence → verdict
+
+    The judge labels each passage *supports* / *refutes* / *not_enough_info* for a claim (pages are cut to their most
+    relevant passage first). The policy weighs strong evidence into one verdict, and decides when there's enough
+    evidence to stop looking (`settled`).
+    """)
+    return
+
+
+@app.cell
+async def _(atoms, laya, mo, page, raw_hits):
+    from factassessor import LayaJudge, WeightedPolicy
+
+    judge = LayaJudge(laya)
+    policy = WeightedPolicy(strong=0.7, early_exit=0.9)
+    _evidence = await judge.ajudge(atoms[0].text, raw_hits[:5] + ([page] if page else []))
+    _verdict, _confidence = policy.verdict(_evidence)
+    mo.vstack(
+        [
+            mo.md(f"**{atoms[0].text}** → **{_verdict}** ({_confidence:.2f}); settled: {policy.settled(_evidence)}"),
+            mo.ui.table(
+                [{"label": e.label, "prob": round(e.prob, 2), "source": e.source, "url": e.url, "passage": e.text} for e in _evidence],
+                selection=None,
+            ),
+        ]
+    )
+    return judge, policy
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ## 4. Chaining components
+
+    Components are steps, so they chain with the building blocks. A `Filter` filters **whatever flows at that
+    point**: atoms after the atomizer, search hits after the searcher.
+    """)
+    return
+
+
+@app.cell
+async def _(Atomizer, Filter, LayaCheckworthy, Take, collect, laya, mo, once, text):
+    atomizer_chain = Atomizer() >> LayaCheckworthy(laya, threshold=0.4) >> Filter(lambda atom: len(atom.text) > 15) >> Take(8)
+    _chained = await collect(atomizer_chain(once(text)))
+    mo.ui.table([{"atom": a.text, "p_factual": round(a.checkworthiness, 2)} for a in _chained], selection=None)
+    return (atomizer_chain,)
+
+
+@app.cell
+async def _(Filter, Take, atoms, collect, mo, once, serper):
+    from factassessor import not_blocked
+
+    searcher_chain = serper >> Filter(not_blocked()) >> Take(5)  # drop social/video sites, keep the top 5
+    hits = await collect(searcher_chain(once(atoms[0].text)))
+    mo.ui.table([{"rank": i + 1, "title": h["title"], "url": h["url"]} for i, h in enumerate(hits)], selection=None)
+    return hits, not_blocked, searcher_chain
+
+
+@app.cell
+async def _(collect, crawler, hits, mo, time):
+    async def _urls():
+        for h in hits:
+            yield h["url"]
+
+    _t = time.perf_counter()
+    _pages = await collect(crawler(_urls()))  # every page crawled at once, yielded as each finishes
+    print(f"{len(_pages)} of {len(hits)} pages crawled in {time.perf_counter() - _t:.1f}s")
+    mo.ui.table([{"title": p["title"], "url": p["url"], "chars": len(p["text"])} for p in _pages], selection=None)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ### `Verify`: one claim, start to finish
+
+    `Verify` runs your searcher, crawler, judge, and policy for one claim: judge the snippets; if they don't settle
+    it, crawl every hit at once, judge each page as it lands, and stop (cancelling the remaining crawls) as soon as
+    the policy says settled.
+    """)
+    return
+
+
+@app.cell
+async def _(atoms, crawler, judge, mo, policy, searcher_chain, time):
+    from factassessor import Verify
+
+    _verify = Verify(searcher_chain, crawler, judge, policy, timeout=15)
+    _t = time.perf_counter()
+    _one = await _verify.verify(atoms[0])
+    mo.md(
+        f"**{_one.atom.text}** → **{_one.verdict}** ({_one.confidence:.2f}) in {time.perf_counter() - _t:.1f}s, "
+        f"from {len(_one.evidence)} passages ({sum(e.source == 'page' for e in _one.evidence)} from crawled pages)"
     )
     return
 
@@ -227,38 +365,35 @@ def _(evidence, fa, kept, mo):
 @app.cell
 def _(mo):
     mo.md("""
-    ---
-    # Run everything
-    One call: `fa.stream(text)` (or `await fa.assess(text)` for just the final result). Claims are checked the
-    moment they're found; snippets are judged first; pages are only crawled when the snippets aren't
-    conclusive, each page is judged the moment its own crawl finishes, and crawling stops once a claim settles.
+    ## 5. Putting it together
+
+    Hand your chains to `FactAssessor`: it wires them into `Verify`, runs every claim concurrently, and adds the fact
+    score and knowledge graph. `stream` shows each claim as it's found and flips it to its verdict the moment it
+    settles.
     """)
     return
 
 
 @app.cell
-def _(mo):
-    text_box = mo.ui.text_area(
-        value=(
-            "Sanjog is computer scientist in Google. He works in AKD project."
-        ),
-        label="Text to fact-check",
-        full_width=True,
-        rows=4,
-    )
-    run_button = mo.ui.run_button(label="Fact-check")
+def _(FactAssessor, atomizer_chain, crawler, judge, laya, policy, searcher_chain):
+    custom = FactAssessor(laya=laya, atomizer=atomizer_chain, searcher=searcher_chain, crawler=crawler, judge=judge, policy=policy)
+    return (custom,)
+
+
+@app.cell
+def _(mo, text):
+    text_box = mo.ui.text_area(value=text, label="Text to fact-check", full_width=True, rows=3)
+    run_button = mo.ui.run_button(label="Fact-check (streaming)")
     mo.vstack([text_box, run_button])
     return run_button, text_box
 
 
 @app.cell
-async def _(fa, mo, run_button, text_box):
-    mo.stop(not run_button.value, mo.md("*Press **Fact-check** to run.*"))
-    # stream(): each claim shows up as "checking…" as soon as it's found and flips to its verdict the moment
-    # it settles; assess() would return the same final result in one go.
+async def _(custom, mo, run_button, text_box):
+    mo.stop(not run_button.value, mo.md("*Press **Fact-check** to stream.*"))
     _rows = {}
     result = None
-    async for _event in fa.stream(text_box.value):
+    async for _event in custom.stream(text_box.value):
         if _event.type == "claim_found":
             _rows[_event.atom.id] = {"verdict": "⏳ checking…", "confidence": None, "claim": _event.atom.text}
         elif _event.type == "claim_verified":
@@ -271,71 +406,61 @@ async def _(fa, mo, run_button, text_box):
 
 
 @app.cell
-def _():
-    VERDICT_STYLE = {
-        "supported": ("✅", "fill:#d1fadf,stroke:#12b76a,color:#054f31"),
-        "refuted": ("❌", "fill:#fee4e2,stroke:#f04438,color:#7a271a"),
-        "contested": ("⚠️", "fill:#fef0c7,stroke:#f79009,color:#7a2e0e"),
-        "unverified": ("❔", "fill:#f2f4f7,stroke:#98a2b3,color:#344054"),
-    }
-
-    def to_mermaid(graph):
-        """Knowledge graph -> mermaid: atoms coloured by verdict, sources linked by supports / refutes edges."""
-        ids = {n["id"]: f"n{i}" for i, n in enumerate(graph["nodes"])}
-        lines = ["graph LR"]
-        for n in graph["nodes"]:
-            label = n["label"].replace('"', "'")
-            if n["kind"] == "atom":
-                lines.append(f'  {ids[n["id"]]}["{VERDICT_STYLE[n["verdict"]][0]} {label}"]:::{n["verdict"]}')
-            else:
-                lines.append(f'  {ids[n["id"]]}(["{label}"]):::source')
-        for e in graph["edges"]:
-            arrow = "-->" if e["relation"] == "supports" else "-.->"
-            lines.append(f'  {ids[e["source"]]} {arrow}|"{e["relation"]} {e["weight"]:.2f}"| {ids[e["target"]]}')
-        lines += [f"  classDef {v} {style}" for v, (_, style) in VERDICT_STYLE.items()]
-        lines.append("  classDef source fill:#eef4ff,stroke:#6172f3,color:#1d2939")
-        return "\n".join(lines)
-
-    return VERDICT_STYLE, to_mermaid
+def _(mo, result):
+    _score = "n/a" if result.fact_score is None else f"{result.fact_score:.0%}"
+    _edges = "\n".join(
+        f"- {e['source'][7:]} **{e['relation']}** ({e['weight']:.2f}) → claim {e['target'][5:]}" for e in result.graph["edges"]
+    )
+    mo.md(f"**Fact score {_score}** in {result.latency_ms / 1000:.1f}s. Knowledge graph edges:\n\n{_edges}")
+    return
 
 
 @app.cell
-def _(VERDICT_STYLE, mo, result, to_mermaid):
-    _counts = {v: sum(a.verdict == v for a in result.atoms) for v in VERDICT_STYLE}
-    _score = "n/a" if result.fact_score is None else f"{result.fact_score:.0%}"
-    mo.vstack(
-        [
-            mo.hstack(
-                [
-                    mo.stat(value=_score, label="Fact score", caption="supported / decided atoms"),
-                    *[mo.stat(value=str(c), label=f"{VERDICT_STYLE[v][0]} {v}") for v, c in _counts.items()],
-                    mo.stat(value=f"{result.latency_ms / 1000:.1f}s", label="Latency"),
-                ]
-            ),
-            mo.md("### Knowledge graph"),
-            mo.mermaid(to_mermaid(result.graph)),
-            mo.md("### Atoms"),
-            mo.ui.table(
-                [
-                    {
-                        "verdict": f"{VERDICT_STYLE[a.verdict][0]} {a.verdict}",
-                        "confidence": round(a.confidence, 2),
-                        "atom": a.atom.text,
-                        "evidence": len(a.evidence),
-                        "from_pages": sum(e.source == "page" for e in a.evidence),
-                        "error": a.error or "",
-                    }
-                    for a in result.atoms
-                ]
-                + [
-                    {"verdict": "⏭️ skipped", "confidence": None, "atom": s.text, "evidence": 0, "from_pages": 0, "error": ""}
-                    for s in result.skipped
-                ]
-            ),
-        ]
-    )
+def _(mo):
+    mo.md("""
+    ## 6. Writing your own step
+
+    Two ways:
+
+    - **A function**: `Filter(pred)` or `Map(fn)`, sync or async. Enough for most things.
+    - **A `Step` subclass**: implement `__call__(items)` as an async generator. Use it when the step needs state
+      across items, like this one that keeps at most one search hit per website.
+    """)
     return
 
+
+@app.cell
+async def _(Filter, Take, atoms, collect, mo, not_blocked, once, serper):
+    from urllib.parse import urlparse
+
+    from factassessor import Step
+
+    class OnePerSite(Step):
+        """Search hits -> at most one hit per website (more independent sources)."""
+
+        async def __call__(self, hits):
+            seen = set()
+            async for hit in hits:
+                site = urlparse(hit["url"]).netloc.removeprefix("www.")
+                if site not in seen:
+                    seen.add(site)
+                    yield hit
+
+    _diverse = serper >> Filter(not_blocked()) >> OnePerSite() >> Take(5)
+    _hits = await collect(_diverse(once(atoms[0].text)))
+    mo.ui.table([{"site": urlparse(h["url"]).netloc, "title": h["title"]} for h in _hits], selection=None)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    Pass it in like any other searcher: `FactAssessor(searcher=serper >> Filter(not_blocked()) >> OnePerSite() >> Take(5))`.
+
+    **Cleanup**: components that hold resources (browser, HTTP pool) close with `await custom.aclose()`, or use
+    `async with FactAssessor(...) as fa:`. In a notebook, stopping the kernel does it too.
+    """)
+    return
 
 
 if __name__ == "__main__":
