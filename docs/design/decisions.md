@@ -101,3 +101,19 @@ Rebuilt `FactAssessor` on composable steps (`pipeline.py`). A/B against the prev
 runs each on the same texts: Nepal median 5.9s → 6.5s, mixed 6.8s → 5.0s, with one large outlier on each side;
 verdicts unchanged. Read as: no regression beyond network noise. The latency gain from streaming needs the
 streaming atomizer (claims currently all appear when the LLM call returns, ~2s in).
+
+## Alternative judge: GLiNER2.5-decide (ONNX)
+
+`GlinerJudge` on nishparadox/gliner2.5-decide-onnx, 15-case benchmark (`benchmarks/compare_judges.py`), M-series
+Mac: fp32 on CPU 12/15 in 2.2s (Laya: 13/15 in 0.27s on MPS); int8 7/15 in 1.0s (the model card's "up to 0.18"
+accuracy loss shows); fp32 on CoreML is slower than CPU (CoreML takes only 1,288 of 3,592 graph nodes, so it
+keeps switching back to CPU). Wording: evidence-then-claim text 12/15 > claim-then-evidence 11/15 > claim in the
+instruction 9/15. The graph accepts padded batches (no CPU speedup, but one call per claim). All of GLiNER's misses
+were false "supports", the riskier direction for fact-checking, so Laya stays the default. The encoding
+reimplements the repo's `gliner_onnx.py` (we load weights and tokenizer, not its code) and reproduces its scores.
+
+## Search without an API key
+
+Public SearXNG: 0 of 25 instances that searx.space rated healthy returned JSON (429 rate limits, 403/418 bot
+blocks, JSON disabled). A self-hosted instance works (`SearxngSearcher`). DuckDuckGo via `ddgs`: 10 relevant results
+for 5/5 test queries, 0.7-3.3s each (Serper ~0.8s); an end-to-end check with it gave correct verdicts in 9.2s.

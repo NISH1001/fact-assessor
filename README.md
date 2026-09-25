@@ -85,6 +85,9 @@ uv add git+https://github.com/NISH1001/fact-assessor
 uv run crawl4ai-setup          # one time: headless browser for crawling
 ```
 
+Optional extras: `fact-assessor[gliner]` (the GLiNER2.5-decide judge, via onnxruntime) and `fact-assessor[ddg]`
+(DuckDuckGo search, no API key), e.g. `uv add "fact-assessor[gliner,ddg] @ git+https://github.com/NISH1001/fact-assessor"`.
+
 For development:
 
 ```bash
@@ -212,8 +215,8 @@ All keyword arguments to `FactAssessor`:
 | `checkworthy_threshold` | 0.4 | min P(factual claim) to keep an atom |
 | `early_exit_conf` | 0.9 | 2+ passages this sure (and none against) settle a claim without more crawling |
 | `strong_evidence` | 0.7 | min probability for a passage to count toward a verdict |
-| `crawl_timeout` | 2.5 | seconds per page |
-| `search_hedge_after` | 1.2 | seconds before racing a duplicate search |
+| `crawl_timeout` | 2.5 | seconds per page (a hard limit; a page that takes longer is dropped and the claim goes on without it) |
+| `search_hedge_after` | 1.2 | if a search hasn't answered by then, send the same request again and use whichever reply comes first (fixes Serper's occasional 3s+ outliers; only slow searches cost a second credit; `None` turns it off) |
 | `blocked_domains` | social + video | hosts never used as evidence (subdomains included); `()` to allow all |
 | `timeout` | 15 | per-claim deadline; a claim still running then comes back `unverified` |
 
@@ -286,6 +289,43 @@ judge each page as it lands, keep a running total, stop (cancelling the rest) on
 Another LLM for atomization (install its extra first, e.g. `uv add "pydantic-ai-slim[anthropic]"`):
 `LLMAtomizer("anthropic:claude-haiku-4-5", model_settings={})`.
 
+How the composition works under the hood (streams, `>>`, concurrency, cancellation, where it isn't pure):
+[docs/design/functional.md](docs/design/functional.md).
+
+### Other judges and searchers
+
+**GLiNER2.5-decide judge** ([GLiNER2.5-decide](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model),
+another Jev/Laya-style decision model, as ONNX from
+[nishparadox/gliner2.5-decide-onnx](https://huggingface.co/nishparadox/gliner2.5-decide-onnx); CPU, no torch):
+
+```python
+from factassessor.gliner import GlinerJudge     # needs fact-assessor[gliner]; downloads ~1.75 GB on first use
+
+fa = FactAssessor(judge=GlinerJudge())            # variant="int8" is 2x faster but much less accurate
+```
+
+| Judge (15-case benchmark, M-series Mac) | Correct | Time for 15 pairs |
+|---|---|---|
+| `LayaJudge` (default, MPS) | 13/15 | 0.27s |
+| `GlinerJudge` fp32 (CPU) | 12/15 | 2.2s |
+| `GlinerJudge` int8 (CPU) | 7/15 | 1.0s |
+
+GLiNER's misses were all false "supports" (it let "NASA was founded in 1972" through), so Laya stays the default.
+Reproduce with `uv run --extra gliner python benchmarks/compare_judges.py`.
+
+**Search without an API key:**
+
+```python
+from factassessor import DuckDuckGoSearcher, SearxngSearcher, Take, not_blocked
+
+FactAssessor(searcher=DuckDuckGoSearcher() >> not_blocked() >> Take(5))                   # fact-assessor[ddg]
+FactAssessor(searcher=SearxngSearcher("http://localhost:8888") >> not_blocked() >> Take(5))  # your own SearXNG
+```
+
+DuckDuckGo needs no setup but is slower (0.7–3.3s per query vs ~0.8s for Serper) and unofficial, so heavy use can
+get rate-limited. Public SearXNG instances don't work for this (none of 25 healthy ones served JSON in our check);
+run your own with JSON enabled (`docker run -p 8888:8080 searxng/searxng`, then add `json` to `search.formats`).
+
 ## Development
 
 ```bash
@@ -297,25 +337,33 @@ Layout:
 ```
 factassessor/
   assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
-  pipeline.py        Step, >>, Map, FlatMap, Filter, Take: the streaming runner
+  pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Pred: the streaming runner
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
   atom_filter.py     LayaCheckworthy: atoms -> factual atoms
-  search.py          Searcher (role), SerperSearcher, not_blocked, hedged requests: query -> hits
+  search.py          Searcher (role), SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, hedging
   crawl.py           Crawler (role), Crawl4AICrawler: url -> clean pages
   verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
   evidence_judge.py  Judge (role), LayaJudge
+  gliner.py          GlinerJudge: GLiNER2.5-decide via ONNX (optional extra)
   aggregate.py       fact score, knowledge graph
   laya.py            LayaRunner: shared model, micro-batching, batch cap
   passages.py        page cleaning, token-exact chunking, BM25
   schema.py          Atom, Evidence, AtomResult, CheckResult, stream events
 ```
 
+Benchmarks: `benchmarks/compare_judges.py` compares judges on `benchmarks/judge_cases.py`.
+
 ## Roadmap
 
 - **Streaming atomizer**: emit claims while the LLM is still writing them (the pipeline already streams from there
   on), so the first verdict arrives ~1s sooner.
-- **GLiNER2.5-decide as a judge**: an alternative open-weight decision model
-  ([announcement](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model)), as a drop-in `judge=`.
+- **`HTTPXCrawler`**: plain HTTP fetch + text extraction for static pages (~0.2–0.5s vs ~1s for a browser), with
+  the browser as fallback. Timeouts: a short connect timeout plus a hard total deadline (httpx's own default is 5s
+  *per phase*, so a slow-dripping server can exceed it).
+- **Offline atomizer** (TODO): an `Atomizer` without an LLM, e.g. spaCy sentence/clause splitting plus coreference.
+  An early prototype did this in ~5ms but kept multi-fact sentences together ("Nepal's 2017 earthquake of 7.8
+  magnitude" is three facts), which let wrong details through; useful as a no-API fallback.
+- **GLiNER judge accuracy**: tune the label descriptions / instruction on the judge benchmark; try it on CUDA.
 - Per-detail checks in the judge (ask Laya about each date/number in a claim in the same forward pass), so a
   claim that is right except for one detail comes out refuted rather than contested.
 - Component-level wrappers: caching, retries, timeouts.
