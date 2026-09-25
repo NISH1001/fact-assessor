@@ -10,8 +10,10 @@ class FakeRouter:
         self.calls = []
         self.fail = fail
 
-    def predict_batch(self, requests):
+    def predict_batch(self, requests, batch_size=None):
         self.calls.append(len(requests))
+        self.batch_sizes = getattr(self, "batch_sizes", []) + [batch_size]
+        self.orders = getattr(self, "orders", []) + [[r["state"] for r in requests]]
         if self.fail:
             raise RuntimeError("MPS out of memory")
         return [{"echo": r["state"]} for r in requests]
@@ -69,3 +71,25 @@ async def test_cancelled_caller_does_not_break_the_batch():
     assert [x["echo"] for x in await alive] == ["kept"]
     with pytest.raises(asyncio.CancelledError):
         await doomed
+
+
+async def test_forward_passes_are_capped_at_max_batch():
+    router = FakeRouter()
+    laya = runner(router)
+    laya.max_batch = 32
+    await laya.predict_batch([{"state": f"s{i}"} for i in range(100)])
+    assert router.batch_sizes == [32]  # Laya splits the 100 into passes of <= 32 rows
+
+
+async def test_rows_are_grouped_by_length_and_results_come_back_in_caller_order():
+    router = FakeRouter()
+    laya = runner(router)
+    short, long_ = "a snippet", "a long crawled page passage " * 20
+    a, b = await asyncio.gather(
+        laya.predict_batch([{"state": long_}, {"state": short}]),
+        laya.predict_batch([{"state": short + "!"}, {"state": long_ + "!"}]),
+    )
+    sent = router.orders[0]
+    assert sent == sorted(sent, key=len)  # short rows next to short rows: less padding per pass
+    assert [x["echo"] for x in a] == [long_, short]
+    assert [x["echo"] for x in b] == [short + "!", long_ + "!"]
