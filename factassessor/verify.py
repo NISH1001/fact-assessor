@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import operator
 from collections.abc import AsyncIterator
 from typing import Any
 
-from factassessor.pipeline import Map, Step, collect, once
+from factassessor.pipeline import Map, Scan, Step, TakeUntil, collect, last, once
 from factassessor.schema import Atom, AtomResult, Evidence, Verdict
 
 
@@ -67,19 +68,18 @@ class Verify(Step):
 
     async def _verify(self, atom: Atom) -> AtomResult:
         hits = await collect(self.searcher(once(atom.text)))
-        evidence = await self.judge.ajudge(atom.text, hits)
+        evidence = await self.judge.ajudge(atom.text, hits)  # snippets first: often enough on their own
         if hits and not self.policy.settled(evidence):
+
             async def judge_page(page: dict[str, Any]) -> list[Evidence]:
                 return await self.judge.ajudge(atom.text, [page])
 
-            pages = (self.crawler >> Map(judge_page))(_urls(hits))
-            try:
-                async for page_evidence in pages:  # in the order pages finish crawling + judging
-                    evidence += page_evidence
-                    if self.policy.settled(evidence):
-                        break
-            finally:
-                await pages.aclose()  # cancels crawls still in flight
+            # crawl every hit at once -> judge each page as it lands -> running total of the evidence ->
+            # stop at the first total that settles the claim (TakeUntil cancels the crawls still in flight)
+            gather_evidence = (
+                self.crawler >> judge_page >> Scan(operator.add, evidence) >> TakeUntil(self.policy.settled)
+            )
+            evidence = await last(gather_evidence(_urls(hits)), default=evidence)
         verdict, confidence = self.policy.verdict(evidence)
         return AtomResult(atom=atom, verdict=verdict, confidence=confidence, evidence=evidence)
 

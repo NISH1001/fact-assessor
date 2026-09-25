@@ -219,21 +219,22 @@ All keyword arguments to `FactAssessor`:
 
 ### Compose your own pipeline
 
-Every component is a step, and steps chain with `>>`. A `Filter` filters whatever flows at that point in the chain:
-atoms after the atomizer, search hits after the searcher.
+Every component is a step, and steps chain with `>>` ("then"). In a chain, a **`Pred`** (a condition) filters
+whatever flows at that point (atoms after the atomizer, search hits after the searcher) and a **plain function**
+transforms it. Conditions combine with `&` (and), `|` (or), `~` (not).
 
 ```python
 from urllib.parse import urlparse
-from factassessor import Atomizer, Crawl4ai, FactAssessor, Filter, LayaCheckworthy, LayaRunner, Serper, Take, not_blocked
+from factassessor import Atomizer, Crawl4ai, FactAssessor, LayaCheckworthy, LayaRunner, Pred, Serper, Take, not_blocked
 
-def official(hit):                                   # only .gov / .edu sources count as evidence
-    return urlparse(hit["url"]).netloc.endswith((".gov", ".edu"))
+official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu")))   # a condition
+long_enough = Pred(lambda atom: len(atom.text) > 15)
 
 laya = LayaRunner()                                  # one Laya model, shared by the filter and the judge
 fa = FactAssessor(
     laya=laya,
-    atomizer=Atomizer() >> LayaCheckworthy(laya, threshold=0.5) >> Filter(lambda atom: len(atom.text) > 15) >> Take(10),
-    searcher=Serper(num=20) >> Filter(not_blocked()) >> Filter(official) >> Take(5),
+    atomizer=Atomizer() >> LayaCheckworthy(laya, threshold=0.5) >> long_enough >> Take(10),
+    searcher=Serper(num=20) >> (not_blocked() & official) >> Take(5),
     crawler=Crawl4ai(timeout=4.0),
 )
 result = await fa.assess("NASA was founded in 1958. The Eiffel Tower is 500 meters tall.")
@@ -246,16 +247,28 @@ What you can pass, and what it has to be:
 | Argument | A… | Turns | Default |
 |---|---|---|---|
 | `atomizer=` | step | text → atoms | `Atomizer() >> LayaCheckworthy(laya) >> Take(n_atoms)` |
-| `searcher=` | step | query → hits `{"url", "title", "snippet"}` | `Serper() >> Filter(not_blocked()) >> Take(top_k)` |
+| `searcher=` | step | query → hits `{"url", "title", "snippet"}` | `Serper() >> not_blocked() >> Take(top_k)` |
 | `crawler=` | step | url → pages `{"url", "title", "text"}` | `Crawl4ai(timeout=2.5)` |
 | `judge=` | object | `async ajudge(claim, docs) -> list[Evidence]` | `LayaJudge(laya)` |
 | `policy=` | object | `settled(evidence) -> bool`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 | `laya=` | `LayaRunner` | the shared Laya model | one per assessor |
 
-Building blocks: `Map(fn)` (one in, one out; return `None` to drop), `FlatMap(fn)` (one in, many out),
-`Filter(pred)`, `Take(n)`, and `Step` to write your own (implement `__call__(items) -> async iterator`, plus
-`start`/`stop` if it holds a resource). Functions and predicates can be sync or async; async ones run concurrently
-and pass results on as they finish, sync ones keep order. `Take(n)` and early exits cancel unfinished work upstream.
+Building blocks:
+
+| | Does |
+|---|---|
+| `Map(fn)` or a bare `fn` in a chain | one in, one out (return `None` to drop) |
+| `Filter(pred)` or a `Pred` in a chain | keep items where the condition holds |
+| `FlatMap(fn)` | one in, many out |
+| `Take(n)` | first n items, then stop |
+| `Scan(fn, initial)` | running total: yields `fn(total, item)` after each item |
+| `TakeUntil(pred)` | items up to and including the first one where `pred` holds, then stop |
+| `Step` | subclass it: `__call__(items)` as an async generator (+ `start`/`stop` if it holds a resource) |
+
+Functions and conditions can be sync or async; async ones run concurrently and pass results on as they finish, sync
+ones keep order. Stopping early (`Take`, `TakeUntil`, a timeout) cancels unfinished work upstream. `Verify` itself is
+built from these: `crawler >> judge_page >> Scan(add, evidence) >> TakeUntil(policy.settled)`: crawl every hit,
+judge each page as it lands, keep a running total, stop (cancelling the rest) once the claim is settled.
 
 Another LLM for atomization (install its extra first, e.g. `uv add "pydantic-ai-slim[anthropic]"`):
 `Atomizer("anthropic:claude-haiku-4-5", model_settings={})`.

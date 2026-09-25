@@ -36,7 +36,7 @@ def _(mo):
 @app.cell
 def _():
     text = (
-        "It was believed that Nepal's earthquake in 2017 of 7.8 magnitude scale caused massive damage. "
+        "Nepal's earthquake in 2017 of 7.8 magnitude scale caused massive damage. "
         "Total lives lost were 1 million people."
     )
     return (text,)
@@ -86,6 +86,8 @@ def _(mo):
     | `FlatMap(fn)` | one item in, many out |
     | `Filter(pred)` | keep items where `pred(item)` is true |
     | `Take(n)` | first n items, then stop (and cancel unfinished work upstream) |
+    | `Scan(fn, initial)` | running total: `fn(total, item)` after each item |
+    | `TakeUntil(pred)` | items up to and including the first one where `pred` holds, then stop |
 
     `once(x)` makes a one-item stream to feed a chain; `collect(stream)` gathers a stream into a list.
     """)
@@ -102,7 +104,30 @@ async def _():
 
     chain = Filter(lambda n: n % 2 == 0) >> Map(lambda n: n * 10) >> Take(3)
     await collect(chain(numbers()))
-    return Filter, FlatMap, Map, Take, collect, once
+    return Filter, FlatMap, Map, Take, collect, numbers, once
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    **Conditions and shorthand.** A `Pred` is a condition: combine with `&` (and), `|` (or), `~` (not). In a chain, a
+    `Pred` filters and a plain function transforms, so you rarely need to write `Filter(...)` / `Map(...)` at all.
+    `>>` always means "then".
+    """)
+    return
+
+
+@app.cell
+async def _(Filter, collect, numbers):
+    from factassessor import Pred, Scan, TakeUntil
+
+    even, big = Pred(lambda n: n % 2 == 0), Pred(lambda n: n > 5)
+    # a Pred is a condition on ONE item; to run it over a stream, wrap it in Filter (or put it in a chain with >>)
+    print("even & big      :", await collect(Filter(even & big)(numbers())))
+    print("even | big      :", await collect(Filter(even | big)(numbers())))
+    print("~even, then x10 :", await collect((~even >> (lambda n: n * 10))(numbers())))
+    print("running totals until >= 10:", await collect((Scan(lambda total, n: total + n, 0) >> TakeUntil(lambda t: t >= 10))(numbers())))
+    return (Pred,)
 
 
 @app.cell
@@ -297,18 +322,19 @@ def _(mo):
 
 
 @app.cell
-async def _(Atomizer, Filter, LayaCheckworthy, Take, collect, laya, mo, once, text):
-    atomizer_chain = Atomizer() >> LayaCheckworthy(laya, threshold=0.4) >> Filter(lambda atom: len(atom.text) > 15) >> Take(8)
+async def _(Atomizer, LayaCheckworthy, Pred, Take, collect, laya, mo, once, text):
+    long_enough = Pred(lambda atom: len(atom.text) > 15)
+    atomizer_chain = Atomizer() >> LayaCheckworthy(laya, threshold=0.4) >> long_enough >> Take(8)
     _chained = await collect(atomizer_chain(once(text)))
     mo.ui.table([{"atom": a.text, "p_factual": round(a.checkworthiness, 2)} for a in _chained], selection=None)
     return (atomizer_chain,)
 
 
 @app.cell
-async def _(Filter, Take, atoms, collect, mo, once, serper):
+async def _(Take, atoms, collect, mo, once, serper):
     from factassessor import not_blocked
 
-    searcher_chain = serper >> Filter(not_blocked()) >> Take(5)  # drop social/video sites, keep the top 5
+    searcher_chain = serper >> not_blocked() >> Take(5)  # drop social/video sites, keep the top 5
     hits = await collect(searcher_chain(once(atoms[0].text)))
     mo.ui.table([{"rank": i + 1, "title": h["title"], "url": h["url"]} for i, h in enumerate(hits)], selection=None)
     return hits, not_blocked, searcher_chain
@@ -334,7 +360,8 @@ def _(mo):
 
     `Verify` runs your searcher, crawler, judge, and policy for one claim: judge the snippets; if they don't settle
     it, crawl every hit at once, judge each page as it lands, and stop (cancelling the remaining crawls) as soon as
-    the policy says settled.
+    the policy says settled. It's built from the same blocks:
+    `crawler >> judge_page >> Scan(add, evidence) >> TakeUntil(policy.settled)`.
     """)
     return
 
@@ -366,7 +393,15 @@ def _(mo):
 
 
 @app.cell
-def _(FactAssessor, atomizer_chain, crawler, judge, laya, policy, searcher_chain):
+def _(
+    FactAssessor,
+    atomizer_chain,
+    crawler,
+    judge,
+    laya,
+    policy,
+    searcher_chain,
+):
     custom = FactAssessor(laya=laya, atomizer=atomizer_chain, searcher=searcher_chain, crawler=crawler, judge=judge, policy=policy)
     return (custom,)
 
@@ -413,7 +448,7 @@ def _(mo):
 
     Two ways:
 
-    - **A function**: `Filter(pred)` or `Map(fn)`, sync or async. Enough for most things.
+    - **A function or a `Pred`**: drop it straight into a chain (sync or async). Enough for most things.
     - **A `Step` subclass**: implement `__call__(items)` as an async generator. Use it when the step needs state
       across items, like this one that keeps at most one search hit per website.
     """)
@@ -421,7 +456,7 @@ def _(mo):
 
 
 @app.cell
-async def _(Filter, Take, atoms, collect, mo, not_blocked, once, serper):
+async def _(Take, atoms, collect, mo, not_blocked, once, serper):
     from urllib.parse import urlparse
 
     from factassessor import Step
@@ -437,7 +472,7 @@ async def _(Filter, Take, atoms, collect, mo, not_blocked, once, serper):
                     seen.add(site)
                     yield hit
 
-    _diverse = serper >> Filter(not_blocked()) >> OnePerSite() >> Take(5)
+    _diverse = serper >> not_blocked() >> OnePerSite() >> Take(5)
     _hits = await collect(_diverse(once(atoms[0].text)))
     mo.ui.table([{"site": urlparse(h["url"]).netloc, "title": h["title"]} for h in _hits], selection=None)
     return
@@ -446,7 +481,7 @@ async def _(Filter, Take, atoms, collect, mo, not_blocked, once, serper):
 @app.cell
 def _(mo):
     mo.md("""
-    Pass it in like any other searcher: `FactAssessor(searcher=serper >> Filter(not_blocked()) >> OnePerSite() >> Take(5))`.
+    Pass it in like any other searcher: `FactAssessor(searcher=serper >> not_blocked() >> OnePerSite() >> Take(5))`.
 
     **Cleanup**: components that hold resources (browser, HTTP pool) close with `await custom.aclose()`, or use
     `async with FactAssessor(...) as fa:`. In a notebook, stopping the kernel does it too.

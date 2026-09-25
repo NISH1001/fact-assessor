@@ -1,4 +1,4 @@
-"""Web search as a step: query -> hits. Compose: `Serper() >> Filter(not_blocked()) >> Take(5)`."""
+"""Web search as a step: query -> hits. Compose: `Serper() >> not_blocked() >> Take(5)`."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from factassessor.pipeline import FlatMap, Step
+from factassessor.pipeline import FlatMap, Pred, Step
 
 SERPER_URL = "https://google.serper.dev/search"
 
@@ -75,13 +75,10 @@ class Serper(Step):
         ]
 
 
-def not_blocked(domains: tuple[str, ...] = BLOCKED_DOMAINS):
-    """Hit predicate for `Filter`: False for hits on `domains` or their subdomains (m.facebook.com)."""
-
-    def keep(hit: dict[str, Any]) -> bool:
-        return not is_blocked(hit["url"], domains)
-
-    return keep
+def not_blocked(domains: tuple[str, ...] = BLOCKED_DOMAINS) -> Pred:
+    """Hit condition: False for hits on `domains` or their subdomains (m.facebook.com). Use it in a chain
+    (`Serper() >> not_blocked() >> Take(5)`) or combine it (`not_blocked() & official`)."""
+    return Pred(lambda hit: not is_blocked(hit["url"], domains))
 
 
 def is_blocked(url: str, domains: tuple[str, ...] = BLOCKED_DOMAINS) -> bool:

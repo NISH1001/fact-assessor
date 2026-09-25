@@ -6,6 +6,9 @@ item 1 can be three steps downstream while item 5 is still in the first. Nothing
 
 Closing a stream (a consumer breaking out, `Take(n)` reaching n, a timeout) cancels the unfinished work in
 every step feeding it.
+
+In a chain, a plain function is a `Map` and a `Pred` is a `Filter`, so `serper >> not_blocked() >> Take(5)`
+reads as "search, keep unblocked hits, take five". Conditions combine with `&`, `|`, `~`; `>>` is only ever "then".
 """
 
 from __future__ import annotations
@@ -28,8 +31,11 @@ class Step:
     def __call__(self, items: AsyncIterator[Any]) -> AsyncIterator[Any]:
         raise NotImplementedError
 
-    def __rshift__(self, other: Step) -> Chain:
-        return Chain(self, other)
+    def __rshift__(self, other: Any) -> Chain:
+        return Chain(self, as_step(other))
+
+    def __rrshift__(self, other: Any) -> Chain:  # `fn >> step` / `pred >> step`
+        return Chain(as_step(other), self)
 
     def parts(self) -> list[Any]:
         """Sub-steps and resources (anything with `aload`/`aclose`) this step holds, for lifecycle management."""
@@ -118,6 +124,39 @@ class Filter(Step):
         return []
 
 
+class Scan(Step):
+    """Running accumulation: yields `state = fn(state, item)` after every item (`Scan(add, 0)`: 1, 2, 3 -> 1, 3, 6)."""
+
+    def __init__(self, fn: Callable[[Any, Any], Any], initial: Any) -> None:
+        self.fn = fn
+        self.initial = initial
+
+    async def __call__(self, items: AsyncIterator[Any]) -> AsyncIterator[Any]:
+        state = self.initial
+        try:
+            async for item in items:
+                state = self.fn(state, item)
+                yield state
+        finally:
+            await _aclose(items)
+
+
+class TakeUntil(Step):
+    """Items up to and including the first one where `pred(item)` is true; then closes the stream upstream."""
+
+    def __init__(self, pred: Callable[[Any], bool]) -> None:
+        self.pred = pred
+
+    async def __call__(self, items: AsyncIterator[Any]) -> AsyncIterator[Any]:
+        try:
+            async for item in items:
+                yield item
+                if self.pred(item):
+                    return
+        finally:
+            await _aclose(items)
+
+
 class Take(Step):
     """The first n items; then closes the stream upstream (cancelling what's still running)."""
 
@@ -136,6 +175,86 @@ class Take(Step):
                     return
         finally:
             await _aclose(items)
+
+
+class Pred:
+    """A condition that combines with `&` (and), `|` (or), `~` (not), sync or async. In a chain it's a `Filter`.
+
+        official = Pred(lambda hit: hit["url"].endswith((".gov", ".edu")))
+        searcher = Serper() >> (not_blocked() & official) >> Take(5)
+    """
+
+    def __init__(self, fn: Callable[[Any], Any]) -> None:
+        self.fn = fn
+        self.is_async = _is_async(fn)
+
+    def __call__(self, item: Any) -> Any:
+        return self.fn(item)
+
+    def __and__(self, other: Any) -> Pred:
+        return _combine(self, as_pred(other), stop_on=False)
+
+    def __rand__(self, other: Any) -> Pred:
+        return _combine(as_pred(other), self, stop_on=False)
+
+    def __or__(self, other: Any) -> Pred:
+        return _combine(self, as_pred(other), stop_on=True)
+
+    def __ror__(self, other: Any) -> Pred:
+        return _combine(as_pred(other), self, stop_on=True)
+
+    def __invert__(self) -> Pred:
+        if not self.is_async:
+            return Pred(lambda item: not self.fn(item))
+
+        async def negated(item: Any) -> bool:
+            return not await self.fn(item)
+
+        return Pred(negated)
+
+    def __rshift__(self, other: Any) -> Chain:
+        return Chain(Filter(self), as_step(other))
+
+
+def as_pred(fn: Any) -> Pred:
+    return fn if isinstance(fn, Pred) else Pred(fn)
+
+
+def as_step(x: Any) -> Step:
+    """What `>>` accepts: a step as-is, a `Pred` as a `Filter`, any other callable as a `Map`."""
+    if isinstance(x, Step):
+        return x
+    if isinstance(x, Pred):
+        return Filter(x)
+    if callable(x):
+        return Map(x)
+    raise TypeError(f"can't chain {x!r}: expected a Step, a Pred, or a function")
+
+
+def _combine(left: Pred, right: Pred, stop_on: bool) -> Pred:
+    """`and` (stop_on=False) or `or` (stop_on=True), short-circuiting: `right` only runs if `left` doesn't decide."""
+    if not (left.is_async or right.is_async):
+
+        def combined_sync(item: Any) -> bool:
+            decided = bool(left.fn(item))
+            return decided if decided == stop_on else bool(right.fn(item))
+
+        return Pred(combined_sync)
+
+    async def combined(item: Any) -> bool:
+        if bool(await _maybe_await(left.fn(item))) == stop_on:
+            return stop_on
+        return bool(await _maybe_await(right.fn(item)))
+
+    return Pred(combined)
+
+
+async def last(stream: AsyncIterator[Any], default: Any = None) -> Any:
+    """The final item of a stream (e.g. the last running total from `Scan`), or `default` if it's empty."""
+    result = default
+    async for item in stream:
+        result = item
+    return result
 
 
 async def once(item: Any) -> AsyncIterator[Any]:
@@ -216,7 +335,13 @@ async def _in_order(items: AsyncIterator[Any], fn: Callable[[Any], list[Any]]) -
 
 
 def _is_async(fn: Any) -> bool:
+    if isinstance(fn, Pred):
+        return fn.is_async
     return inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(getattr(fn, "__call__", None))
+
+
+async def _maybe_await(value: Any) -> Any:
+    return await value if inspect.isawaitable(value) else value
 
 
 async def _call(obj: Any, method: str) -> None:

@@ -185,3 +185,82 @@ async def test_steps_start_and_stop_their_own_resources_once():
     await pipeline.aload()
     await pipeline.aclose()
     assert events == ["start", "stop"]
+
+
+# --- conditions: &, |, ~ -------------------------------------------------------------------------------
+
+from factassessor.pipeline import Pred, Scan, TakeUntil, last  # noqa: E402
+
+
+async def test_conditions_combine_with_and_or_not():
+    even, big = Pred(lambda n: n % 2 == 0), Pred(lambda n: n > 5)
+    assert await collect(Filter(even & big)(items(*range(10)))) == [6, 8]
+    assert await collect(Filter(even | big)(items(*range(10)))) == [0, 2, 4, 6, 7, 8, 9]
+    assert await collect(Filter(~even)(items(*range(5)))) == [1, 3]
+    assert await collect(Filter(even & ~big)(items(*range(10)))) == [0, 2, 4]
+
+
+async def test_conditions_mix_sync_and_async_and_short_circuit():
+    calls = []
+
+    async def slow_check(n):
+        calls.append(n)
+        return n > 2
+
+    cond = Pred(lambda n: n % 2 == 0) & Pred(slow_check)
+    assert sorted(await collect(Filter(cond)(items(1, 2, 3, 4)))) == [4]
+    assert sorted(calls) == [2, 4]  # odd numbers never reached the async check
+    assert sorted(await collect(Filter(Pred(slow_check) | (lambda n: n == 0))(items(0, 1, 3)))) == [0, 3]
+
+
+# --- bare functions and conditions in >> ---------------------------------------------------------------
+
+
+async def test_bare_functions_in_a_chain_act_as_map_and_conditions_as_filter():
+    pipeline = Map(lambda n: n + 1) >> (lambda n: n * 10) >> Pred(lambda n: n > 20) >> Take(2)
+    assert await collect(pipeline(items(0, 1, 2, 3))) == [30, 40]
+
+
+async def test_a_chain_can_start_with_a_function_or_condition():
+    assert await collect(((lambda n: n * 2) >> Take(2))(items(1, 2, 3))) == [2, 4]
+    assert await collect((Pred(lambda n: n > 1) >> Map(str))(items(1, 2, 3))) == ["2", "3"]
+
+
+# --- Scan, TakeUntil, last -----------------------------------------------------------------------------
+
+
+async def test_scan_yields_running_totals():
+    assert await collect(Scan(lambda total, n: total + n, 0)(items(1, 2, 3))) == [1, 3, 6]
+
+
+async def test_take_until_includes_the_item_that_satisfied_it_and_cancels_upstream():
+    cancelled = []
+
+    async def work(n):
+        try:
+            await asyncio.sleep(0.01 * n if n < 4 else 10)
+        except asyncio.CancelledError:
+            cancelled.append(n)
+            raise
+        return n
+
+    running = Map(work) >> Scan(lambda total, n: total + n, 0) >> TakeUntil(lambda total: total >= 3)
+    assert await collect(running(items(1, 2, 3, 4, 5))) == [1, 3]  # stops at the running total that reached 3
+    assert sorted(cancelled) == [3, 4, 5]  # everything still running when it stopped (3 needed 0.03s; we stopped at 0.02s)
+
+
+async def test_last_returns_the_final_item_or_a_default():
+    assert await last(items(1, 2, 3)) == 3
+    assert await last(items(), default="none") == "none"
+
+
+def test_sync_conditions_evaluate_each_side_at_most_once():
+    calls = []
+
+    def left(n):
+        calls.append("left")
+        return True
+
+    (Pred(left) | Pred(lambda n: True))(1)
+    (Pred(left) & Pred(lambda n: True))(1)
+    assert calls == ["left", "left"]  # once per combined check, not twice

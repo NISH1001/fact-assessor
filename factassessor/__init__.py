@@ -10,7 +10,7 @@ from factassessor.atomizer import Atomizer
 from factassessor.crawl import Crawl4ai
 from factassessor.evidence_judge import LayaJudge
 from factassessor.laya import LayaRunner
-from factassessor.pipeline import Chain, Filter, FlatMap, Map, Step, Take, collect, once
+from factassessor.pipeline import Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.schema import Atom, AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event, Evidence
 from factassessor.search import BLOCKED_DOMAINS, Serper, is_blocked, not_blocked
 from factassessor.verify import Verify, WeightedPolicy
@@ -21,7 +21,7 @@ __all__ = [
     # components
     "Atomizer", "LayaCheckworthy", "Serper", "Crawl4ai", "LayaJudge", "Verify", "WeightedPolicy", "LayaRunner",
     # composition
-    "Step", "Chain", "Map", "FlatMap", "Filter", "Take", "once", "collect",
+    "Step", "Chain", "Map", "FlatMap", "Filter", "Take", "Scan", "TakeUntil", "Pred", "once", "collect", "last",
     # helpers
     "not_blocked", "is_blocked", "BLOCKED_DOMAINS", "fact_score", "build_graph",
     # data

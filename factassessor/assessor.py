@@ -1,7 +1,7 @@
 """FactAssessor: the ready-made fact-checking pipeline, and the facade that runs any pipeline.
 
     atomizer                      searcher (per claim)             crawler (per hit)
-    Atomizer >> LayaCheckworthy   Serper >> Filter(not_blocked)    Crawl4ai
+    Atomizer >> LayaCheckworthy   Serper >> not_blocked()          Crawl4ai
              >> Take(n_atoms)            >> Take(top_k)
                     \\                                  judge: LayaJudge   policy: WeightedPolicy
                      `-> Verify(searcher, crawler, judge, policy) -> results -> fact score + graph
@@ -25,7 +25,7 @@ from factassessor.atomizer import Atomizer
 from factassessor.crawl import Crawl4ai
 from factassessor.evidence_judge import LayaJudge
 from factassessor.laya import LayaRunner
-from factassessor.pipeline import Filter, Map, Step, Take, dropped, once
+from factassessor.pipeline import Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, Serper, not_blocked
 from factassessor.verify import Verify, WeightedPolicy
@@ -69,7 +69,7 @@ class FactAssessor:
         )
         self.searcher = searcher or (
             Serper(serper_api_key, num=2 * top_k, timeout=search_timeout, hedge_after=search_hedge_after)
-            >> Filter(not_blocked(blocked_domains))  # over-fetched above so blocked hits don't leave us short
+            >> not_blocked(blocked_domains)  # over-fetched above so blocked hits don't leave us short
             >> Take(top_k)
         )
         self.crawler = crawler or Crawl4ai(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
