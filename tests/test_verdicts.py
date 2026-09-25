@@ -1,6 +1,6 @@
 import asyncio
 
-from factassessor import Atom, AtomResult, Evidence, Map, Step, Verify, WeightedPolicy, build_graph, fact_score
+from factassessor import Atom, AtomResult, Evidence, Map, Step, Verify, WeightedPolicy, fact_score
 
 ATOM = Atom(id=0, text="Marie Curie won the Nobel Prize in Physics in 1903.", span=(0, 50))
 POLICY = WeightedPolicy()
@@ -32,21 +32,6 @@ def test_score_ignores_unverified():
     results = [AtomResult(atom=ATOM, verdict=v) for v in ["supported", "supported", "refuted", "unverified"]]
     assert fact_score(results) == 2 / 3
     assert fact_score([AtomResult(atom=ATOM, verdict="unverified")]) is None
-
-
-def test_graph_links_sources_to_atoms_with_strong_edges_only():
-    result = AtomResult(atom=ATOM, verdict="supported", evidence=[
-        ev("supports", 0.8), ev("supports", 0.95),  # same source twice -> one edge, max weight
-        ev("refutes", 0.75, url="https://www.example.com/a"),
-        ev("not_enough_info", 0.99, url="https://noise.org/x"),  # not an edge
-        ev("supports", 0.5, url="https://weak.org/y"),  # too weak
-    ])
-    graph = build_graph([result])
-    assert {n["id"] for n in graph["nodes"]} == {"atom:0", "source:en.wikipedia.org", "source:example.com"}
-    assert sorted((e["source"], e["relation"], e["weight"]) for e in graph["edges"]) == [
-        ("source:en.wikipedia.org", "supports", 0.95),
-        ("source:example.com", "refutes", 0.75),
-    ]
 
 
 # --- Verify with fake components ---------------------------------------------------------------------

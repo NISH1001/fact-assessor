@@ -16,4 +16,4 @@ docs/design/streaming-pipeline.md for the planned composable design (draft, awai
   field order matter a lot for its accuracy: benchmark changes.
 - Keys live in `.env` (gitignored): `SERPER_API_KEY`, `OPENAI_API_KEY`.
 - Notebooks are marimo (`notebooks/`). Run them with `uv run marimo edit --no-sandbox notebooks/<name>.py`
-  (`fact_check.py` has a PEP 723 header for the no-clone one-liner; in the repo, `--no-sandbox` uses the local code).
+  (`fa.py` has a PEP 723 header for the no-clone one-liner; in the repo, `--no-sandbox` uses the local code).

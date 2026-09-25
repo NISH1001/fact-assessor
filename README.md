@@ -69,7 +69,7 @@ Needs [uv](https://docs.astral.sh/uv/), a [Serper](https://serper.dev) key, and 
 ```bash
 export SERPER_API_KEY=... OPENAI_API_KEY=...        # or put them in a .env in the current folder
 uvx --from crawl4ai crawl4ai-setup                  # one time: installs the headless browser used for crawling
-uvx marimo edit --sandbox https://raw.githubusercontent.com/NISH1001/fact-assessor/main/notebooks/fact_check.py
+uvx marimo edit --sandbox https://raw.githubusercontent.com/NISH1001/fact-assessor/main/notebooks/fa.py
 ```
 
 Type or paste text, press **Fact-check**, and get the fact score, a knowledge graph of claims and sources, and
@@ -95,8 +95,8 @@ git clone https://github.com/NISH1001/fact-assessor && cd fact-assessor
 uv sync
 uv run crawl4ai-setup
 cp .env.example .env           # then fill in the keys
-uv run marimo edit --no-sandbox notebooks/fact_check.py      # one box, one button
-uv run marimo edit --no-sandbox notebooks/step_by_step.py    # guided tutorial: building blocks -> custom pipeline
+uv run marimo edit --no-sandbox notebooks/fa.py         # ways to build a pipeline; pick one and run it
+uv run marimo edit --no-sandbox notebooks/fa_walk.py    # guided walk: building blocks -> custom pipeline
 ```
 
 | Variable | Used by |

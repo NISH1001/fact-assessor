@@ -4,7 +4,8 @@
     LLMAtomizer >> LayaCheckworthy   SerperSearcher >> not_blocked()     Crawl4AICrawler
                 >> Take(n_atoms)                    >> Take(top_k)
                     \\                                  judge: LayaJudge   policy: WeightedPolicy
-                     `-> Verify(searcher, crawler, judge, policy) -> results -> fact score + graph
+                     `-> Verify(searcher, crawler, judge, policy) -> results -> fact score
+                                                            (knowledge graph: kg.build(result), on demand)
 
 Everything streams: a claim is verified the moment the atomizer emits it, each page is judged the moment its
 crawl lands, and results come out as they settle. `assess` is `stream` read to the end.
@@ -18,7 +19,7 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-from factassessor.aggregate import build_graph, fact_score
+from factassessor.aggregate import fact_score
 from factassessor.atom_filter import LayaCheckworthy
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
 from factassessor.atomizer import LLMAtomizer
@@ -117,7 +118,6 @@ class FactAssessor:
                 atoms=results,
                 skipped=sorted(skipped, key=lambda a: a.id),
                 fact_score=fact_score(results),
-                graph=build_graph(results, strong=getattr(self.policy, "strong", 0.7)),
                 latency_ms=(time.perf_counter() - start) * 1000,
             )
         )

@@ -1,7 +1,7 @@
 import asyncio
 import threading
 
-from factassessor import Atom, CheckResult, ClaimFound, ClaimVerified, Done, Evidence, FactAssessor, Filter, FlatMap, Map, Step
+from factassessor import Atom, CheckResult, kg, ClaimFound, ClaimVerified, Done, Evidence, FactAssessor, Filter, FlatMap, Map, Step
 
 TEXT = "NASA was founded in 1958. I love pizza. The Moon is made of cheese."
 
@@ -63,7 +63,7 @@ async def test_assess_runs_the_whole_pipeline():
     ]
     assert [a.text for a in result.skipped] == ["I love pizza."]
     assert result.fact_score == 0.5
-    assert {n["kind"] for n in result.graph["nodes"]} == {"atom", "source"}
+    assert {n["kind"] for n in kg.build(result)["nodes"]} == {"sentence", "claim", "passage", "source"}
 
 
 async def test_stream_yields_found_then_verified_per_claim_then_done():

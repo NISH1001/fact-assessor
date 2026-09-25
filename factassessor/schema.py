@@ -37,8 +37,7 @@ class CheckResult(BaseModel):
     atoms: list[AtomResult]
     skipped: list[Atom] = Field(default_factory=list)
     fact_score: float | None  # None when nothing was checked
-    graph: dict[str, Any]  # {"nodes": [...], "edges": [...]}
-    latency_ms: float
+    latency_ms: float  # (the knowledge graph is built on demand: `factassessor.kg.build(result)`)
 
 
 # --- stream events (FactAssessor.stream) -------------------------------------------------------------
@@ -59,7 +58,7 @@ class ClaimVerified(BaseModel):
 
 
 class Done(BaseModel):
-    """Everything is in: fact score, graph, and all results in text order."""
+    """Everything is in: fact score and all results in text order (graph: `kg.build(event.result)`)."""
 
     type: Literal["done"] = "done"
     result: CheckResult

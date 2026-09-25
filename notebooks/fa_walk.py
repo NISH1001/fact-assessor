@@ -444,11 +444,12 @@ async def _(custom, mo, run_button, text_box):
 
 @app.cell
 def _(mo, result):
+    from factassessor import kg
+
+    # the knowledge graph is a view of the result, built on demand (not a pipeline step)
+    _graph = kg.build(result)
     _score = "n/a" if result.fact_score is None else f"{result.fact_score:.0%}"
-    _edges = "\n".join(
-        f"- {e['source'][7:]} **{e['relation']}** ({e['weight']:.2f}) → claim {e['target'][5:]}" for e in result.graph["edges"]
-    )
-    mo.md(f"**Fact score {_score}** in {result.latency_ms / 1000:.1f}s. Knowledge graph edges:\n\n{_edges}")
+    mo.vstack([mo.md(f"**Fact score {_score}** in {result.latency_ms / 1000:.1f}s"), mo.mermaid(kg.to_mermaid(_graph))])
     return
 
 

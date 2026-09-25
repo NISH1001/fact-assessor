@@ -3,7 +3,8 @@ from dotenv import find_dotenv, load_dotenv
 # API keys (SERPER_API_KEY, OPENAI_API_KEY, ...) from .env in the cwd or a parent; never overrides real env vars.
 load_dotenv(find_dotenv(usecwd=True))
 
-from factassessor.aggregate import build_graph, fact_score  # noqa: E402
+from factassessor import kg  # noqa: E402
+from factassessor.aggregate import fact_score
 from factassessor.assessor import FactAssessor
 from factassessor.atom_filter import LayaCheckworthy
 from factassessor.atomizer import Atomizer, LLMAtomizer
@@ -36,7 +37,7 @@ __all__ = [
     # composition
     "Step", "Chain", "Map", "FlatMap", "Filter", "Take", "Scan", "TakeUntil", "Pred", "once", "collect", "last",
     # helpers
-    "not_blocked", "is_blocked", "BLOCKED_DOMAINS", "fact_score", "build_graph",
+    "not_blocked", "is_blocked", "BLOCKED_DOMAINS", "fact_score", "kg",
     # data
     "Atom", "Evidence", "AtomResult", "CheckResult", "ClaimFound", "ClaimVerified", "Done", "Event",
 ]
