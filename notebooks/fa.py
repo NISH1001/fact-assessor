@@ -151,7 +151,17 @@ def _():
     browser = Crawl4AICrawler(timeout=2.5)
     fast_fetch = HTTPXCrawler(timeout=2.5)
     official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu", ".int")))
-    judges = {}  # built once each
+    judges = {}  # built once each, and warmed as soon as you pick one (next cell)
+
+    def get_judge(judge_name):
+        if judge_name not in judges:
+            if judge_name.startswith("GLiNER"):
+                from factassessor.gliner import GlinerJudge  # fact-assessor[gliner]; ~1.75 GB on first use
+
+                judges[judge_name] = GlinerJudge()
+            else:
+                judges[judge_name] = LayaJudge(laya)
+        return judges[judge_name]
 
     def build(searcher_name, key, searxng, sources, crawler_name, judge_name, n, k):
         search = {
@@ -165,22 +175,28 @@ def _():
             "HTTPX (fast, no JavaScript)": fast_fetch,
             "HTTPX, then browser if needed": FallbackCrawler(fast_fetch, browser),
         }[crawler_name]
-        if judge_name not in judges:
-            if judge_name.startswith("GLiNER"):
-                from factassessor.gliner import GlinerJudge  # fact-assessor[gliner]; ~1.75 GB on first use
-
-                judges[judge_name] = GlinerJudge()
-            else:
-                judges[judge_name] = LayaJudge(laya)
         return FactAssessor(
             laya=laya,
             atomizer=LLMAtomizer() >> LayaCheckworthy(laya) >> Take(n),
             searcher=search >> keep >> Take(k),
             crawler=crawler,
-            judge=judges[judge_name],
+            judge=get_judge(judge_name),
         )
 
-    return (build,)
+    return build, get_judge
+
+
+@app.cell
+async def _(get_judge, judge_choice, mo):
+    import time as _time
+
+    # Auto warm-up: load the picked judge's model now (re-runs when you change the dropdown), so the first
+    # fact-check doesn't wait for it. Laya also serves the atom filter, so warming it covers both.
+    _t = _time.perf_counter()
+    with mo.status.spinner(title=f"Loading {judge_choice.value}…"):
+        await get_judge(judge_choice.value).aload()
+    mo.md(f"✅ **{judge_choice.value}** ready ({_time.perf_counter() - _t:.1f}s)")
+    return
 
 
 @app.cell
