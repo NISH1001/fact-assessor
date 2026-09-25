@@ -18,10 +18,11 @@ from factassessor.pipeline import FlatMap, Pred, Step
 
 SERPER_URL = "https://google.serper.dev/search"
 
-# Social media pages are mostly reposts/comments and often crawl badly; video pages have no usable text.
-# Twitter/X and LinkedIn are kept: they're primary sources for people and organisations.
+# Removed after search, before crawling: social media and forums are mostly reposts, opinions, and comments (and
+# often crawl badly); video pages have no usable text. LinkedIn is kept as a primary source for people and orgs.
 BLOCKED_DOMAINS = (
-    "facebook.com", "fb.com", "instagram.com", "tiktok.com", "pinterest.com", "threads.net",
+    "facebook.com", "fb.com", "instagram.com", "threads.net", "tiktok.com", "pinterest.com",
+    "twitter.com", "x.com", "reddit.com", "quora.com",
     "youtube.com", "youtu.be",
 )
 

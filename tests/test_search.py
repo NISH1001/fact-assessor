@@ -57,12 +57,14 @@ async def test_serper_is_a_step_that_chains_with_filter_and_take():
     searcher = s >> Filter(not_blocked()) >> Take(3)
     hits = await collect(searcher(once("q")))
     await s.stop()
-    assert [h["title"] for h in hits] == ["x", "li", "wiki"]  # social dropped, twitter/linkedin kept, rank kept
+    assert [h["title"] for h in hits] == ["li", "wiki", "notfacebook"]  # social (incl. twitter) dropped, rank kept
 
 
 def test_blocked_domains_cover_subdomains_but_not_lookalikes():
     assert is_blocked("https://m.facebook.com/x") and is_blocked("https://youtu.be/x")
-    assert not is_blocked("https://notfacebook.com/x") and not is_blocked("https://twitter.com/x")
+    assert is_blocked("https://twitter.com/x") and is_blocked("https://x.com/nasa") and is_blocked("https://www.reddit.com/r/space")
+    assert not is_blocked("https://notfacebook.com/x") and not is_blocked("https://www.linkedin.com/in/someone")
+    assert not is_blocked("https://max.com/x")  # a lookalike of x.com, not a subdomain
     assert not_blocked(("example.com",))({"url": "https://facebook.com/x"})  # custom list
 
 

@@ -73,8 +73,9 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
 
 - Crawled markdown was ~2/3 links; crawl4ai `ignore_links` + our `clean_text` (citations, emphasis, tables, menu
   bullets) took Wikipedia's Marie Curie page 276k → 84k chars and 441 → 101 chunks.
-- Blocked: facebook, instagram, tiktok, pinterest, threads (reposts, crawl badly), youtube (no text). Kept:
-  twitter/x, linkedin (primary sources for people/orgs). Reddit kept for now.
+- Blocked after search, before crawling: facebook, instagram, threads, tiktok, pinterest, twitter/x, reddit, quora
+  (reposts, opinions, comments; crawl badly) and youtube (no text). LinkedIn kept (primary source for people/orgs).
+  Earlier versions kept twitter/x and reddit; blocked since 2026-09-25.
 
 ## Latency
 
