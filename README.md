@@ -5,7 +5,7 @@ It splits the text into atomic claims, finds web evidence for each one, and retu
 an overall fact score, and a knowledge graph linking claims to their sources.
 
 ```python
-from factassessor import FactAssessor
+from factassessor import FactAssessor, kg
 
 async with FactAssessor() as fa:
     result = await fa.assess("Nepal's earthquake in 2017 of 7.8 magnitude caused massive damage. Total lives lost were 1 million people.")
@@ -18,7 +18,7 @@ for atom in result.atoms:
 # refuted    Nepal's earthquake killed 1 million people.
 
 result.fact_score   # 0.5
-result.graph        # {"nodes": [...], "edges": [...]}: sources -> claims, supports / refutes
+kg.build(result)    # knowledge graph: sentences -> claims <- evidence passages (supports / refutes, prob)
 ```
 
 It's built for interactive use (select text in a UI, see verdicts in seconds): every step is async, all claims
@@ -37,7 +37,7 @@ text
                  ├─ settled → done (no crawling)
                  └─ not yet → crawl pages (crawl4ai) in parallel, judge each page as it lands,
                               stop as soon as the evidence settles the claim
- └─ aggregate ─────────── verdict per claim → fact score + knowledge graph
+ └─ aggregate ─────────── verdict per claim → fact score   (knowledge graph: kg.build(result), on demand)
 ```
 
 | Step | What does it | Where it runs |
@@ -170,7 +170,7 @@ async for event in fa.stream(text):
         ...
     elif event.type == "claim_verified":   # event.result: an AtomResult (verdict, confidence, evidence)
         ...
-    elif event.type == "done":             # event.result: the full CheckResult (score, graph, all atoms)
+    elif event.type == "done":             # event.result: the full CheckResult (score, all atoms)
         ...
 ```
 
@@ -190,7 +190,7 @@ CheckResult
 │   ├── evidence    list[Evidence]: url, title, text (passage), source ("snippet" | "page"), label, prob
 │   └── error       set if this claim failed (e.g. search down); the rest of the check still completes
 ├── skipped         list[Atom]: opinions, greetings, questions the filter dropped
-└── graph           {"nodes": [...], "edges": [...]}: sources -> claims, labelled supports / refutes with weights
+└── (graph)         not stored: kg.build(result) builds it on demand, see "Knowledge graph" below
 ```
 
 Everything is a Pydantic model, so `result.model_dump()` / `model_dump_json()` gives JSON for a UI. To highlight
@@ -201,6 +201,26 @@ for a in result.atoms:
     start, end = a.atom.span
     print(f"[{a.verdict}] {text[start:end]!r}")
 ```
+
+### Knowledge graph
+
+`kg.build(result)` turns a result into a graph (plain dicts, JSON-ready); `kg.to_mermaid(graph)` draws it. It's a view
+of the result, not part of the pipeline, and takes ~0.1ms, so build it when you show it.
+
+```
+sentence ──contains──► claim ◄──supports 0.95 / refutes 0.88── passage ◄──published── source
+claim ──same_sentence── claim
+```
+
+| Node | What |
+|---|---|
+| `sentence` | a sentence of your text (its `span`); claims point back to the sentence they came from |
+| `claim` | an atom, with `verdict`, `confidence`, `span` |
+| `passage` | the evidence text a judge decided on, with `url`, `site`; one node even when several claims used it |
+| `source` | the site (`en.wikipedia.org`) |
+
+Evidence below the `strong` threshold (0.7) and `not_enough_info` are left out by default
+(`kg.build(result, strong=0.7, include_not_enough_info=False)`).
 
 ### Configure
 
@@ -345,7 +365,8 @@ factassessor/
   verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
   evidence_judge.py  Judge (role), LayaJudge
   gliner.py          GlinerJudge: GLiNER2.5-decide via ONNX (optional extra)
-  aggregate.py       fact score, knowledge graph
+  aggregate.py       fact score
+  kg.py              knowledge graph (kg.build, kg.to_mermaid), built on demand from a result
   laya.py            LayaRunner: shared model, micro-batching, batch cap
   passages.py        page cleaning, token-exact chunking, BM25
   schema.py          Atom, Evidence, AtomResult, CheckResult, stream events

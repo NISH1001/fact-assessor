@@ -80,3 +80,14 @@ Visitors a year
         "7 000 000\n"
         "Paris is the capital and largest city of France"
     )
+
+
+def test_clean_text_drops_leaked_html_and_script_data():
+    from factassessor.passages import clean_text
+
+    md = """Real sentence about the earthquake.
+direct-relief-support-continues/"><script type="application/ld+json"> { "@context": "https://schema.org", "@type": "Article" }</script>
+<div class="x">Inline tag text survives</div>
+{"@context": "https://schema.org", "@graph": [{"@type": "WebPage"}]}
+Another real sentence."""
+    assert clean_text(md) == "Real sentence about the earthquake.\nInline tag text survives\nAnother real sentence."

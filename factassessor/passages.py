@@ -15,13 +15,19 @@ _CITATION = re.compile(r"\[(?:\d+|[a-z]{1,2})\]")  # [6], [c]
 _EMPHASIS = re.compile(r"\*\*|__|(?<!\w)_(?=\S)|(?<=\S)_(?!\w)")  # **bold**, __bold__, _italic_
 _TABLE_RULE = re.compile(r"^\|?[\s:|-]+\|?$")  # |---|:---:|
 _BULLET = re.compile(r"^[*+-]\s+")
+_TAG = re.compile(r"</?[a-zA-Z][^>]*>")
+_JSON_LINE = re.compile(r'^\s*[\[{].*["\]}]\s*$')  # a line that's a JSON object/array, e.g. JSON-LD metadata
 
 
 def clean_text(markdown: str) -> str:
     """Crawled markdown -> plain text: no formatting, citations, table pipes, or menu/share-button lines."""
     lines = []
     for line in markdown.splitlines():
-        line = line.strip()
+        if "<script" in line.lower() or "<style" in line.lower():
+            continue  # a leaked <script>/<style> block (e.g. JSON-LD): markup, not content
+        line = _TAG.sub("", line).strip()
+        if _JSON_LINE.match(line) and line.count('"') >= 4:
+            continue
         if _TABLE_RULE.match(line):
             continue
         if line.count("|") >= 2:  # table row, wherever it starts
