@@ -1,11 +1,14 @@
-"""Atoms -> (kept, skipped): drop atoms that aren't factual claims (opinions, questions, small talk).
+"""Drop atoms that aren't factual claims (opinions, questions, small talk), as a step: atoms -> atoms.
 
-Swap in anything with `async afilter(atoms) -> tuple[list[Atom], list[Atom]]`.
+Compose: `Atomizer() >> LayaCheckworthy() >> Take(8)`. Any `Filter(pred)` works in its place.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 from factassessor.laya import LayaRunner
+from factassessor.pipeline import Map, Step, report_dropped
 from factassessor.schema import Atom
 
 # `choice` beat `noul` clearly in our tests (17/19 vs 8/12 correct): Laya's yes/no head was near-random here.
@@ -24,32 +27,32 @@ QUESTION = {
 }
 
 
-class AtomFilter:
-    """One Laya batch scores P(factual_claim) for every atom."""
+class LayaCheckworthy(Step):
+    """Scores P(factual_claim) with Laya (one decision per atom; the shared runner batches atoms that arrive
+    together), stores it on `atom.checkworthiness`, and drops atoms below `threshold`."""
 
     def __init__(
         self,
         laya: LayaRunner | None = None,
-        n_atoms: int = 5,
         threshold: float = 0.4,  # low on purpose: dropping a real claim costs more than one extra search
         model: str = "english",  # Laya checkpoint: english | multilingual | typed-decisions
     ) -> None:
         self.laya = laya or LayaRunner()
-        self.n_atoms = n_atoms
         self.threshold = threshold
         self.model = model
 
-    async def afilter(self, atoms: list[Atom]) -> tuple[list[Atom], list[Atom]]:
-        """Keep the top n_atoms at or above threshold, in input order. Returns (kept, skipped)."""
-        if not atoms:
-            return [], []
-        results = await self.laya.predict_batch(
-            [{"state": {"claim": a.text}, "questions": QUESTION, "model": self.model} for a in atoms]
+    def __call__(self, atoms: AsyncIterator[Atom]) -> AsyncIterator[Atom]:
+        return Map(self.score)(atoms)
+
+    async def score(self, atom: Atom) -> Atom | None:
+        [result] = await self.laya.predict_batch(
+            [{"state": {"claim": atom.text}, "questions": QUESTION, "model": self.model}]
         )
-        scored = [
-            a.model_copy(update={"checkworthiness": r["answers"]["kind"]["probabilities"]["factual_claim"]})
-            for a, r in zip(atoms, results)
-        ]
-        passing = [a for a in scored if a.checkworthiness >= self.threshold]
-        kept_ids = {a.id for a in sorted(passing, key=lambda a: -a.checkworthiness)[: self.n_atoms]}
-        return [a for a in scored if a.id in kept_ids], [a for a in scored if a.id not in kept_ids]
+        scored = atom.model_copy(update={"checkworthiness": result["answers"]["kind"]["probabilities"]["factual_claim"]})
+        if scored.checkworthiness >= self.threshold:
+            return scored
+        report_dropped(scored)
+        return None
+
+    async def start(self) -> None:
+        await self.laya.agent(self.model)  # load this checkpoint's weights up front

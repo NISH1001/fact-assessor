@@ -158,3 +158,30 @@ async def test_lifecycle_reaches_every_component_once():
     await pipeline.aload()
     await pipeline.aclose()
     assert events == ["load", "close"]
+
+
+async def test_sync_steps_keep_input_order():
+    ranked = [f"hit{i}" for i in range(20)]
+    assert await collect((Filter(lambda h: h != "hit3") >> Map(str.upper))(items(*ranked))) == [
+        h.upper() for h in ranked if h != "hit3"
+    ]
+
+
+async def test_steps_start_and_stop_their_own_resources_once():
+    events = []
+
+    class Browser(Step):
+        async def start(self):
+            events.append("start")
+
+        async def stop(self):
+            events.append("stop")
+
+        def __call__(self, items):
+            return items
+
+    browser = Browser()
+    pipeline = browser >> Map(lambda x: x) >> browser
+    await pipeline.aload()
+    await pipeline.aclose()
+    assert events == ["start", "stop"]

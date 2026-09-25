@@ -39,3 +39,30 @@ class CheckResult(BaseModel):
     fact_score: float | None  # None when nothing was checked
     graph: dict[str, Any]  # {"nodes": [...], "edges": [...]}
     latency_ms: float
+
+
+# --- stream events (FactAssessor.stream) -------------------------------------------------------------
+
+
+class ClaimFound(BaseModel):
+    """A claim passed the filter and is being checked (UI: underline `atom.span` as "checking…")."""
+
+    type: Literal["claim_found"] = "claim_found"
+    atom: Atom
+
+
+class ClaimVerified(BaseModel):
+    """One claim's verdict, the moment it's settled."""
+
+    type: Literal["claim_verified"] = "claim_verified"
+    result: AtomResult
+
+
+class Done(BaseModel):
+    """Everything is in: fact score, graph, and all results in text order."""
+
+    type: Literal["done"] = "done"
+    result: CheckResult
+
+
+Event = ClaimFound | ClaimVerified | Done

@@ -1,37 +1,37 @@
-from factassessor import Atom, AtomResult, Evidence, FactAssessor
+import asyncio
+
+from factassessor import Atom, AtomResult, Evidence, Map, Step, Verify, WeightedPolicy, build_graph, fact_score
 
 ATOM = Atom(id=0, text="Marie Curie won the Nobel Prize in Physics in 1903.", span=(0, 50))
+POLICY = WeightedPolicy()
 
 
 def ev(label, prob, url="https://en.wikipedia.org/wiki/Marie_Curie", source="snippet"):
     return Evidence(url=url, title="t", text="x", source=source, label=label, prob=prob)
 
 
-FR = FactAssessor()
-
-
-def test_aggregate_verdicts():
-    assert FR._aggregate([]) == ("unverified", 0.0)
-    assert FR._aggregate([ev("not_enough_info", 0.99), ev("supports", 0.6)]) == ("unverified", 0.0)  # nothing strong
-    assert FR._aggregate([ev("supports", 0.8), ev("supports", 0.95)]) == ("supported", 0.95)
-    assert FR._aggregate([ev("refutes", 0.9)]) == ("refuted", 0.9)
+def test_verdicts():
+    assert POLICY.verdict([]) == ("unverified", 0.0)
+    assert POLICY.verdict([ev("not_enough_info", 0.99), ev("supports", 0.6)]) == ("unverified", 0.0)  # nothing strong
+    assert POLICY.verdict([ev("supports", 0.8), ev("supports", 0.95)]) == ("supported", 0.95)
+    assert POLICY.verdict([ev("refutes", 0.9)]) == ("refuted", 0.9)
     # one stray refutation (a related-but-different fact) doesn't flip three supports
-    assert FR._aggregate([ev("supports", 0.9), ev("supports", 0.9), ev("supports", 0.8), ev("refutes", 0.98)])[0] == "supported"
-    verdict, conf = FR._aggregate([ev("supports", 0.9), ev("refutes", 0.8)])
+    assert POLICY.verdict([ev("supports", 0.9), ev("supports", 0.9), ev("supports", 0.8), ev("refutes", 0.98)])[0] == "supported"
+    verdict, conf = POLICY.verdict([ev("supports", 0.9), ev("refutes", 0.8)])
     assert verdict == "contested" and round(conf, 3) == round(0.9 / 1.7, 3)
 
 
-def test_early_exit_needs_two_sure_passages_and_no_strong_disagreement():
-    assert FR._is_confident([ev("supports", 0.95), ev("supports", 0.92)])
-    assert not FR._is_confident([ev("supports", 0.99)])  # one isn't enough
-    assert not FR._is_confident([ev("supports", 0.95), ev("supports", 0.92), ev("refutes", 0.75)])
-    assert FR._is_confident([ev("refutes", 0.95), ev("refutes", 0.91), ev("not_enough_info", 0.99)])
+def test_settled_needs_two_sure_passages_and_no_strong_disagreement():
+    assert POLICY.settled([ev("supports", 0.95), ev("supports", 0.92)])
+    assert not POLICY.settled([ev("supports", 0.99)])  # one isn't enough
+    assert not POLICY.settled([ev("supports", 0.95), ev("supports", 0.92), ev("refutes", 0.75)])
+    assert POLICY.settled([ev("refutes", 0.95), ev("refutes", 0.91), ev("not_enough_info", 0.99)])
 
 
 def test_score_ignores_unverified():
     results = [AtomResult(atom=ATOM, verdict=v) for v in ["supported", "supported", "refuted", "unverified"]]
-    assert FR._score(results) == 2 / 3
-    assert FR._score([AtomResult(atom=ATOM, verdict="unverified")]) is None
+    assert fact_score(results) == 2 / 3
+    assert fact_score([AtomResult(atom=ATOM, verdict="unverified")]) is None
 
 
 def test_graph_links_sources_to_atoms_with_strong_edges_only():
@@ -41,12 +41,15 @@ def test_graph_links_sources_to_atoms_with_strong_edges_only():
         ev("not_enough_info", 0.99, url="https://noise.org/x"),  # not an edge
         ev("supports", 0.5, url="https://weak.org/y"),  # too weak
     ])
-    graph = FR._build_graph([result])
+    graph = build_graph([result])
     assert {n["id"] for n in graph["nodes"]} == {"atom:0", "source:en.wikipedia.org", "source:example.com"}
     assert sorted((e["source"], e["relation"], e["weight"]) for e in graph["edges"]) == [
         ("source:en.wikipedia.org", "supports", 0.95),
         ("source:example.com", "refutes", 0.75),
     ]
+
+
+# --- Verify with fake components ---------------------------------------------------------------------
 
 
 class FakeJudge:
@@ -57,64 +60,64 @@ class FakeJudge:
         return list(self.page_ev) if docs and "text" in docs[0] else list(self.snippet_ev)
 
 
-def reasoner(snippet_ev, page_ev):
-    fr = FactAssessor(judge=FakeJudge(snippet_ev, page_ev))
-    fr.crawled = []
+class FakeSearcher(Step):
+    def __init__(self, n=3, fail=False):
+        self.n, self.fail = n, fail
 
-    async def search(q):
-        return [{"url": f"https://s{i}.org", "title": "t", "snippet": "s"} for i in range(3)]
+    async def __call__(self, queries):
+        async for _ in queries:
+            if self.fail:
+                raise RuntimeError("serper down")
+            for i in range(self.n):
+                yield {"url": f"https://s{i}.org", "title": "t", "snippet": "s"}
 
-    async def crawl(url):
-        fr.crawled.append(url)
-        return {"url": url, "title": "t", "text": "page"}
 
-    fr._search, fr._crawl = search, crawl
-    return fr
+class FakeCrawler(Step):
+    def __init__(self, dead=()):
+        self.crawled, self.dead = [], set(dead)
+
+    def __call__(self, urls):
+        async def crawl(url):
+            self.crawled.append(url)
+            if url in self.dead:
+                await asyncio.sleep(5)  # a dead site that would hit the crawl timeout
+            return {"url": url, "title": "t", "text": "page"}
+
+        return Map(crawl)(urls)
 
 
 async def test_verify_skips_crawling_when_snippets_are_conclusive():
-    fr = reasoner([ev("supports", 0.95), ev("supports", 0.93)], [])
-    result = await fr._verify(ATOM)
-    assert result.verdict == "supported" and fr.crawled == []
+    crawler = FakeCrawler()
+    verify = Verify(FakeSearcher(), crawler, FakeJudge([ev("supports", 0.95), ev("supports", 0.93)], []))
+    result = await verify.verify(ATOM)
+    assert result.verdict == "supported" and crawler.crawled == []
 
 
 async def test_verify_crawls_and_judges_pages_when_snippets_are_not_enough():
-    fr = reasoner([ev("not_enough_info", 0.9)], [ev("supports", 0.85, source="page")])
-    result = await fr._verify(ATOM)
-    assert len(fr.crawled) == 3
+    crawler = FakeCrawler()
+    verify = Verify(FakeSearcher(), crawler, FakeJudge([ev("not_enough_info", 0.9)], [ev("supports", 0.85, source="page")]))
+    result = await verify.verify(ATOM)
+    assert len(crawler.crawled) == 3
     assert result.verdict == "supported" and sum(e.source == "page" for e in result.evidence) == 3
 
 
-async def test_verify_failure_is_unverified_not_a_crash():
-    fr = reasoner([], [])
-
-    async def broken(q):
-        raise RuntimeError("serper down")
-
-    fr._search = broken
-    result = await fr._verify(ATOM)
-    assert result.verdict == "unverified" and "serper down" in result.error
-
-
 async def test_crawling_stops_once_pages_settle_the_atom():
-    import asyncio
-
-    fr = FactAssessor(judge=FakeJudge([ev("not_enough_info", 0.9)], [ev("supports", 0.95, source="page")]))
-    fr.crawled = []
-
-    async def search(q):
-        return [{"url": f"https://s{i}.org", "title": "t", "snippet": "s"} for i in range(4)]
-
-    async def crawl(url):
-        fr.crawled.append(url)
-        if url in ("https://s2.org", "https://s3.org"):
-            await asyncio.sleep(5)  # dead sites that would hit the crawl timeout
-        return {"url": url, "title": "t", "text": "page"}
-
-    fr._search, fr._crawl = search, crawl
+    crawler = FakeCrawler(dead={"https://s2.org", "https://s3.org"})
+    verify = Verify(FakeSearcher(n=4), crawler, FakeJudge([ev("not_enough_info", 0.9)], [ev("supports", 0.95, source="page")]))
     start = asyncio.get_running_loop().time()
-    result = await fr._verify(ATOM)
+    result = await verify.verify(ATOM)
     assert asyncio.get_running_loop().time() - start < 1  # didn't wait for the dead sites
     assert result.verdict == "supported"
     assert sum(e.source == "page" for e in result.evidence) == 2  # two sure pages were enough
 
+
+async def test_verify_failure_is_unverified_not_a_crash():
+    result = await Verify(FakeSearcher(fail=True), FakeCrawler(), FakeJudge([], [])).verify(ATOM)
+    assert result.verdict == "unverified" and "serper down" in result.error
+
+
+async def test_verify_times_out_to_unverified():
+    crawler = FakeCrawler(dead={"https://s0.org", "https://s1.org", "https://s2.org"})
+    verify = Verify(FakeSearcher(), crawler, FakeJudge([], []), timeout=0.1)
+    result = await verify.verify(ATOM)
+    assert result.verdict == "unverified" and result.error == "timeout"

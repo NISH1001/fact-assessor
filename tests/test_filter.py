@@ -1,4 +1,5 @@
-from factassessor import Atom, AtomFilter
+from factassessor import Atom, LayaCheckworthy, Take, collect
+from factassessor.pipeline import dropped
 
 ATOMS = [
     Atom(id=0, text="Hi, i am paradox.", span=(0, 16)),
@@ -18,24 +19,32 @@ class FakeLaya:
         return [{"answers": {"kind": {"probabilities": {"factual_claim": P_FACTUAL[r["state"]["claim"]]}}}} for r in requests]
 
 
-async def test_drops_non_factual_and_keeps_input_order():
-    kept, skipped = await AtomFilter(FakeLaya(), threshold=0.4).afilter(ATOMS)
-    assert [a.id for a in kept] == [1, 2, 3]
-    assert [a.id for a in skipped] == [0]
-    assert [a.checkworthiness for a in kept] == [0.83, 0.89, 0.45]
+async def atoms():
+    for a in ATOMS:
+        yield a
 
 
-async def test_caps_at_n_atoms_by_score():
-    kept, skipped = await AtomFilter(FakeLaya(), n_atoms=2, threshold=0.4).afilter(ATOMS)
-    assert [a.id for a in kept] == [1, 2]  # the two highest, still in input order
-    assert [a.id for a in skipped] == [0, 3]
+async def test_drops_non_factual_and_scores_the_rest():
+    kept = await collect(LayaCheckworthy(FakeLaya(), threshold=0.4)(atoms()))
+    assert sorted((a.id, a.checkworthiness) for a in kept) == [(1, 0.83), (2, 0.89), (3, 0.45)]
 
 
-async def test_sends_one_batch_with_the_claim_as_state():
+async def test_dropped_atoms_are_reported_as_skipped():
+    skipped = []
+    token = dropped.set(skipped)
+    try:
+        await collect(LayaCheckworthy(FakeLaya(), threshold=0.4)(atoms()))
+    finally:
+        dropped.reset(token)
+    assert [(a.id, a.checkworthiness) for a in skipped] == [(0, 0.08)]
+
+
+async def test_one_laya_decision_per_atom_with_the_claim_as_state():
     laya = FakeLaya()
-    await AtomFilter(laya).afilter(ATOMS)
-    assert [r["state"] for r in laya.requests] == [{"claim": a.text} for a in ATOMS]
+    await collect(LayaCheckworthy(laya)(atoms()))
+    assert sorted(r["state"]["claim"] for r in laya.requests) == sorted(a.text for a in ATOMS)
 
 
-async def test_empty():
-    assert await AtomFilter(FakeLaya()).afilter([]) == ([], [])
+async def test_chains_with_take():
+    kept = await collect((LayaCheckworthy(FakeLaya(), threshold=0.4) >> Take(2))(atoms()))
+    assert len(kept) == 2

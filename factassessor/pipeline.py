@@ -32,19 +32,23 @@ class Step:
         return Chain(self, other)
 
     def parts(self) -> list[Any]:
-        """Components this step holds (anything with `aload`/`aclose`), for lifecycle management."""
-        return [v for v in vars(self).values() if hasattr(v, "aload") or hasattr(v, "aclose")]
+        """Sub-steps and resources (anything with `aload`/`aclose`) this step holds, for lifecycle management."""
+        return [v for v in vars(self).values() if isinstance(v, Step) or hasattr(v, "aload") or hasattr(v, "aclose")]
+
+    async def start(self) -> None:
+        """Acquire this step's own resources (browser, HTTP pool, model). Default: none."""
+
+    async def stop(self) -> None:
+        """Release this step's own resources. Default: none."""
 
     async def aload(self) -> None:
-        """Warm every resource held anywhere in this step (nested steps included), each once."""
-        for c in _components(self):
-            if hasattr(c, "aload"):
-                await c.aload()
+        """Warm everything reachable from this step (nested steps and shared resources), each once."""
+        for node in _nodes(self):
+            await (node.start() if isinstance(node, Step) else _call(node, "aload"))
 
     async def aclose(self) -> None:
-        for c in _components(self):
-            if hasattr(c, "aclose"):
-                await c.aclose()
+        for node in _nodes(self):
+            await (node.stop() if isinstance(node, Step) else _call(node, "aclose"))
 
 
 class Chain(Step):
@@ -79,8 +83,11 @@ class Map(Step):
         self.concurrency = concurrency
 
     def __call__(self, items: AsyncIterator[Any]) -> AsyncIterator[Any]:
+        if not _is_async(self.fn):  # sync: nothing to overlap, so keep input order and skip the tasks
+            return _in_order(items, lambda item: [] if (r := self.fn(item)) is None else [r])
+
         async def one(item: Any) -> AsyncIterator[Any]:
-            result = await _maybe_await(self.fn(item))
+            result = await self.fn(item)
             if result is not None:
                 yield result
 
@@ -95,13 +102,20 @@ class Filter(Step):
         self.concurrency = concurrency
 
     def __call__(self, items: AsyncIterator[Any]) -> AsyncIterator[Any]:
+        if not _is_async(self.pred):  # sync: keeps input order (e.g. search rank)
+            return _in_order(items, self._keep)
+
         async def one(item: Any) -> AsyncIterator[Any]:
-            if await _maybe_await(self.pred(item)):
-                yield item
-            else:
-                report_dropped(item)
+            for kept in self._keep(item, await self.pred(item)):
+                yield kept
 
         return _concurrently(items, one, self.concurrency)
+
+    def _keep(self, item: Any, verdict: Any = None) -> list[Any]:
+        if (self.pred(item) if verdict is None else verdict):
+            return [item]
+        report_dropped(item)
+        return []
 
 
 class Take(Step):
@@ -192,8 +206,22 @@ async def _concurrently(
         await _aclose(items)
 
 
-async def _maybe_await(value: Any) -> Any:
-    return await value if inspect.isawaitable(value) else value
+async def _in_order(items: AsyncIterator[Any], fn: Callable[[Any], list[Any]]) -> AsyncIterator[Any]:
+    try:
+        async for item in items:
+            for out in fn(item):
+                yield out
+    finally:
+        await _aclose(items)
+
+
+def _is_async(fn: Any) -> bool:
+    return inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(getattr(fn, "__call__", None))
+
+
+async def _call(obj: Any, method: str) -> None:
+    if hasattr(obj, method):
+        await getattr(obj, method)()
 
 
 async def _aclose(items: Any) -> None:
@@ -204,8 +232,8 @@ async def _aclose(items: Any) -> None:
             pass
 
 
-def _components(root: Step) -> list[Any]:
-    """Every non-step resource reachable from `root` through `parts()`, each once, in discovery order."""
+def _nodes(root: Step) -> list[Any]:
+    """Every step and resource reachable from `root` through `parts()`, each once, in discovery order."""
     seen: set[int] = set()
     found: list[Any] = []
     queue: list[Any] = [root]
@@ -214,8 +242,7 @@ def _components(root: Step) -> list[Any]:
         if id(node) in seen:
             continue
         seen.add(id(node))
+        found.append(node)
         if isinstance(node, Step):
             queue.extend(node.parts())
-        else:
-            found.append(node)
     return found

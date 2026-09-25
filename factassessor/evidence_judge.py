@@ -50,6 +50,9 @@ class LayaJudge:
         self._room = 0  # evidence tokens available before subtracting the claim
         self._tok_lock = threading.Lock()
 
+    async def aload(self) -> None:
+        await self.laya.agent(self.model)
+
     async def ajudge(self, claim: str, docs: list[dict[str, Any]]) -> list[Evidence]:
         """docs: Serper hits {"url", "title", "snippet"} or crawled pages {"url", "title", "text"}.
         Snippets are judged as-is; pages are chunked with Laya's tokenizer to its exact budget first."""
