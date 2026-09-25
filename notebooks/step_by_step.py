@@ -171,8 +171,19 @@ def _(mo):
     mo.md("""
     ## 3. Each component on its own
 
-    The real pipeline uses the same building blocks. One shared **`LayaRunner`** holds the local Laya model; the
-    filter and the judge both use it (it batches their requests together).
+    The real pipeline uses the same building blocks. Each component has a **role** (a base type) and an
+    implementation, and you only ever implement one method to make your own:
+
+    | Role | You implement | Used here |
+    |---|---|---|
+    | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
+    | `Searcher` | `search(query)` | `SerperSearcher` |
+    | `Crawler` | `crawl(url)` | `Crawl4AICrawler` |
+    | `Judge` | `judge(claim, docs)` | `LayaJudge` (GLiNER2.5-decide: `GlinerJudge`, soon) |
+    | `Policy` | `settled`, `verdict` | `WeightedPolicy` |
+
+    One shared **`LayaRunner`** holds the local Laya model; the filter and the judge both use it (it batches their
+    requests together).
     """)
     return
 
@@ -191,7 +202,7 @@ async def _(time):
 @app.cell
 def _(mo):
     mo.md("""
-    ### 3a. `Atomizer`: text → atoms
+    ### 3a. `LLMAtomizer`: text → atoms
 
     One LLM call splits the text into single-fact claims, each understandable on its own. Each atom remembers the
     `span` of the words it came from, for highlighting.
@@ -201,11 +212,11 @@ def _(mo):
 
 @app.cell
 async def _(mo, text):
-    from factassessor import Atomizer
+    from factassessor import LLMAtomizer
 
-    atoms = await Atomizer().aatomize(text)
+    atoms = await LLMAtomizer().atomize(text)
     mo.ui.table([{"id": a.id, "atom": a.text, "from the text": text[a.span[0] : a.span[1]]} for a in atoms], selection=None)
-    return Atomizer, atoms
+    return LLMAtomizer, atoms
 
 
 @app.cell
@@ -236,7 +247,7 @@ async def _(asyncio, atoms, laya, mo):
 @app.cell
 def _(mo):
     mo.md("""
-    ### 3c. `Serper`: query → search hits
+    ### 3c. `SerperSearcher`: query → search hits
 
     Google results as `{"url", "title", "snippet"}`, in rank order. On its own it returns everything Google gives;
     chaining a `Filter` and `Take` shapes it (section 4).
@@ -246,9 +257,9 @@ def _(mo):
 
 @app.cell
 async def _(atoms, mo):
-    from factassessor import Serper
+    from factassessor import SerperSearcher
 
-    serper = Serper(num=10)
+    serper = SerperSearcher(num=10)
     raw_hits = await serper.search(atoms[0].text)
     mo.ui.table(
         [{"rank": i + 1, "title": h["title"], "url": h["url"], "snippet": h["snippet"]} for i, h in enumerate(raw_hits)],
@@ -260,7 +271,7 @@ async def _(atoms, mo):
 @app.cell
 def _(mo):
     mo.md("""
-    ### 3d. `Crawl4ai`: url → page
+    ### 3d. `Crawl4AICrawler`: url → page
 
     Fetches a page with a headless browser and returns clean plain text (no links, citations, or menus). A failed or
     slow page comes back `None`; as a step, it's simply dropped.
@@ -270,9 +281,9 @@ def _(mo):
 
 @app.cell
 async def _(mo, raw_hits):
-    from factassessor import Crawl4ai
+    from factassessor import Crawl4AICrawler
 
-    crawler = Crawl4ai(timeout=2.5)
+    crawler = Crawl4AICrawler(timeout=2.5)
     page = await crawler.crawl(raw_hits[0]["url"])
     mo.md(f"**{page['title']}** ({len(page['text']):,} chars)\n\n> {page['text'][:400]}…" if page else "*(crawl failed)*")
     return crawler, page
@@ -296,7 +307,7 @@ async def _(atoms, laya, mo, page, raw_hits):
 
     judge = LayaJudge(laya)
     policy = WeightedPolicy(strong=0.7, early_exit=0.9)
-    _evidence = await judge.ajudge(atoms[0].text, raw_hits[:5] + ([page] if page else []))
+    _evidence = await judge.judge(atoms[0].text, raw_hits[:5] + ([page] if page else []))
     _verdict, _confidence = policy.verdict(_evidence)
     mo.vstack(
         [
@@ -322,9 +333,9 @@ def _(mo):
 
 
 @app.cell
-async def _(Atomizer, LayaCheckworthy, Pred, Take, collect, laya, mo, once, text):
+async def _(LLMAtomizer, LayaCheckworthy, Pred, Take, collect, laya, mo, once, text):
     long_enough = Pred(lambda atom: len(atom.text) > 15)
-    atomizer_chain = Atomizer() >> LayaCheckworthy(laya, threshold=0.4) >> long_enough >> Take(8)
+    atomizer_chain = LLMAtomizer() >> LayaCheckworthy(laya, threshold=0.4) >> long_enough >> Take(8)
     _chained = await collect(atomizer_chain(once(text)))
     mo.ui.table([{"atom": a.text, "p_factual": round(a.checkworthiness, 2)} for a in _chained], selection=None)
     return (atomizer_chain,)

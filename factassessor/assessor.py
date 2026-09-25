@@ -1,8 +1,8 @@
 """FactAssessor: the ready-made fact-checking pipeline, and the facade that runs any pipeline.
 
-    atomizer                      searcher (per claim)             crawler (per hit)
-    Atomizer >> LayaCheckworthy   Serper >> not_blocked()          Crawl4ai
-             >> Take(n_atoms)            >> Take(top_k)
+    atomizer                         searcher (per claim)                crawler (per hit)
+    LLMAtomizer >> LayaCheckworthy   SerperSearcher >> not_blocked()     Crawl4AICrawler
+                >> Take(n_atoms)                    >> Take(top_k)
                     \\                                  judge: LayaJudge   policy: WeightedPolicy
                      `-> Verify(searcher, crawler, judge, policy) -> results -> fact score + graph
 
@@ -21,14 +21,14 @@ from typing import Any
 from factassessor.aggregate import build_graph, fact_score
 from factassessor.atom_filter import LayaCheckworthy
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
-from factassessor.atomizer import Atomizer
-from factassessor.crawl import Crawl4ai
-from factassessor.evidence_judge import LayaJudge
+from factassessor.atomizer import LLMAtomizer
+from factassessor.crawl import Crawl4AICrawler
+from factassessor.evidence_judge import Judge, LayaJudge
 from factassessor.laya import LayaRunner
 from factassessor.pipeline import Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
-from factassessor.search import BLOCKED_DOMAINS, Serper, not_blocked
-from factassessor.verify import Verify, WeightedPolicy
+from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
+from factassessor.verify import Policy, Verify, WeightedPolicy
 
 _END = object()
 
@@ -56,23 +56,23 @@ class FactAssessor:
         timeout: float = 15.0,  # per claim; a claim still running then comes back unverified
         atomizer_model: str = DEFAULT_ATOMIZER_MODEL,
         laya: LayaRunner | None = None,
-        atomizer: Step | None = None,
-        searcher: Step | None = None,
-        crawler: Step | None = None,
-        judge: Any = None,
-        policy: Any = None,
+        atomizer: Step | None = None,  # an Atomizer, or any chain starting with one (text -> atoms)
+        searcher: Step | None = None,  # a Searcher, or any chain starting with one (query -> hits)
+        crawler: Step | None = None,  # a Crawler, or any step url -> page
+        judge: Judge | None = None,
+        policy: Policy | None = None,
     ) -> None:
         self.laya = laya or LayaRunner(device)  # one model shared by the filter and the judge
         self.laya_model = laya_model
         self.atomizer = atomizer or (
-            Atomizer(atomizer_model) >> LayaCheckworthy(self.laya, checkworthy_threshold, laya_model) >> Take(n_atoms)
+            LLMAtomizer(atomizer_model) >> LayaCheckworthy(self.laya, checkworthy_threshold, laya_model) >> Take(n_atoms)
         )
         self.searcher = searcher or (
-            Serper(serper_api_key, num=2 * top_k, timeout=search_timeout, hedge_after=search_hedge_after)
+            SerperSearcher(serper_api_key, num=2 * top_k, timeout=search_timeout, hedge_after=search_hedge_after)
             >> not_blocked(blocked_domains)  # over-fetched above so blocked hits don't leave us short
             >> Take(top_k)
         )
-        self.crawler = crawler or Crawl4ai(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
+        self.crawler = crawler or Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
         self.judge = judge or LayaJudge(self.laya, laya_model)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf)
         self.verify = Verify(self.searcher, self.crawler, self.judge, self.policy, timeout=timeout)

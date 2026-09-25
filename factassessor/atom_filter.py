@@ -1,6 +1,6 @@
 """Drop atoms that aren't factual claims (opinions, questions, small talk), as a step: atoms -> atoms.
 
-Compose: `Atomizer() >> LayaCheckworthy() >> Take(8)`. Any `Filter(pred)` works in its place.
+Compose: `LLMAtomizer() >> LayaCheckworthy() >> Take(8)`. Any `Filter(pred)` works in its place.
 """
 
 from __future__ import annotations

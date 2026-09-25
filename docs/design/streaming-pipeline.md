@@ -3,9 +3,11 @@
 Status: **implemented** (2026-09-25), except the streaming atomizer. How the implementation differs from the
 draft below:
 
-- Components are named by what they are: `Serper` (searcher), `Crawl4ai` (crawler), `LayaCheckworthy` (the atom
-  filter, a step that scores and drops), `LayaJudge`, `WeightedPolicy`. There is no separate `Search(...)` wrapper
-  step: `Serper()` is itself a step (query → hits), so `Serper() >> Filter(not_blocked()) >> Take(5)` is a searcher.
+- Each component has a role (a base type you implement one method of) and implementations named after their
+  tool: `Atomizer`/`LLMAtomizer`, `Searcher`/`SerperSearcher`, `Crawler`/`Crawl4AICrawler`, `Judge`/`LayaJudge`,
+  `Policy`/`WeightedPolicy`; `LayaCheckworthy` is the atom filter (a step that scores and drops). There is no
+  separate `Search(...)` wrapper: a `Searcher` is itself a step, so `SerperSearcher() >> not_blocked() >> Take(5)`
+  is a searcher. See [functional.md](functional.md) for the composition model.
 - `Aggregate` is not a step: `FactAssessor.stream` collects results and computes the score and graph
   (`aggregate.fact_score`, `aggregate.build_graph`) when the stream ends.
 - `stream()` (not `astream`) yields `ClaimFound` / `ClaimVerified` / `Done`; `assess()` is `stream` read to the end.

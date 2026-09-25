@@ -1,8 +1,12 @@
-"""Page fetching as a step: url -> page. Failed or timed-out pages are dropped (the snippet still counts)."""
+"""Crawlers: url -> page `{"url", "title", "text"}` (clean plain text). A step; failed pages are dropped.
+
+`Crawler` is the role: implement `crawl(url)` (return None on failure). `Crawl4AICrawler` uses a headless browser.
+"""
 
 from __future__ import annotations
 
 import asyncio
+from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -10,9 +14,19 @@ from factassessor.passages import clean_text
 from factassessor.pipeline import Map, Step
 
 
-class Crawl4ai(Step):
-    """crawl4ai with one shared headless browser. Pages come out as {"url", "title", "text"} (clean plain text)
-    in the order they finish, so a caller can judge each page the moment it lands.
+class Crawler(Step, ABC):
+    """Role: url -> page. Implement `crawl` (never raise; None on failure). As a step, every url is crawled
+    concurrently and pages come out in the order they finish, so each can be judged the moment it lands."""
+
+    @abstractmethod
+    async def crawl(self, url: str) -> dict[str, Any] | None: ...
+
+    def __call__(self, urls: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
+        return Map(self.crawl)(urls)
+
+
+class Crawl4AICrawler(Crawler):
+    """crawl4ai with one shared headless browser.
 
     `max_concurrent` is a limit on the browser, shared by every stream through this crawler (all claims, all
     checks), not per call.
@@ -23,9 +37,6 @@ class Crawl4ai(Step):
         self._slots = asyncio.Semaphore(max_concurrent)
         self._browser: Any = None
         self._browser_lock = asyncio.Lock()
-
-    def __call__(self, urls: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
-        return Map(self.crawl)(urls)
 
     async def crawl(self, url: str) -> dict[str, Any] | None:
         """One page, or None on failure/timeout. Never raises."""

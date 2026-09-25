@@ -1,7 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from factassessor import Crawl4ai, collect
+from factassessor import Crawl4AICrawler, collect
 
 
 def result(success=True, markdown="# Marie Curie\nBorn in Warsaw in 1867.", title="Marie Curie - Wikipedia"):
@@ -22,7 +22,7 @@ class FakeCrawler:
 
 
 def crawler_with(behaviour, **kwargs):
-    c = Crawl4ai(**kwargs)
+    c = Crawl4AICrawler(**kwargs)
     c._browser = FakeCrawler(behaviour)
     return c
 

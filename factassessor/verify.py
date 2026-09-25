@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import operator
+from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -11,7 +12,17 @@ from factassessor.pipeline import Map, Scan, Step, TakeUntil, collect, last, onc
 from factassessor.schema import Atom, AtomResult, Evidence, Verdict
 
 
-class WeightedPolicy:
+class Policy(ABC):
+    """Role: turns evidence into a verdict, and decides when there's enough evidence to stop looking."""
+
+    @abstractmethod
+    def settled(self, evidence: list[Evidence]) -> bool: ...
+
+    @abstractmethod
+    def verdict(self, evidence: list[Evidence]) -> tuple[Verdict, float]: ...
+
+
+class WeightedPolicy(Policy):
     """Strong evidence (prob >= `strong`, not not_enough_info) is weighed per side; a side wins with at least 2x
     the other side's weight, otherwise the claim is contested. One strong refutation shouldn't flip several
     supports: the judge sometimes calls a related-but-different fact a refutation."""
@@ -44,7 +55,7 @@ class Verify(Step):
     page the moment it lands, and stop (cancelling the remaining crawls) once the policy says settled.
 
     searcher: step, query -> hits      crawler: step, url -> pages
-    judge:    `async ajudge(claim, docs) -> list[Evidence]`      policy: `settled(ev)`, `verdict(ev)`
+    judge:    a Judge (`judge(claim, docs)`)      policy: a Policy (`settled(ev)`, `verdict(ev)`)
     """
 
     def __init__(self, searcher: Step, crawler: Step, judge: Any, policy: Any = None, timeout: float = 15.0) -> None:
@@ -68,11 +79,11 @@ class Verify(Step):
 
     async def _verify(self, atom: Atom) -> AtomResult:
         hits = await collect(self.searcher(once(atom.text)))
-        evidence = await self.judge.ajudge(atom.text, hits)  # snippets first: often enough on their own
+        evidence = await self.judge.judge(atom.text, hits)  # snippets first: often enough on their own
         if hits and not self.policy.settled(evidence):
 
             async def judge_page(page: dict[str, Any]) -> list[Evidence]:
-                return await self.judge.ajudge(atom.text, [page])
+                return await self.judge.judge(atom.text, [page])
 
             # crawl every hit at once -> judge each page as it lands -> running total of the evidence ->
             # stop at the first total that settles the claim (TakeUntil cancels the crawls still in flight)

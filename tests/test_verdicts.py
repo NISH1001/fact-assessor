@@ -56,7 +56,7 @@ class FakeJudge:
     def __init__(self, snippet_ev, page_ev):
         self.snippet_ev, self.page_ev = snippet_ev, page_ev
 
-    async def ajudge(self, claim, docs):
+    async def judge(self, claim, docs):
         return list(self.page_ev) if docs and "text" in docs[0] else list(self.snippet_ev)
 
 

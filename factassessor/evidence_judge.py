@@ -1,11 +1,13 @@
 """(claim, snippets or pages) -> Evidence: does each passage support, refute, or not settle the claim?
 
-Swap in anything with `async ajudge(claim, docs) -> list[Evidence]`.
+`Judge` is the role: implement `judge(claim, docs)`. `LayaJudge` uses the local Laya model; any other `Judge`
+(e.g. a GLiNER2.5-decide judge) drops in as `FactAssessor(judge=...)`.
 """
 
 from __future__ import annotations
 
 import asyncio
+from abc import ABC, abstractmethod
 import copy
 import threading
 from typing import Any
@@ -28,7 +30,24 @@ QUESTION = {
 }
 
 
-class LayaJudge:
+class Judge(ABC):
+    """Role: does each passage support, refute, or not settle a claim? Implement `judge`.
+
+    `docs` are search hits {"url", "title", "snippet"} and/or crawled pages {"url", "title", "text"}: judge snippets
+    as-is and cut pages down to what fits your model. Optional `aload`/`aclose` warm up / release the model.
+    """
+
+    @abstractmethod
+    async def judge(self, claim: str, docs: list[dict[str, Any]]) -> list[Evidence]: ...
+
+    async def aload(self) -> None:
+        pass
+
+    async def aclose(self) -> None:
+        pass
+
+
+class LayaJudge(Judge):
     """Every (claim, passage) pair is one Laya decision; the shared runner batches them across all atoms."""
 
     def __init__(
@@ -53,7 +72,7 @@ class LayaJudge:
     async def aload(self) -> None:
         await self.laya.agent(self.model)
 
-    async def ajudge(self, claim: str, docs: list[dict[str, Any]]) -> list[Evidence]:
+    async def judge(self, claim: str, docs: list[dict[str, Any]]) -> list[Evidence]:
         """docs: Serper hits {"url", "title", "snippet"} or crawled pages {"url", "title", "text"}.
         Snippets are judged as-is; pages are chunked with Laya's tokenizer to its exact budget first."""
         passages = await self._passages(claim, docs)

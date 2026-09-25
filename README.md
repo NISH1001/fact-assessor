@@ -30,7 +30,7 @@ are checked concurrently, and most of the work is I/O that overlaps.
 
 ```
 text
- └─ Atomizer ─────────── one LLM call: atomic, self-contained claims ("Total lives lost…" → "The Nepal earthquake killed…")
+ └─ LLMAtomizer ──────── one LLM call: atomic, self-contained claims ("Total lives lost…" → "The Nepal earthquake killed…")
      └─ LayaCheckworthy ─ Laya, local: drop opinions, greetings, questions
          └─ search ───── Serper (Google), every claim in parallel; slow requests are hedged
              └─ judge ── Laya, local: does each snippet support / refute the claim?
@@ -42,14 +42,14 @@ text
 
 | Step | What does it | Where it runs |
 |---|---|---|
-| Atomize + decontextualize | `Atomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning off) | API, ~2s |
+| Atomize + decontextualize | `LLMAtomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning off) | API, ~2s |
 | Check-worthiness filter | `LayaCheckworthy`: [Laya](https://github.com/NandhaKishorM/laya) `choice` decision | local (MPS / CUDA / CPU) |
 | Search | [Serper](https://serper.dev), social media and video sites filtered out | API, ~1s |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text | network, ~1s/page |
 | Evidence judge | `LayaJudge`: pages chunked with Laya's own tokenizer, best BM25 passage per page | local |
 | Verdicts, score, graph | strong evidence weighed per side: `supported` / `refuted` / `contested` / `unverified` | local |
 
-Every box above is a swappable, chainable step (`Atomizer() >> LayaCheckworthy() >> Take(8)`), and the whole
+Every box above is a swappable, chainable step (`LLMAtomizer() >> LayaCheckworthy() >> Take(8)`), and the whole
 thing streams: a claim starts searching the moment it's found, each page is judged the moment its crawl lands,
 and results come out as each claim settles. See [Compose your own pipeline](#compose-your-own-pipeline).
 
@@ -225,7 +225,7 @@ transforms it. Conditions combine with `&` (and), `|` (or), `~` (not).
 
 ```python
 from urllib.parse import urlparse
-from factassessor import Atomizer, Crawl4ai, FactAssessor, LayaCheckworthy, LayaRunner, Pred, Serper, Take, not_blocked
+from factassessor import Crawl4AICrawler, FactAssessor, LayaCheckworthy, LayaRunner, LLMAtomizer, Pred, SerperSearcher, Take, not_blocked
 
 official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu")))   # a condition
 long_enough = Pred(lambda atom: len(atom.text) > 15)
@@ -233,25 +233,38 @@ long_enough = Pred(lambda atom: len(atom.text) > 15)
 laya = LayaRunner()                                  # one Laya model, shared by the filter and the judge
 fa = FactAssessor(
     laya=laya,
-    atomizer=Atomizer() >> LayaCheckworthy(laya, threshold=0.5) >> long_enough >> Take(10),
-    searcher=Serper(num=20) >> (not_blocked() & official) >> Take(5),
-    crawler=Crawl4ai(timeout=4.0),
+    atomizer=LLMAtomizer() >> LayaCheckworthy(laya, threshold=0.5) >> long_enough >> Take(10),
+    searcher=SerperSearcher(num=20) >> (not_blocked() & official) >> Take(5),
+    crawler=Crawl4AICrawler(timeout=4.0),
 )
 result = await fa.assess("NASA was founded in 1958. The Eiffel Tower is 500 meters tall.")
 # supported   NASA was founded in 1958.              (nasa.gov, eisenhowerlibrary.gov)
 # unverified  The Eiffel Tower is 500 meters tall.   (no .gov/.edu sources)
 ```
 
-What you can pass, and what it has to be:
+What you can pass. Each component has a **role** (a base type): subclass it and implement one method, and
+streaming, concurrency, and chaining come for free.
 
-| Argument | A… | Turns | Default |
+| Argument | Role | You implement | Default |
 |---|---|---|---|
-| `atomizer=` | step | text → atoms | `Atomizer() >> LayaCheckworthy(laya) >> Take(n_atoms)` |
-| `searcher=` | step | query → hits `{"url", "title", "snippet"}` | `Serper() >> not_blocked() >> Take(top_k)` |
-| `crawler=` | step | url → pages `{"url", "title", "text"}` | `Crawl4ai(timeout=2.5)` |
-| `judge=` | object | `async ajudge(claim, docs) -> list[Evidence]` | `LayaJudge(laya)` |
-| `policy=` | object | `settled(evidence) -> bool`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
-| `laya=` | `LayaRunner` | the shared Laya model | one per assessor |
+| `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer() >> LayaCheckworthy(laya) >> Take(n_atoms)` |
+| `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
+| `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)` |
+| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge(laya)` |
+| `policy=` | `Policy` | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
+| `laya=` | `LayaRunner` | | one per assessor, shared by filter and judge |
+
+A new crawler, for example, is just:
+
+```python
+from factassessor import Crawler
+
+class MyCrawler(Crawler):
+    async def crawl(self, url):
+        ...  # fetch; return {"url", "title", "text"} or None on failure
+
+fa = FactAssessor(crawler=MyCrawler())
+```
 
 Building blocks:
 
@@ -271,7 +284,7 @@ built from these: `crawler >> judge_page >> Scan(add, evidence) >> TakeUntil(pol
 judge each page as it lands, keep a running total, stop (cancelling the rest) once the claim is settled.
 
 Another LLM for atomization (install its extra first, e.g. `uv add "pydantic-ai-slim[anthropic]"`):
-`Atomizer("anthropic:claude-haiku-4-5", model_settings={})`.
+`LLMAtomizer("anthropic:claude-haiku-4-5", model_settings={})`.
 
 ## Development
 
@@ -285,12 +298,12 @@ Layout:
 factassessor/
   assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
   pipeline.py        Step, >>, Map, FlatMap, Filter, Take: the streaming runner
-  atomizer.py        Atomizer (LLM): text -> atoms
+  atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
   atom_filter.py     LayaCheckworthy: atoms -> factual atoms
-  search.py          Serper, not_blocked, hedged requests: query -> hits
-  crawl.py           Crawl4ai: url -> clean pages
-  verify.py          Verify (per claim: snippets, crawl if needed, early exit), WeightedPolicy
-  evidence_judge.py  LayaJudge
+  search.py          Searcher (role), SerperSearcher, not_blocked, hedged requests: query -> hits
+  crawl.py           Crawler (role), Crawl4AICrawler: url -> clean pages
+  verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
+  evidence_judge.py  Judge (role), LayaJudge
   aggregate.py       fact score, knowledge graph
   laya.py            LayaRunner: shared model, micro-batching, batch cap
   passages.py        page cleaning, token-exact chunking, BM25
@@ -306,7 +319,7 @@ factassessor/
 - Per-detail checks in the judge (ask Laya about each date/number in a claim in the same forward pass), so a
   claim that is right except for one detail comes out refuted rather than contested.
 - Component-level wrappers: caching, retries, timeouts.
-- Atomizer: keep opinions marked as opinions. Unwrapping hedges currently also strips "I think", so
+- LLMAtomizer: keep opinions marked as opinions. Unwrapping hedges currently also strips "I think", so
   "I think pizza is the best food" becomes a plain claim; the default filter catches it, a custom one may not.
 
 Design notes: [docs/design/streaming-pipeline.md](docs/design/streaming-pipeline.md). Why things are the way they

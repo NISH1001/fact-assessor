@@ -29,7 +29,7 @@ class FakeLaya:
 
 async def test_snippets_are_judged_as_is_in_one_batch():
     laya = FakeLaya()
-    ev = await LayaJudge(laya).ajudge(CLAIM, [
+    ev = await LayaJudge(laya).judge(CLAIM, [
         {"url": "u1", "title": "Nobel", "snippet": "Curie shared the 1903 Nobel Prize in Physics."},
         {"url": "u2", "title": "Paris", "snippet": "Paris is in France."},
         {"url": "u3", "title": "Empty", "snippet": ""},
@@ -46,11 +46,11 @@ async def test_pages_are_cut_to_top_passages_within_the_token_budget():
     filler = " ".join(f"filler{i}" for i in range(2000))
     page = {"url": "wiki", "title": "Marie Curie", "text": f"{filler} Curie won the Nobel Prize in Physics in 1903. {filler}"}
     laya = FakeLaya(budget=64)
-    ev = await LayaJudge(laya, passages_per_page=2).ajudge(CLAIM, [page])
+    ev = await LayaJudge(laya, passages_per_page=2).judge(CLAIM, [page])
     assert len(ev) == 2 and all(e.source == "page" for e in ev)
     assert ev[0].label == "supports" and "1903" in ev[0].text  # BM25 put the relevant chunk first
     assert all(len(r["state"]["evidence"].split()) <= 64 for r in laya.batches[0])
 
 
 async def test_no_docs_gives_no_evidence():
-    assert await LayaJudge(FakeLaya()).ajudge(CLAIM, []) == []
+    assert await LayaJudge(FakeLaya()).judge(CLAIM, []) == []

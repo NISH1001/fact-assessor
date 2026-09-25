@@ -32,7 +32,7 @@ class FakeSearcher(Step):
 
 
 class FakeJudge:
-    async def ajudge(self, claim, docs):
+    async def judge(self, claim, docs):
         label = "refutes" if "cheese" in claim else "supports"
         return [Evidence(url=d["url"], title="t", text="x", source="snippet", label=label, prob=0.95) for d in docs]
 

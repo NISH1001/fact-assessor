@@ -1,12 +1,14 @@
-"""Text -> decontextualized atomic claims, in one fast-LLM call. A step: texts -> atoms.
+"""Atomizers: text -> self-contained atomic claims. A step: texts -> atoms.
 
-Compose: `Atomizer() >> LayaCheckworthy() >> Take(8)`. Swap in any step that turns text into atoms.
+`Atomizer` is the role: implement `atomize(text)`. `LLMAtomizer` does it in one fast-LLM call.
+Compose: `LLMAtomizer() >> LayaCheckworthy() >> Take(8)`.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -48,8 +50,22 @@ class Claims(BaseModel):
     atoms: list[Claim]
 
 
-class Atomizer(Step):
-    """Atomize + decontextualize in one call. Falls back to plain sentences if the LLM is unavailable."""
+class Atomizer(Step, ABC):
+    """Role: text -> atoms. Implement `atomize`; streaming, concurrency, and chaining come from here."""
+
+    @abstractmethod
+    async def atomize(self, text: str) -> list[Atom]: ...
+
+    def __call__(self, texts: AsyncIterator[str]) -> AsyncIterator[Atom]:
+        async def atoms(text: str) -> AsyncIterator[Atom]:
+            for atom in await self.atomize(text):
+                yield atom
+
+        return FlatMap(atoms)(texts)
+
+
+class LLMAtomizer(Atomizer):
+    """Atomize + decontextualize in one LLM call. Falls back to plain sentences if the LLM is unavailable."""
 
     def __init__(self, model: str = DEFAULT_MODEL, model_settings: dict[str, Any] | None = None) -> None:
         self.agent = Agent(
@@ -60,14 +76,7 @@ class Atomizer(Step):
             defer_model_check=True,  # don't require an API key until the first call
         )
 
-    def __call__(self, texts: AsyncIterator[str]) -> AsyncIterator[Atom]:
-        async def atoms(text: str) -> AsyncIterator[Atom]:
-            for atom in await self.aatomize(text):
-                yield atom
-
-        return FlatMap(atoms)(texts)
-
-    async def aatomize(self, text: str) -> list[Atom]:
+    async def atomize(self, text: str) -> list[Atom]:
         if not text.strip():
             return []
         try:

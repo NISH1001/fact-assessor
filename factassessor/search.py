@@ -1,9 +1,13 @@
-"""Web search as a step: query -> hits. Compose: `Serper() >> not_blocked() >> Take(5)`."""
+"""Searchers: query -> hits `{"url", "title", "snippet"}`, in rank order. A step.
+
+`Searcher` is the role: implement `search(query)`. Compose: `SerperSearcher() >> not_blocked() >> Take(5)`.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import os
+from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import urlparse
@@ -22,8 +26,22 @@ BLOCKED_DOMAINS = (
 )
 
 
-class Serper(Step):
-    """Google results via Serper, as {"url", "title", "snippet"} hits in rank order.
+class Searcher(Step, ABC):
+    """Role: query -> hits. Implement `search`; streaming, concurrency, and chaining come from here."""
+
+    @abstractmethod
+    async def search(self, query: str) -> list[dict[str, Any]]: ...
+
+    def __call__(self, queries: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
+        async def hits(query: str) -> AsyncIterator[dict[str, Any]]:
+            for hit in await self.search(query):
+                yield hit
+
+        return FlatMap(hits)(queries)
+
+
+class SerperSearcher(Searcher):
+    """Google results via Serper (needs SERPER_API_KEY).
 
     `hedge_after`: Serper's p50 is ~0.8s but outliers hit 3s+, so a request that hasn't answered by then is
     raced against a duplicate and the first reply wins.
@@ -41,13 +59,6 @@ class Serper(Step):
         self.timeout = timeout
         self.hedge_after = hedge_after
         self._http: httpx.AsyncClient | None = None
-
-    def __call__(self, queries: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
-        async def hits(query: str) -> AsyncIterator[dict[str, Any]]:
-            for hit in await self.search(query):
-                yield hit
-
-        return FlatMap(hits)(queries)
 
     async def search(self, query: str) -> list[dict[str, Any]]:
         if not self.api_key:
@@ -77,7 +88,7 @@ class Serper(Step):
 
 def not_blocked(domains: tuple[str, ...] = BLOCKED_DOMAINS) -> Pred:
     """Hit condition: False for hits on `domains` or their subdomains (m.facebook.com). Use it in a chain
-    (`Serper() >> not_blocked() >> Take(5)`) or combine it (`not_blocked() & official`)."""
+    (`SerperSearcher() >> not_blocked() >> Take(5)`) or combine it (`not_blocked() & official`)."""
     return Pred(lambda hit: not is_blocked(hit["url"], domains))
 
 
