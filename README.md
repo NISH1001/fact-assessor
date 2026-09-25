@@ -144,7 +144,7 @@ factassessor/
 
 - **Streaming, composable pipeline**: `Atomizer() >> Filter(...) >> Search(...) >> Verify(...) >> Aggregate()`,
   every step behind a small interface, claims flowing downstream the moment they exist, and `astream()` for
-  per-claim results in the UI. Design: [docs/design/streaming-pipeline.md](docs/design/streaming-pipeline.md).
+  per-claim results in the UI. Design: [docs/design/streaming-pipeline.md](docs/design/streaming-pipeline.md). Why things are the way they are (benchmarks, trade-offs): [docs/design/decisions.md](docs/design/decisions.md).
 - Per-detail checks in the judge (ask Laya about each date/number in a claim in the same forward pass), so a
   claim that is right except for one detail comes out refuted rather than contested.
 - Component-level wrappers: caching, retries, timeouts.
