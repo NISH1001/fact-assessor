@@ -92,8 +92,8 @@ git clone https://github.com/NISH1001/fact-assessor && cd fact-assessor
 uv sync
 uv run crawl4ai-setup
 cp .env.example .env           # then fill in the keys
-uv run marimo edit notebooks/fact_check.py      # one box, one button
-uv run marimo edit notebooks/step_by_step.py    # every step's intermediate output, then run-everything
+uv run marimo edit --no-sandbox notebooks/fact_check.py      # one box, one button
+uv run marimo edit --no-sandbox notebooks/step_by_step.py    # guided tutorial: building blocks -> custom pipeline
 ```
 
 | Variable | Used by |

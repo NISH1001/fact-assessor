@@ -15,4 +15,5 @@ docs/design/streaming-pipeline.md for the planned composable design (draft, awai
 - Laya is the local model for classification (filter, judge). It can't generate text. Question wording and state
   field order matter a lot for its accuracy: benchmark changes.
 - Keys live in `.env` (gitignored): `SERPER_API_KEY`, `OPENAI_API_KEY`.
-- Notebooks are marimo (`notebooks/`). Run them with `uv run marimo edit notebooks/<name>.py`.
+- Notebooks are marimo (`notebooks/`). Run them with `uv run marimo edit --no-sandbox notebooks/<name>.py`
+  (`fact_check.py` has a PEP 723 header for the no-clone one-liner; in the repo, `--no-sandbox` uses the local code).

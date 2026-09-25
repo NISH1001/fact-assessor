@@ -1,12 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#     "marimo>=0.25.0",
-#     "fact-assessor @ git+https://github.com/NISH1001/fact-assessor",
-# ]
-# ///
-# Runs standalone: `uvx marimo edit --sandbox <this file or its raw GitHub URL>`. Inside the repo, `uv run marimo edit`
-# ignores this header and uses the local package.
 import marimo
 
 __generated_with = "0.25.0"
