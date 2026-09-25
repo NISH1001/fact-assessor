@@ -1,13 +1,25 @@
 # FactAssessor as a streaming, composable pipeline
 
-Status: draft for review · 2026-09-24
+Status: **implemented** (2026-09-25), except the streaming atomizer. How the implementation differs from the
+draft below:
+
+- Components are named by what they are: `Serper` (searcher), `Crawl4ai` (crawler), `LayaCheckworthy` (the atom
+  filter, a step that scores and drops), `LayaJudge`, `WeightedPolicy`. There is no separate `Search(...)` wrapper
+  step: `Serper()` is itself a step (query → hits), so `Serper() >> Filter(not_blocked()) >> Take(5)` is a searcher.
+- `Aggregate` is not a step: `FactAssessor.stream` collects results and computes the score and graph
+  (`aggregate.fact_score`, `aggregate.build_graph`) when the stream ends.
+- `stream()` (not `astream`) yields `ClaimFound` / `ClaimVerified` / `Done`; `assess()` is `stream` read to the end.
+- Hits and pages stay plain dicts for now; `Claim` was not introduced (`Atom` → `AtomResult`).
+- Atoms a `Filter` (or `LayaCheckworthy`) drops are reported as `CheckResult.skipped` through a context variable,
+  so custom chains get it too.
+- `n_atoms` = the first n claims that pass the filter (`Take(n)`), not the n highest-scoring.
 
 ## Why
 
 Today every step except the atomizer, filter, and judge is a private method on `FactAssessor`, and the
 orchestration (per-atom concurrency, early exit, hedging) is hand-written around them. We want:
 
-1. **Every step swappable** behind a small interface, the way `Atomizer`, `AtomFilter`, and `LayaJudge` already are.
+1. **Every step swappable** behind a small interface, the way `Atomizer`, the atom filter, and `LayaJudge` already were.
 2. **Functional composition**: `Atomizer() >> Filter(...) >> Search(...) >> Verify(...) >> Aggregate()`.
 3. **Streaming**: an atom moves to the next step the moment it exists. Atom 1 can be judged while atom 4 is
    still being searched. The only point where everything waits is the final aggregation.

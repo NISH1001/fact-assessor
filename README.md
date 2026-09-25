@@ -31,7 +31,7 @@ are checked concurrently, and most of the work is I/O that overlaps.
 ```
 text
  └─ Atomizer ─────────── one LLM call: atomic, self-contained claims ("Total lives lost…" → "The Nepal earthquake killed…")
-     └─ AtomFilter ───── Laya, local: drop opinions, greetings, questions
+     └─ LayaCheckworthy ─ Laya, local: drop opinions, greetings, questions
          └─ search ───── Serper (Google), every claim in parallel; slow requests are hedged
              └─ judge ── Laya, local: does each snippet support / refute the claim?
                  ├─ settled → done (no crawling)
@@ -43,11 +43,15 @@ text
 | Step | What does it | Where it runs |
 |---|---|---|
 | Atomize + decontextualize | `Atomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning off) | API, ~2s |
-| Check-worthiness filter | `AtomFilter`: [Laya](https://github.com/NandhaKishorM/laya) `choice` decision | local (MPS / CUDA / CPU) |
+| Check-worthiness filter | `LayaCheckworthy`: [Laya](https://github.com/NandhaKishorM/laya) `choice` decision | local (MPS / CUDA / CPU) |
 | Search | [Serper](https://serper.dev), social media and video sites filtered out | API, ~1s |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text | network, ~1s/page |
 | Evidence judge | `LayaJudge`: pages chunked with Laya's own tokenizer, best BM25 passage per page | local |
 | Verdicts, score, graph | strong evidence weighed per side: `supported` / `refuted` / `contested` / `unverified` | local |
+
+Every box above is a swappable, chainable step (`Atomizer() >> LayaCheckworthy() >> Take(8)`), and the whole
+thing streams: a claim starts searching the moment it's found, each page is judged the moment its crawl lands,
+and results come out as each claim settles. See [Compose your own pipeline](#compose-your-own-pipeline).
 
 Laya is a non-autoregressive decision model (a Jev-style encoder that classifies instead of generating), so the
 filter and the judge are single forward passes. Every Laya request that arrives within a few milliseconds, from
@@ -152,6 +156,24 @@ result = await fa.assess(text)   # reuse for every check
 await fa.aclose()             # on shutdown: closes the browser and HTTP pool (or use `async with`)
 ```
 
+### Stream results
+
+`stream` yields each claim as it's found and each verdict the moment it settles, so a UI can show progress
+instead of waiting for the slowest claim:
+
+```python
+async for event in fa.stream(text):
+    if event.type == "claim_found":        # event.atom: underline event.atom.span as "checking…"
+        ...
+    elif event.type == "claim_verified":   # event.result: an AtomResult (verdict, confidence, evidence)
+        ...
+    elif event.type == "done":             # event.result: the full CheckResult (score, graph, all atoms)
+        ...
+```
+
+`assess` is `stream` read to the end. Events are Pydantic models (`ClaimFound`, `ClaimVerified`, `Done`), so
+they serialize straight to JSON for a websocket or server-sent events.
+
 ### Read the result
 
 ```
@@ -193,33 +215,50 @@ All keyword arguments to `FactAssessor`:
 | `crawl_timeout` | 2.5 | seconds per page |
 | `search_hedge_after` | 1.2 | seconds before racing a duplicate search |
 | `blocked_domains` | social + video | hosts never used as evidence (subdomains included); `()` to allow all |
-| `timeout` | 15 | overall deadline; claims still running come back `unverified` |
+| `timeout` | 15 | per-claim deadline; a claim still running then comes back `unverified` |
 
-### Swap a step
+### Compose your own pipeline
 
-Each step is an object with one async method; pass your own to replace it.
+Every component is a step, and steps chain with `>>`. A `Filter` filters whatever flows at that point in the chain:
+atoms after the atomizer, search hits after the searcher.
 
 ```python
-from factassessor import Atomizer, FactAssessor
+from urllib.parse import urlparse
+from factassessor import Atomizer, Crawl4ai, FactAssessor, Filter, LayaCheckworthy, LayaRunner, Serper, Take, not_blocked
 
-# another LLM for atomization (install its extra first, e.g. `uv add "pydantic-ai-slim[anthropic]"`)
-fa = FactAssessor(atomizer=Atomizer("anthropic:claude-haiku-4-5", model_settings={}))
+def official(hit):                                   # only .gov / .edu sources count as evidence
+    return urlparse(hit["url"]).netloc.endswith((".gov", ".edu"))
 
-# your own filter: afilter(atoms) -> (kept, skipped)
-class KeepEverything:
-    async def afilter(self, atoms):
-        return atoms, []
-
-fa = FactAssessor(atom_filter=KeepEverything())
+laya = LayaRunner()                                  # one Laya model, shared by the filter and the judge
+fa = FactAssessor(
+    laya=laya,
+    atomizer=Atomizer() >> LayaCheckworthy(laya, threshold=0.5) >> Filter(lambda atom: len(atom.text) > 15) >> Take(10),
+    searcher=Serper(num=20) >> Filter(not_blocked()) >> Filter(official) >> Take(5),
+    crawler=Crawl4ai(timeout=4.0),
+)
+result = await fa.assess("NASA was founded in 1958. The Eiffel Tower is 500 meters tall.")
+# supported   NASA was founded in 1958.              (nasa.gov, eisenhowerlibrary.gov)
+# unverified  The Eiffel Tower is 500 meters tall.   (no .gov/.edu sources)
 ```
 
-| Step | Argument | Method |
-|---|---|---|
-| Atomizer | `atomizer=` | `async aatomize(text) -> list[Atom]` |
-| Filter | `atom_filter=` | `async afilter(atoms) -> (kept, skipped)` |
-| Evidence judge | `judge=` | `async ajudge(claim, docs) -> list[Evidence]` |
+What you can pass, and what it has to be:
 
-Search and crawling become swappable the same way in the [streaming pipeline](docs/design/streaming-pipeline.md).
+| Argument | A… | Turns | Default |
+|---|---|---|---|
+| `atomizer=` | step | text → atoms | `Atomizer() >> LayaCheckworthy(laya) >> Take(n_atoms)` |
+| `searcher=` | step | query → hits `{"url", "title", "snippet"}` | `Serper() >> Filter(not_blocked()) >> Take(top_k)` |
+| `crawler=` | step | url → pages `{"url", "title", "text"}` | `Crawl4ai(timeout=2.5)` |
+| `judge=` | object | `async ajudge(claim, docs) -> list[Evidence]` | `LayaJudge(laya)` |
+| `policy=` | object | `settled(evidence) -> bool`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
+| `laya=` | `LayaRunner` | the shared Laya model | one per assessor |
+
+Building blocks: `Map(fn)` (one in, one out; return `None` to drop), `FlatMap(fn)` (one in, many out),
+`Filter(pred)`, `Take(n)`, and `Step` to write your own (implement `__call__(items) -> async iterator`, plus
+`start`/`stop` if it holds a resource). Functions and predicates can be sync or async; async ones run concurrently
+and pass results on as they finish, sync ones keep order. `Take(n)` and early exits cancel unfinished work upstream.
+
+Another LLM for atomization (install its extra first, e.g. `uv add "pydantic-ai-slim[anthropic]"`):
+`Atomizer("anthropic:claude-haiku-4-5", model_settings={})`.
 
 ## Development
 
@@ -231,25 +270,34 @@ Layout:
 
 ```
 factassessor/
-  assessor.py        FactAssessor: orchestration, search, crawl, verdicts, score, graph
-  atomizer.py        Atomizer (LLM)
-  atom_filter.py     AtomFilter (Laya check-worthiness)
+  assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
+  pipeline.py        Step, >>, Map, FlatMap, Filter, Take: the streaming runner
+  atomizer.py        Atomizer (LLM): text -> atoms
+  atom_filter.py     LayaCheckworthy: atoms -> factual atoms
+  search.py          Serper, not_blocked, hedged requests: query -> hits
+  crawl.py           Crawl4ai: url -> clean pages
+  verify.py          Verify (per claim: snippets, crawl if needed, early exit), WeightedPolicy
   evidence_judge.py  LayaJudge
-  laya.py            LayaRunner: shared model + micro-batcher
+  aggregate.py       fact score, knowledge graph
+  laya.py            LayaRunner: shared model, micro-batching, batch cap
   passages.py        page cleaning, token-exact chunking, BM25
-  schema.py          Atom, Evidence, AtomResult, CheckResult
+  schema.py          Atom, Evidence, AtomResult, CheckResult, stream events
 ```
 
 ## Roadmap
 
-- **Streaming, composable pipeline**: `Atomizer() >> Filter(...) >> Search(...) >> Verify(...) >> Aggregate()`,
-  every step behind a small interface, claims flowing downstream the moment they exist, and `astream()` for
-  per-claim results in the UI. Design: [docs/design/streaming-pipeline.md](docs/design/streaming-pipeline.md). Why things are the way they are (benchmarks, trade-offs): [docs/design/decisions.md](docs/design/decisions.md).
+- **Streaming atomizer**: emit claims while the LLM is still writing them (the pipeline already streams from there
+  on), so the first verdict arrives ~1s sooner.
+- **GLiNER2.5-decide as a judge**: an alternative open-weight decision model
+  ([announcement](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model)), as a drop-in `judge=`.
 - Per-detail checks in the judge (ask Laya about each date/number in a claim in the same forward pass), so a
   claim that is right except for one detail comes out refuted rather than contested.
 - Component-level wrappers: caching, retries, timeouts.
 - Atomizer: keep opinions marked as opinions. Unwrapping hedges currently also strips "I think", so
   "I think pizza is the best food" becomes a plain claim; the default filter catches it, a custom one may not.
+
+Design notes: [docs/design/streaming-pipeline.md](docs/design/streaming-pipeline.md). Why things are the way they
+are (benchmarks, trade-offs): [docs/design/decisions.md](docs/design/decisions.md).
 
 ## Acknowledgements
 

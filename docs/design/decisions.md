@@ -53,6 +53,13 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   pages mentioning the event in 2017 (anniversaries) read as support. Planned fix: per-detail Laya questions
   (dates/numbers/entities) in the same forward pass.
 
+- **Laya batching under load** (MPS): capping each forward pass at `batch_size=32` rows costs no speed
+  (76 pairs: 1,854ms capped or not) and holds memory flat (400 pairs: 7.1 GB → 2.0 GB, and slightly faster).
+  Below 16 it slows down. Rows in a batch are padded to the longest, so a pass mixing ~20-token snippets with
+  ~128-token passages took 946ms vs 714ms as two passes: `LayaRunner` sorts merged requests by length.
+- The 512-token limit is per row, not per batch: each (evidence, claim, question) is its own ≤512-token row,
+  and a batch stacks rows (`[n, ≤512]`), so batching many pairs never hits the context limit, only memory.
+
 ## Verdicts
 
 - Strong evidence = prob ≥ 0.7, not "not_enough_info". A side wins with ≥ 2× the other side's summed weight;
@@ -87,3 +94,10 @@ Caching (single-flight + LRU) was prototyped and **removed**: it belongs to comp
 
 `FactReasoner` is IBM's project; renamed to **fact-assessor** / `FactAssessor` (unused on PyPI and GitHub) to
 avoid confusion.
+
+## Streaming pipeline refactor
+
+Rebuilt `FactAssessor` on composable steps (`pipeline.py`). A/B against the previous `main`, 4 alternating live
+runs each on the same texts: Nepal median 5.9s → 6.5s, mixed 6.8s → 5.0s, with one large outlier on each side;
+verdicts unchanged. Read as: no regression beyond network noise. The latency gain from streaming needs the
+streaming atomizer (claims currently all appear when the LLM call returns, ~2s in).

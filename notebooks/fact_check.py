@@ -62,7 +62,19 @@ def _(mo):
 @app.cell
 async def _(fa, mo, run_button, text_box):
     mo.stop(not run_button.value, mo.md("*Press **Fact-check** to run.*"))
-    result = await fa.assess(text_box.value)
+    # stream(): each claim shows up as "checking…" as soon as it's found and flips to its verdict the moment
+    # it settles; assess() would return the same final result in one go.
+    _rows = {}
+    result = None
+    async for _event in fa.stream(text_box.value):
+        if _event.type == "claim_found":
+            _rows[_event.atom.id] = {"verdict": "⏳ checking…", "confidence": None, "claim": _event.atom.text}
+        elif _event.type == "claim_verified":
+            _r = _event.result
+            _rows[_r.atom.id] = {"verdict": _r.verdict, "confidence": round(_r.confidence, 2), "claim": _r.atom.text}
+        else:
+            result = _event.result
+        mo.output.replace(mo.ui.table([_rows[k] for k in sorted(_rows)], selection=None))
     return (result,)
 
 

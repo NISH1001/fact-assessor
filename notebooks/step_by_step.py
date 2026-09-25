@@ -16,9 +16,9 @@ def _():
 
 @app.cell
 def _():
-    from factassessor import AtomFilter, Atomizer, FactAssessor
+    from factassessor import Atomizer, FactAssessor, LayaCheckworthy, collect, once
 
-    return AtomFilter, Atomizer, FactAssessor
+    return Atomizer, FactAssessor, LayaCheckworthy, collect, once
 
 
 @app.cell
@@ -74,15 +74,20 @@ async def _(Atomizer, mo, text, time):
 def _(mo):
     mo.md("""
     ## Step 2: Filter
-    Laya (local, MPS) classifies each atom in one batch; only factual claims go on.
+    `LayaCheckworthy` (local Laya model) scores each atom; only factual claims (P ≥ 0.4) go on. In the pipeline
+    it's chained right after the atomizer: `Atomizer() >> LayaCheckworthy() >> Take(n_atoms)`.
     """)
     return
 
 
 @app.cell
-async def _(AtomFilter, atoms, fa, mo, time):
+async def _(LayaCheckworthy, asyncio, atoms, fa, mo, time):
     _t = time.perf_counter()
-    kept, skipped = await AtomFilter(fa.laya).afilter(atoms)
+    _threshold = 0.4  # FactAssessor's default checkworthy_threshold
+    # score every atom (threshold 0 keeps them all) so the table can show what was dropped and why
+    _scored = await asyncio.gather(*(LayaCheckworthy(fa.laya, threshold=0.0).score(a) for a in atoms))
+    kept = [a for a in _scored if a.checkworthiness >= _threshold]
+    skipped = [a for a in _scored if a.checkworthiness < _threshold]
     print(f"filtered {len(atoms)} atoms in {(time.perf_counter() - _t) * 1000:.0f} ms: {len(kept)} kept")
     mo.ui.table(
         [{"keep": True, "p_factual": round(a.checkworthiness, 2), "atom": a.text} for a in kept]
@@ -95,15 +100,16 @@ async def _(AtomFilter, atoms, fa, mo, time):
 def _(mo):
     mo.md("""
     ## Step 3: Search
-    Serper (Google) for every kept atom, all in parallel. Key from `SERPER_API_KEY` in `.env`.
+    `fa.searcher` is the chain `Serper() >> Filter(not_blocked()) >> Take(top_k)`: Google results with social and
+    video sites dropped. Every atom searched in parallel. Key from `SERPER_API_KEY` in `.env`.
     """)
     return
 
 
 @app.cell
-async def _(asyncio, fa, kept, time):
+async def _(asyncio, collect, fa, kept, once, time):
     _t = time.perf_counter()
-    hits = await asyncio.gather(*(fa._search(a.text) for a in kept))
+    hits = await asyncio.gather(*(collect(fa.searcher(once(a.text))) for a in kept))
     print(f"{len(kept)} searches in {(time.perf_counter() - _t) * 1000:.0f} ms")
     return (hits,)
 
@@ -139,7 +145,8 @@ def _(mo):
 @app.cell
 async def _(asyncio, fa, hits, time):
     _t = time.perf_counter()
-    pages = await asyncio.gather(*(asyncio.gather(*(fa._crawl(h["url"]) for h in atom_hits)) for atom_hits in hits))
+    # fa.crawler is a Crawl4ai step; .crawl(url) fetches one page (None on failure), so the table can line up with hits
+    pages = await asyncio.gather(*(asyncio.gather(*(fa.crawler.crawl(h["url"]) for h in atom_hits)) for atom_hits in hits))
     _n = sum(len(p) for p in pages)
     _ok = sum(page is not None for p in pages for page in p)
     print(f"crawled {_n} pages in {(time.perf_counter() - _t) * 1000:.0f} ms: {_ok} ok, {_n - _ok} failed")
@@ -191,7 +198,7 @@ async def _(asyncio, fa, hits, kept, pages, time):
 
 @app.cell
 def _(evidence, fa, kept, mo):
-    _verdicts = [fa._aggregate(e) for e in evidence]
+    _verdicts = [fa.policy.verdict(e) for e in evidence]
     mo.vstack(
         [
             mo.ui.table(
@@ -200,7 +207,7 @@ def _(evidence, fa, kept, mo):
                         "atom": a.text,
                         "verdict": v,
                         "confidence": round(c, 2),
-                        "strong_evidence": sum(x.label != "not_enough_info" and x.prob >= fa.strong_evidence for x in e),
+                        "strong_evidence": sum(x.label != "not_enough_info" and x.prob >= fa.policy.strong for x in e),
                     }
                     for a, e, (v, c) in zip(kept, evidence, _verdicts)
                 ]
@@ -222,8 +229,9 @@ def _(mo):
     mo.md("""
     ---
     # Run everything
-    One call: `await fa.assess(text)`. Snippets are judged first; pages are only crawled when the snippets
-    aren't conclusive, and each page is judged the moment its own crawl finishes.
+    One call: `fa.stream(text)` (or `await fa.assess(text)` for just the final result). Claims are checked the
+    moment they're found; snippets are judged first; pages are only crawled when the snippets aren't
+    conclusive, each page is judged the moment its own crawl finishes, and crawling stops once a claim settles.
     """)
     return
 
@@ -246,7 +254,19 @@ def _(mo):
 @app.cell
 async def _(fa, mo, run_button, text_box):
     mo.stop(not run_button.value, mo.md("*Press **Fact-check** to run.*"))
-    result = await fa.assess(text_box.value)
+    # stream(): each claim shows up as "checking…" as soon as it's found and flips to its verdict the moment
+    # it settles; assess() would return the same final result in one go.
+    _rows = {}
+    result = None
+    async for _event in fa.stream(text_box.value):
+        if _event.type == "claim_found":
+            _rows[_event.atom.id] = {"verdict": "⏳ checking…", "confidence": None, "claim": _event.atom.text}
+        elif _event.type == "claim_verified":
+            _r = _event.result
+            _rows[_r.atom.id] = {"verdict": _r.verdict, "confidence": round(_r.confidence, 2), "claim": _r.atom.text}
+        else:
+            result = _event.result
+        mo.output.replace(mo.ui.table([_rows[k] for k in sorted(_rows)], selection=None))
     return (result,)
 
 
