@@ -19,7 +19,6 @@ RESULT = CheckResult(
         AtomResult(atom=Atom(id=2, text="The Nepal earthquake killed 1 million people.", span=(67, 106)), verdict="refuted",
                    confidence=0.9, evidence=[ev("refutes", 0.88, url="https://www.ngdc.noaa.gov/x", text="Deaths: 8,964.")]),
     ],
-    fact_score=1 / 3,
     latency_ms=5000,
 )
 

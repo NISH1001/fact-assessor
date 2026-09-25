@@ -8,8 +8,8 @@ draft below:
   `Policy`/`WeightedPolicy`; `LayaCheckworthy` is the atom filter (a step that scores and drops). There is no
   separate `Search(...)` wrapper: a `Searcher` is itself a step, so `SerperSearcher() >> not_blocked() >> Take(5)`
   is a searcher. See [functional.md](functional.md) for the composition model.
-- `Aggregate` is not a step: `FactAssessor.stream` collects results and computes the score and graph
-  (`aggregate.fact_score`, `aggregate.build_graph`) when the stream ends.
+- `Aggregate` is not a step: `FactAssessor.stream` collects the results into a `CheckResult`, whose `fact_score`
+  is a computed property of its atoms; the knowledge graph is built on demand by `kg.build(result)`.
 - `stream()` (not `astream`) yields `ClaimFound` / `ClaimVerified` / `Done`; `assess()` is `stream` read to the end.
 - Hits and pages stay plain dicts for now; `Claim` was not introduced (`Atom` → `AtomResult`).
 - Atoms a `Filter` (or `LayaCheckworthy`) drops are reported as `CheckResult.skipped` through a context variable,

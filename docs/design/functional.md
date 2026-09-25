@@ -194,4 +194,5 @@ seconds on network calls, crawling, and model passes. (A/B vs the pre-refactor c
 | `atomizer.py`, `search.py`, `crawl.py`, `evidence_judge.py`, `gliner.py`, `verify.py` | roles and implementations |
 | `atom_filter.py` | `LayaCheckworthy`: a step that scores and drops atoms |
 | `assessor.py` | `FactAssessor`: default chain, `stream` / `assess` / `assess_sync`, lifecycle |
-| `aggregate.py` | fact score and knowledge graph from the results |
+| `schema.py` | data types; `CheckResult.fact_score` is computed from the atoms |
+| `kg.py` | knowledge graph, built on demand from a result |

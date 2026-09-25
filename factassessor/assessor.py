@@ -19,7 +19,6 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-from factassessor.aggregate import fact_score
 from factassessor.atom_filter import LayaCheckworthy
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
 from factassessor.atomizer import LLMAtomizer
@@ -117,7 +116,6 @@ class FactAssessor:
                 text=text,
                 atoms=results,
                 skipped=sorted(skipped, key=lambda a: a.id),
-                fact_score=fact_score(results),
                 latency_ms=(time.perf_counter() - start) * 1000,
             )
         )

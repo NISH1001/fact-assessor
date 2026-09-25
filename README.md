@@ -365,11 +365,10 @@ factassessor/
   verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
   evidence_judge.py  Judge (role), LayaJudge
   gliner.py          GlinerJudge: GLiNER2.5-decide via ONNX (optional extra)
-  aggregate.py       fact score
   kg.py              knowledge graph (kg.build, kg.to_mermaid), built on demand from a result
   laya.py            LayaRunner: shared model, micro-batching, batch cap
   passages.py        page cleaning, token-exact chunking, BM25
-  schema.py          Atom, Evidence, AtomResult, CheckResult, stream events
+  schema.py          Atom, Evidence, AtomResult, CheckResult (fact_score computed from its atoms), stream events
 ```
 
 Benchmarks: `benchmarks/compare_judges.py` compares judges on `benchmarks/judge_cases.py`.

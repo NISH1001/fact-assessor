@@ -106,3 +106,13 @@ async def test_verify_times_out_to_unverified():
     verify = Verify(FakeSearcher(), crawler, FakeJudge([], []), timeout=0.1)
     result = await verify.verify(ATOM)
     assert result.verdict == "unverified" and result.error == "timeout"
+
+
+def test_fact_score_is_computed_from_the_atoms_and_serialized():
+    from factassessor import CheckResult
+
+    result = CheckResult(text="t", atoms=[AtomResult(atom=ATOM, verdict=v) for v in ["supported", "refuted"]], latency_ms=1.0)
+    assert result.fact_score == 0.5
+    result.atoms.append(AtomResult(atom=ATOM, verdict="supported"))
+    assert result.fact_score == 2 / 3  # follows the atoms; can't go stale
+    assert '"fact_score":0.6666666666666666' in result.model_dump_json()

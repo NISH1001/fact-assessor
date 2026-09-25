@@ -4,7 +4,6 @@ from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv(usecwd=True))
 
 from factassessor import kg  # noqa: E402
-from factassessor.aggregate import fact_score
 from factassessor.assessor import FactAssessor
 from factassessor.atom_filter import LayaCheckworthy
 from factassessor.atomizer import Atomizer, LLMAtomizer
@@ -12,7 +11,7 @@ from factassessor.crawl import Crawl4AICrawler, Crawler
 from factassessor.evidence_judge import Judge, LayaJudge
 from factassessor.laya import LayaRunner
 from factassessor.pipeline import Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
-from factassessor.schema import Atom, AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event, Evidence
+from factassessor.schema import Atom, AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event, Evidence, fact_score
 from factassessor.search import (
     BLOCKED_DOMAINS,
     DuckDuckGoSearcher,
