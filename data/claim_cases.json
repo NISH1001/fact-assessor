@@ -1,0 +1,78 @@
+[
+ {
+  "text": "Tim Berners-Lee invented the World Wide Web.",
+  "is_claim": true
+ },
+ {
+  "text": "The Danube flows through Vienna.",
+  "is_claim": true
+ },
+ {
+  "text": "Marie Curie won the Nobel Prize in Physics in 1903.",
+  "is_claim": true
+ },
+ {
+  "text": "The Moon is made of cheese.",
+  "is_claim": true
+ },
+ {
+  "text": "The Eiffel Tower is 330 meters tall.",
+  "is_claim": true
+ },
+ {
+  "text": "Apple is headquartered in Cupertino.",
+  "is_claim": true
+ },
+ {
+  "text": "NASA was founded in 1958.",
+  "is_claim": true
+ },
+ {
+  "text": "The company reported revenue of 4 billion dollars last quarter.",
+  "is_claim": true
+ },
+ {
+  "text": "Python was created by Guido van Rossum.",
+  "is_claim": true
+ },
+ {
+  "text": "The drug reduced mortality by 20 percent in clinical trials.",
+  "is_claim": true
+ },
+ {
+  "text": "Hi, nice to meet you all.",
+  "is_claim": false
+ },
+ {
+  "text": "I think pizza is the best food.",
+  "is_claim": false
+ },
+ {
+  "text": "Can you help me with this?",
+  "is_claim": false
+ },
+ {
+  "text": "Thanks so much!",
+  "is_claim": false
+ },
+ {
+  "text": "Let's look at the next slide.",
+  "is_claim": false
+ },
+ {
+  "text": "This movie is amazing.",
+  "is_claim": false
+ },
+ {
+  "text": "We should invest more in education.",
+  "is_claim": false
+ },
+ {
+  "text": "Please send me the report.",
+  "is_claim": false
+ },
+ {
+  "text": "What a beautiful day.",
+  "is_claim": false
+ }
+]

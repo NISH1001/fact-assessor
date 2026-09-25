@@ -23,7 +23,7 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   | gpt-5.4-nano / gpt-4.1-nano | ~1.5s (4.1 spikes to 7s) | missed references |
   | gpt-5-nano (minimal) | ~1.0s | unusable |
 
-  Default reasoning made the Luna models slower *and* worse ("Hi, paradox is paradox.").
+  Default reasoning made the Luna models slower *and* worse (it rewrote a greeting into a tautological "claim").
 - Structured output keyed by id / exact source quote, so a skipped or merged item only affects itself; spans are
   recovered by locating the quote (case/whitespace-insensitive), falling back to the best-matching sentence.
 - On LLM failure: fall back to sentence atoms rather than failing the check.
@@ -33,7 +33,7 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
 - Laya's `noul` (yes/no) head was near-random for this (6–8/12). A **`choice`** question over
   factual_claim / opinion / question_or_request / social on the `english` checkpoint: **17/19**.
 - Keep if P(factual_claim) ≥ **0.4**, not 0.5: dropping a real claim (never checked) costs more than keeping an
-  opinion (one wasted search). Plain facts about little-known people score near the cutoff (~0.45–0.6).
+  opinion (one wasted search). Plain facts about little-known subjects score near the cutoff (~0.45–0.6).
 - ~100ms for a whole batch once warm.
 
 ## Evidence judge (Laya)
@@ -105,7 +105,7 @@ streaming atomizer (claims currently all appear when the LLM call returns, ~2s i
 
 ## Alternative judge: GLiNER2.5-decide (ONNX)
 
-`GlinerJudge` on nishparadox/gliner2.5-decide-onnx, 15-case benchmark (`benchmarks/compare_judges.py`), M-series
+`GlinerJudge` on nishparadox/gliner2.5-decide-onnx, 15-case benchmark (`scripts/compare_judges.py`), M-series
 Mac: fp32 on CPU 12/15 in 2.2s (Laya: 13/15 in 0.27s on MPS); int8 7/15 in 1.0s (the model card's "up to 0.18"
 accuracy loss shows); fp32 on CoreML is slower than CPU (CoreML takes only 1,288 of 3,592 graph nodes, so it
 keeps switching back to CPU). Wording: evidence-then-claim text 12/15 > claim-then-evidence 11/15 > claim in the

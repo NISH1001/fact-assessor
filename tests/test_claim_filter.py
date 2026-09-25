@@ -2,8 +2,8 @@ from factassessor import Atom, ClaimFilter, LayaClaimFilter, Take, collect
 from factassessor.pipeline import dropped
 
 ATOMS = [
-    Atom(id=0, text="Hi, i am paradox.", span=(0, 16)),
-    Atom(id=1, text="Paradox lives on Mars.", span=(18, 32)),
+    Atom(id=0, text="Hi there, thanks!", span=(0, 17)),
+    Atom(id=1, text="The Moon is made of cheese.", span=(18, 45)),
     Atom(id=2, text="Marie Curie won the Nobel Prize in 1903.", span=(34, 70)),
     Atom(id=3, text="NASA was founded in 1958.", span=(72, 95)),
 ]

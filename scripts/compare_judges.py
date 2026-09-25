@@ -1,19 +1,18 @@
-"""Accuracy and speed of evidence judges on benchmarks/judge_cases.py.
+"""Accuracy and speed of evidence judges on data/judge_cases.json.
 
-    uv run --extra gliner python benchmarks/compare_judges.py        # LLM judges need OPENAI_API_KEY
+    uv run --extra gliner python scripts/compare_judges.py        # LLM judges need OPENAI_API_KEY
 
 Each case is one (claim, evidence snippet) pair with the expected label; every judge sees the same pairs.
 """
 
 import asyncio
-import sys
+import json
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from judge_cases import CASES  # noqa: E402
+from factassessor import LayaJudge, LLMJudge
 
-from factassessor import LayaJudge, LLMJudge  # noqa: E402
+CASES = [(c["claim"], c["evidence"], c["label"]) for c in json.loads((Path(__file__).parent.parent / "data" / "judge_cases.json").read_text())]
 
 
 async def score(name, judge):

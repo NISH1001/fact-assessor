@@ -362,9 +362,9 @@ FactAssessor(judge=LLMJudge(window_ms=20))         # batch requests arriving wit
 GLiNER's misses were all false "supports" (it let "NASA was founded in 1972" through). Batching the LLM judge into
 one call saves API calls but measured ~0.2s slower than parallel calls (one response writes every answer in
 sequence), so parallel is the default.
-Reproduce with `uv run --extra gliner python benchmarks/compare_judges.py`.
+Reproduce with `uv run --extra gliner python scripts/compare_judges.py`.
 
-**Claim filters** (`benchmarks/compare_claim_filters.py`, 19 statements): `LayaClaimFilter` 17/19 in 0.22s,
+**Claim filters** (`scripts/compare_claim_filters.py`, 19 statements): `LayaClaimFilter` 17/19 in 0.22s,
 `GlinerClaimFilter` 17/19 in 2.3s. Laya's misses keep two opinions (harmless: one extra search each); GLiNER's drop
 two real claims (they're never checked), so Laya stays the default.
 
@@ -407,7 +407,9 @@ factassessor/
   schema.py          Atom, Evidence, AtomResult, CheckResult (fact_score computed from its atoms), stream events
 ```
 
-Benchmarks: `benchmarks/compare_judges.py` compares judges on `benchmarks/judge_cases.py`.
+Benchmarks: `scripts/compare_judges.py` compares judges on `data/judge_cases.json`, `scripts/compare_claim_filters.py`
+claim filters on `data/claim_cases.json`, and `scripts/eval.py` runs the whole pipeline on synthetic texts
+(`data/eval_texts.jsonl`, built from `data/fact_pairs.json` by `scripts/synthetic.py`).
 
 ## Roadmap
 

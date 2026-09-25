@@ -1,0 +1,77 @@
+[
+ {
+  "claim": "Marie Curie won the Nobel Prize in Physics in 1903.",
+  "evidence": "In 1903, Marie Curie shared the Nobel Prize in Physics with Pierre Curie and Henri Becquerel.",
+  "label": "supports"
+ },
+ {
+  "claim": "Marie Curie won the Nobel Prize in Physics in 1903.",
+  "evidence": "Marie Curie was awarded the Nobel Prize in Chemistry in 1911 for discovering radium and polonium.",
+  "label": "not_enough_info"
+ },
+ {
+  "claim": "Marie Curie was born in Paris.",
+  "evidence": "Maria Sklodowska was born in Warsaw on 7 November 1867.",
+  "label": "refutes"
+ },
+ {
+  "claim": "The Eiffel Tower is 330 meters tall.",
+  "evidence": "Since a new antenna was added in 2022, the Eiffel Tower stands 330 metres high.",
+  "label": "supports"
+ },
+ {
+  "claim": "The Eiffel Tower is 500 meters tall.",
+  "evidence": "The Eiffel Tower is 330 metres tall, about the same height as an 81-storey building.",
+  "label": "refutes"
+ },
+ {
+  "claim": "The Eiffel Tower is 330 meters tall.",
+  "evidence": "The tower was designed by the engineering company of Gustave Eiffel and opened in 1889.",
+  "label": "not_enough_info"
+ },
+ {
+  "claim": "NASA was founded in 1958.",
+  "evidence": "The National Aeronautics and Space Administration was established on July 29, 1958.",
+  "label": "supports"
+ },
+ {
+  "claim": "NASA was founded in 1972.",
+  "evidence": "NASA was established in 1958, succeeding the National Advisory Committee for Aeronautics.",
+  "label": "refutes"
+ },
+ {
+  "claim": "Python was created by Guido van Rossum.",
+  "evidence": "Python was conceived in the late 1980s by Guido van Rossum at CWI in the Netherlands.",
+  "label": "supports"
+ },
+ {
+  "claim": "Python was created by James Gosling.",
+  "evidence": "Guido van Rossum began working on Python in the late 1980s; James Gosling created Java.",
+  "label": "refutes"
+ },
+ {
+  "claim": "Apple is headquartered in Cupertino.",
+  "evidence": "Apple Inc. is headquartered at Apple Park in Cupertino, California.",
+  "label": "supports"
+ },
+ {
+  "claim": "Apple is headquartered in Seattle.",
+  "evidence": "Apple Inc. is headquartered at Apple Park in Cupertino, California.",
+  "label": "refutes"
+ },
+ {
+  "claim": "Apple is headquartered in Cupertino.",
+  "evidence": "The iPhone 15 was released in September 2023 with a USB-C port.",
+  "label": "not_enough_info"
+ },
+ {
+  "claim": "Water boils at 100 degrees Celsius at sea level.",
+  "evidence": "At standard atmospheric pressure, pure water boils at 100 °C (212 °F).",
+  "label": "supports"
+ },
+ {
+  "claim": "Tim Berners-Lee invented the World Wide Web.",
+  "evidence": "Tim Berners-Lee proposed the World Wide Web in 1989 while working at CERN.",
+  "label": "supports"
+ }
+]

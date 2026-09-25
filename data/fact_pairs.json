@@ -1,0 +1,242 @@
+[
+ {
+  "true": "Water boils at 100 degrees Celsius at sea level.",
+  "false": "Water boils at 80 degrees Celsius at sea level."
+ },
+ {
+  "true": "The Eiffel Tower was completed in 1889.",
+  "false": "The Eiffel Tower was completed in 1925."
+ },
+ {
+  "true": "Mount Everest is about 8,849 meters tall.",
+  "false": "Mount Everest is about 6,200 meters tall."
+ },
+ {
+  "true": "The Pacific Ocean is the largest ocean on Earth.",
+  "false": "The Atlantic Ocean is the largest ocean on Earth."
+ },
+ {
+  "true": "Neil Armstrong was the first person to walk on the Moon.",
+  "false": "Buzz Aldrin was the first person to walk on the Moon."
+ },
+ {
+  "true": "Apollo 11 landed on the Moon in 1969.",
+  "false": "Apollo 11 landed on the Moon in 1975."
+ },
+ {
+  "true": "Marie Curie won the Nobel Prize in Physics in 1903.",
+  "false": "Marie Curie won the Nobel Prize in Physics in 1925."
+ },
+ {
+  "true": "Canberra is the capital of Australia.",
+  "false": "Sydney is the capital of Australia."
+ },
+ {
+  "true": "Ottawa is the capital of Canada.",
+  "false": "Toronto is the capital of Canada."
+ },
+ {
+  "true": "The chemical symbol for gold is Au.",
+  "false": "The chemical symbol for gold is Ag."
+ },
+ {
+  "true": "The human heart has four chambers.",
+  "false": "The human heart has three chambers."
+ },
+ {
+  "true": "Light travels at about 300,000 kilometers per second in a vacuum.",
+  "false": "Light travels at about 30,000 kilometers per second in a vacuum."
+ },
+ {
+  "true": "Python was created by Guido van Rossum.",
+  "false": "Python was created by James Gosling."
+ },
+ {
+  "true": "The Titanic sank in 1912.",
+  "false": "The Titanic sank in 1915."
+ },
+ {
+  "true": "The Berlin Wall fell in 1989.",
+  "false": "The Berlin Wall fell in 1979."
+ },
+ {
+  "true": "Jupiter is the largest planet in the Solar System.",
+  "false": "Saturn is the largest planet in the Solar System."
+ },
+ {
+  "true": "The Amazon River flows into the Atlantic Ocean.",
+  "false": "The Amazon River flows into the Pacific Ocean."
+ },
+ {
+  "true": "Leonardo da Vinci painted the Mona Lisa.",
+  "false": "Michelangelo painted the Mona Lisa."
+ },
+ {
+  "true": "The first iPhone was released in 2007.",
+  "false": "The first iPhone was released in 2010."
+ },
+ {
+  "true": "DNA has a double helix structure.",
+  "false": "DNA has a triple helix structure."
+ },
+ {
+  "true": "Tokyo is the capital of Japan.",
+  "false": "Kyoto is the capital of Japan."
+ },
+ {
+  "true": "William Shakespeare wrote Hamlet.",
+  "false": "Charles Dickens wrote Hamlet."
+ },
+ {
+  "true": "The Sahara is the largest hot desert in the world.",
+  "false": "The Kalahari is the largest hot desert in the world."
+ },
+ {
+  "true": "Mars has two moons.",
+  "false": "Mars has five moons."
+ },
+ {
+  "true": "The United Nations was founded in 1945.",
+  "false": "The United Nations was founded in 1955."
+ },
+ {
+  "true": "Isaac Newton published the Principia in 1687.",
+  "false": "Isaac Newton published the Principia in 1787."
+ },
+ {
+  "true": "Oxygen has the atomic number 8.",
+  "false": "Oxygen has the atomic number 12."
+ },
+ {
+  "true": "Albert Einstein was born in Ulm.",
+  "false": "Albert Einstein was born in Vienna."
+ },
+ {
+  "true": "The Wright brothers made their first powered flight in 1903.",
+  "false": "The Wright brothers made their first powered flight in 1923."
+ },
+ {
+  "true": "NASA was founded in 1958.",
+  "false": "NASA was founded in 1972."
+ },
+ {
+  "true": "The Statue of Liberty was a gift from France.",
+  "false": "The Statue of Liberty was a gift from Spain."
+ },
+ {
+  "true": "An adult human skeleton has 206 bones.",
+  "false": "An adult human skeleton has 306 bones."
+ },
+ {
+  "true": "Brazil has won the FIFA World Cup five times.",
+  "false": "Brazil has won the FIFA World Cup two times."
+ },
+ {
+  "true": "Beijing hosted the Summer Olympics in 2008.",
+  "false": "Beijing hosted the Summer Olympics in 1996."
+ },
+ {
+  "true": "The United States Declaration of Independence was adopted in 1776.",
+  "false": "The United States Declaration of Independence was adopted in 1812."
+ },
+ {
+  "true": "Venus is the hottest planet in the Solar System.",
+  "false": "Mercury is the hottest planet in the Solar System."
+ },
+ {
+  "true": "Antarctica is the coldest continent.",
+  "false": "Africa is the coldest continent."
+ },
+ {
+  "true": "The Mariana Trench is the deepest known part of the ocean.",
+  "false": "The Puerto Rico Trench is the deepest known part of the ocean."
+ },
+ {
+  "true": "Alexander Fleming discovered penicillin in 1928.",
+  "false": "Alexander Fleming discovered penicillin in 1958."
+ },
+ {
+  "true": "Charles Darwin published On the Origin of Species in 1859.",
+  "false": "Charles Darwin published On the Origin of Species in 1901."
+ },
+ {
+  "true": "The Hubble Space Telescope was launched in 1990.",
+  "false": "The Hubble Space Telescope was launched in 2005."
+ },
+ {
+  "true": "The chemical formula of water is H2O.",
+  "false": "The chemical formula of water is H3O."
+ },
+ {
+  "true": "Russia is the largest country by area.",
+  "false": "Canada is the largest country by area."
+ },
+ {
+  "true": "The Burj Khalifa is in Dubai.",
+  "false": "The Burj Khalifa is in Doha."
+ },
+ {
+  "true": "Ludwig van Beethoven composed nine symphonies.",
+  "false": "Ludwig van Beethoven composed twenty symphonies."
+ },
+ {
+  "true": "The Great Fire of London happened in 1666.",
+  "false": "The Great Fire of London happened in 1766."
+ },
+ {
+  "true": "The Panama Canal connects the Atlantic and Pacific Oceans.",
+  "false": "The Panama Canal connects the Atlantic and Indian Oceans."
+ },
+ {
+  "true": "The first Harry Potter book was published in 1997.",
+  "false": "The first Harry Potter book was published in 2005."
+ },
+ {
+  "true": "Earth's atmosphere is about 78 percent nitrogen.",
+  "false": "Earth's atmosphere is about 21 percent nitrogen."
+ },
+ {
+  "true": "The Colosseum is in Rome.",
+  "false": "The Colosseum is in Athens."
+ },
+ {
+  "true": "Mount Kilimanjaro is in Tanzania.",
+  "false": "Mount Kilimanjaro is in Peru."
+ },
+ {
+  "true": "The Soviet Union launched Sputnik 1 in 1957.",
+  "false": "The Soviet Union launched Sputnik 1 in 1967."
+ },
+ {
+  "true": "Google was founded in 1998.",
+  "false": "Google was founded in 1988."
+ },
+ {
+  "true": "The kilogram is the SI base unit of mass.",
+  "false": "The pound is the SI base unit of mass."
+ },
+ {
+  "true": "Penguins live mainly in the Southern Hemisphere.",
+  "false": "Penguins live mainly in the Northern Hemisphere."
+ },
+ {
+  "true": "The Great Barrier Reef is off the coast of Australia.",
+  "false": "The Great Barrier Reef is off the coast of Brazil."
+ },
+ {
+  "true": "Johann Sebastian Bach was born in 1685.",
+  "false": "Johann Sebastian Bach was born in 1785."
+ },
+ {
+  "true": "The Nile flows into the Mediterranean Sea.",
+  "false": "The Nile flows into the Red Sea."
+ },
+ {
+  "true": "Alexander Graham Bell is credited with patenting the telephone in 1876.",
+  "false": "Alexander Graham Bell is credited with patenting the telephone in 1926."
+ },
+ {
+  "true": "The Louvre Museum is in Paris.",
+  "false": "The Louvre Museum is in Madrid."
+ }
+]

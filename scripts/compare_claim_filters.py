@@ -1,17 +1,16 @@
-"""Accuracy and speed of claim filters on benchmarks/claim_cases.py.
+"""Accuracy and speed of claim filters on data/claim_cases.json.
 
-    uv run --extra gliner python benchmarks/compare_claim_filters.py
+    uv run --extra gliner python scripts/compare_claim_filters.py
 """
 
 import asyncio
-import sys
+import json
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from claim_cases import CASES  # noqa: E402
+from factassessor import Atom, GlinerClaimFilter, LayaClaimFilter
 
-from factassessor import Atom, GlinerClaimFilter, LayaClaimFilter  # noqa: E402
+CASES = [(c["text"], c["is_claim"]) for c in json.loads((Path(__file__).parent.parent / "data" / "claim_cases.json").read_text())]
 
 
 async def score(name, claim_filter):

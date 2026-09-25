@@ -253,7 +253,7 @@ def _(mo):
         [
             mo.md("""
     **Other claim filters.** `ClaimFilter` is a role: any class with `score(atom)` works, and `FactAssessor(claim_filter=...)`
-    takes it. `GlinerClaimFilter` is the built-in alternative: 17/19 on `benchmarks/claim_cases.py` like Laya, but its misses
+    takes it. `GlinerClaimFilter` is the built-in alternative: 17/19 on `data/claim_cases.json` like Laya, but its misses
     drop real claims (never checked) where Laya's keep opinions (one wasted search), and it's ~10x slower.
     """),
             compare_gliner_filter,
