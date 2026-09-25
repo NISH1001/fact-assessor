@@ -177,14 +177,15 @@ def _(mo):
     | Role | You implement | Used here |
     |---|---|---|
     | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
-    | `Searcher` | `search(query)` | `SerperSearcher` |
-    | `Crawler` | `crawl(url)` | `Crawl4AICrawler` |
-    | `Judge` | `judge(claim, docs)` | `LayaJudge` (GLiNER2.5-decide: `GlinerJudge`, soon) |
+    | `ClaimFilter` | `score(atom)` → P(factual claim) | `LayaClaimFilter` (also `GlinerClaimFilter`) |
+    | `Searcher` | `search(query)` | `SerperSearcher` (also `DuckDuckGoSearcher`, `SearxngSearcher`) |
+    | `Crawler` | `crawl(url)` | `Crawl4AICrawler` (also `HTTPXCrawler`, `FallbackCrawler`) |
+    | `Judge` | `judge(claim, docs)` | `LayaJudge` (also `GlinerJudge`, `LLMJudge`) |
     | `Policy` | `settled`, `verdict` | `WeightedPolicy` |
 
     Model-backed components share their model automatically: the Laya claim filter and the Laya judge use one copy
-    of Laya, loaded once and batched together. Nothing to wire up; here we just warm it up so the first call is quick
-    requests together).
+    of Laya, loaded once and batched together. Nothing to wire up; the next cell just warms it up so the first call
+    is quick.
     """)
     return
 
