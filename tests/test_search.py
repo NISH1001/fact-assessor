@@ -107,3 +107,52 @@ async def test_fast_search_is_not_hedged():
     await s.search("q")
     await s.stop()
     assert len(calls) == 1
+
+
+# --- no-API-key searchers ------------------------------------------------------------------------------
+
+from factassessor.search import DuckDuckGoSearcher, SearxngSearcher  # noqa: E402
+
+
+async def test_searxng_maps_results_to_hits_and_sends_json_format():
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"results": [
+            {"url": "https://en.wikipedia.org/wiki/NASA", "title": "NASA", "content": "Founded in 1958."},
+            {"url": "https://www.nasa.gov/history", "title": "History", "content": ""},
+        ]})
+
+    s = SearxngSearcher("http://localhost:8888", num=5)
+    s._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    hits = await s.search("NASA founded")
+    await s.stop()
+    assert "format=json" in seen["url"] and seen["url"].startswith("http://localhost:8888/search")
+    assert hits == [
+        {"url": "https://en.wikipedia.org/wiki/NASA", "title": "NASA", "snippet": "Founded in 1958."},
+        {"url": "https://www.nasa.gov/history", "title": "History", "snippet": ""},
+    ]
+
+
+async def test_searxng_is_a_searcher_step():
+    s = SearxngSearcher("http://localhost:8888")
+    s._http = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"results": [
+        {"url": f"https://s{i}.org", "title": str(i), "content": ""} for i in range(8)]})))
+    hits = await collect((s >> not_blocked() >> Take(3))(once("q")))
+    await s.stop()
+    assert [h["title"] for h in hits] == ["0", "1", "2"]
+
+
+async def test_duckduckgo_maps_ddgs_results_without_an_api_key():
+    calls = []
+
+    class FakeDDGS:
+        def text(self, query, max_results):
+            calls.append((query, max_results))
+            return [{"href": "https://en.wikipedia.org/wiki/NASA", "title": "NASA", "body": "Founded in 1958."}]
+
+    s = DuckDuckGoSearcher(num=7, client_factory=FakeDDGS)
+    hits = await s.search("NASA founded")
+    assert calls == [("NASA founded", 7)]
+    assert hits == [{"url": "https://en.wikipedia.org/wiki/NASA", "title": "NASA", "snippet": "Founded in 1958."}]

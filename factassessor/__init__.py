@@ -12,7 +12,15 @@ from factassessor.evidence_judge import Judge, LayaJudge
 from factassessor.laya import LayaRunner
 from factassessor.pipeline import Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.schema import Atom, AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event, Evidence
-from factassessor.search import BLOCKED_DOMAINS, Searcher, SerperSearcher, is_blocked, not_blocked
+from factassessor.search import (
+    BLOCKED_DOMAINS,
+    DuckDuckGoSearcher,
+    Searcher,
+    SearxngSearcher,
+    SerperSearcher,
+    is_blocked,
+    not_blocked,
+)
 from factassessor.verify import Policy, Verify, WeightedPolicy
 
 __all__ = [
@@ -20,7 +28,7 @@ __all__ = [
     "FactAssessor",
     # roles (base types) and their implementations
     "Atomizer", "LLMAtomizer",
-    "Searcher", "SerperSearcher",
+    "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher",
     "Crawler", "Crawl4AICrawler",
     "Judge", "LayaJudge",
     "Policy", "WeightedPolicy",

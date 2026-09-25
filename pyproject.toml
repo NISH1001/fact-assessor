@@ -28,6 +28,14 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/NISH1001/fact-assessor"
 
+[project.optional-dependencies]
+gliner = [
+    "onnxruntime>=1.30.0",
+]
+ddg = [
+    "ddgs>=9.16.0",
+]
+
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "marimo>=0.25.0"]
 
