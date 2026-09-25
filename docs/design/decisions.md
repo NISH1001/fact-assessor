@@ -125,3 +125,16 @@ Same 20 live search-result URLs: `Crawl4AICrawler` 16/20 pages in 4.8s (2.14s pe
 `FallbackCrawler(HTTPX, browser)` 16/20 in 2.9s. Extracted text size was the same (~6.2-6.3k chars median).
 End to end, 3 alternating rounds: Nepal 6.1s → 5.2s median, mixed 5.8s → 6.0s, same verdicts. The early exit means
 crawling often isn't what a check waits on, so the browser stays the default until more runs confirm the gain.
+
+## LLM judge, claim filters, shared models
+
+`LLMJudge` on the 15 judge cases, 4 runs each: gpt-6-luna 15/15 in 3 runs (14 in one), gpt-5.6-luna 14/15;
+~2.1-2.3s for 15 pairs either way. One batched call vs 15 parallel calls: 2.34s vs 2.07s median (gpt-6-luna),
+so parallel is the default and batching (`window_ms`) is opt-in for fewer calls. Single runs had gpt-5.4-mini and
+gpt-5.4-nano at 14/15 and 13-14/15. End to end the judge isn't the bottleneck (5.5s vs 5.3s with Laya).
+
+Claim filters (19 cases): Laya 17/19 in 0.22s, GLiNER 17/19 in 2.3s; Laya's misses keep opinions, GLiNER's drop real
+claims, so Laya stays the default.
+
+Laya and GLiNER models are now process-wide (one per device / per model+variant), with the micro-batching queue per
+event loop, so components share models without being handed a runner and `assess_sync`'s background loop works.

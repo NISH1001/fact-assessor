@@ -45,7 +45,8 @@ class NoCrawl(Step):
 def offline_assessor():
     searcher = FakeSearcher()
     fa = FactAssessor(
-        atomizer=FakeAtomizer() >> Filter(lambda a: "pizza" not in a.text),
+        atomizer=FakeAtomizer(),
+        claim_filter=Filter(lambda a: "pizza" not in a.text),  # any step works as a claim filter
         searcher=searcher,
         crawler=NoCrawl(),
         judge=FakeJudge(),
@@ -120,8 +121,28 @@ def test_sync_context_manager_closes():
 
 
 def test_default_pipeline_is_built_from_the_familiar_arguments():
-    fa = FactAssessor(n_atoms=8, top_k=3, crawl_timeout=1.5, blocked_domains=("example.com",))
-    take_atoms = fa.atomizer.steps[-1]
+    fa = FactAssessor(n_atoms=8, top_k=3, crawl_timeout=1.5, blocked_domains=("example.com",), claim_threshold=0.6)
+    atomizer, claim_filter, take_atoms = fa.atoms.steps
+    assert type(atomizer).__name__ == "LLMAtomizer" and type(claim_filter).__name__ == "LayaClaimFilter"
+    assert claim_filter.threshold == 0.6
     serper, block, take_hits = fa.searcher.steps
     assert take_atoms.n == 8 and serper.num == 6 and take_hits.n == 3 and fa.crawler.timeout == 1.5
     assert block.pred({"url": "https://facebook.com/x"}) and not block.pred({"url": "https://example.com/x"})
+
+
+def test_claim_filter_none_means_no_filter():
+    fa = FactAssessor(claim_filter=None, n_atoms=3)
+    assert [type(s).__name__ for s in fa.atoms.steps] == ["LLMAtomizer", "Take"]
+
+
+def test_laya_components_share_one_runner_per_event_loop():
+    import asyncio
+
+    from factassessor.laya import laya_runner
+
+    async def runners():
+        fa = FactAssessor()
+        return fa.claim_filter._laya(), fa.judge._laya(), laya_runner("auto")
+
+    a, b, c = asyncio.run(runners())
+    assert a is b is c

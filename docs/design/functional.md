@@ -15,7 +15,7 @@ turns a stream of queries into a stream of hits; a crawler turns URLs into pages
 same shape, any step can follow any other, and a chain of steps is itself a step:
 
 ```python
-atomizer = LLMAtomizer() >> LayaCheckworthy(laya) >> Take(8)      # a Step: texts -> atoms
+atoms    = LLMAtomizer() >> LayaClaimFilter() >> Take(8)          # a Step: texts -> the atoms worth checking
 searcher = SerperSearcher() >> not_blocked() >> Take(5)           # a Step: queries -> hits
 result   = await collect(searcher(once("NASA was founded in 1958.")))
 ```
@@ -150,9 +150,10 @@ Pure functions would be simpler to reason about, but a fact-checker has to touch
 contained in a few, named places:
 
 - **Resources live in components.** A browser (`Crawl4AICrawler`), an HTTP pool (`SerperSearcher`), and a model
-  (`LayaRunner`) are objects with state. Each step declares them: `start()` / `stop()` for its own, and anything with
+  (the Laya runtime) are objects with state. Each step declares them: `start()` / `stop()` for its own, and anything with
   `aload` / `aclose` it holds. `Step.aload()` walks the chain (`_nodes`) and starts every resource exactly once, even
-  when it's shared (one `LayaRunner` used by the filter and the judge).
+  when it's shared. Models are shared further, per process: one Laya per device and one GLiNER per variant, however
+  many components use them, so nothing has to be passed around.
 - **`skipped` atoms use a side channel.** A `Filter` drops items; to report which *atoms* were dropped without
   changing every step's output type, `Filter` appends them to a context variable (`pipeline.dropped`) that
   `FactAssessor.stream` sets per run. Context variables are per task, so concurrent checks don't mix.
@@ -169,9 +170,10 @@ one method:
 | Role | Implement | Step behaviour from the base | Implementations |
 |---|---|---|---|
 | `Atomizer` | `atomize(text) -> list[Atom]` | FlatMap: text → atoms | `LLMAtomizer` |
+| `ClaimFilter` | `score(atom) -> float` | Map: keeps atoms scoring ≥ threshold, reports the rest as skipped | `LayaClaimFilter`, `GlinerClaimFilter` |
 | `Searcher` | `search(query) -> list[hit]` | FlatMap: query → hits | `SerperSearcher`, `DuckDuckGoSearcher`, `SearxngSearcher` |
 | `Crawler` | `crawl(url) -> page or None` | Map: urls → pages, concurrent, finish order | `Crawl4AICrawler` |
-| `Judge` | `judge(claim, docs) -> list[Evidence]` | (called by `Verify`) | `LayaJudge`, `GlinerJudge` |
+| `Judge` | `judge(claim, docs) -> list[Evidence]` | (called by `Verify`) | `LayaJudge`, `GlinerJudge`, `LLMJudge` |
 | `Policy` | `settled(ev)`, `verdict(ev)` | (called by `Verify`) | `WeightedPolicy` |
 
 ```python
@@ -192,7 +194,7 @@ seconds on network calls, crawling, and model passes. (A/B vs the pre-refactor c
 |---|---|
 | `pipeline.py` | `Step`, `Chain`, `Map`, `FlatMap`, `Filter`, `Take`, `Scan`, `TakeUntil`, `Pred`, `as_step`, `_concurrently`, lifecycle walk |
 | `atomizer.py`, `search.py`, `crawl.py`, `evidence_judge.py`, `gliner.py`, `verify.py` | roles and implementations |
-| `atom_filter.py` | `LayaCheckworthy`: a step that scores and drops atoms |
+| `claim_filter.py` | `ClaimFilter` (role: `score(atom)`), `LayaClaimFilter` |
 | `assessor.py` | `FactAssessor`: default chain, `stream` / `assess` / `assess_sync`, lifecycle |
 | `schema.py` | data types; `CheckResult.fact_score` is computed from the atoms |
 | `kg.py` | knowledge graph, built on demand from a result |

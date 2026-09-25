@@ -5,14 +5,14 @@ draft below:
 
 - Each component has a role (a base type you implement one method of) and implementations named after their
   tool: `Atomizer`/`LLMAtomizer`, `Searcher`/`SerperSearcher`, `Crawler`/`Crawl4AICrawler`, `Judge`/`LayaJudge`,
-  `Policy`/`WeightedPolicy`; `LayaCheckworthy` is the atom filter (a step that scores and drops). There is no
+  `Policy`/`WeightedPolicy`, `ClaimFilter`/`LayaClaimFilter` (was `LayaCheckworthy`). There is no
   separate `Search(...)` wrapper: a `Searcher` is itself a step, so `SerperSearcher() >> not_blocked() >> Take(5)`
   is a searcher. See [functional.md](functional.md) for the composition model.
 - `Aggregate` is not a step: `FactAssessor.stream` collects the results into a `CheckResult`, whose `fact_score`
   is a computed property of its atoms; the knowledge graph is built on demand by `kg.build(result)`.
 - `stream()` (not `astream`) yields `ClaimFound` / `ClaimVerified` / `Done`; `assess()` is `stream` read to the end.
 - Hits and pages stay plain dicts for now; `Claim` was not introduced (`Atom` → `AtomResult`).
-- Atoms a `Filter` (or `LayaCheckworthy`) drops are reported as `CheckResult.skipped` through a context variable,
+- Atoms a `Filter` (or a `ClaimFilter`) drops are reported as `CheckResult.skipped` through a context variable,
   so custom chains get it too.
 - `n_atoms` = the first n claims that pass the filter (`Take(n)`), not the n highest-scoring.
 

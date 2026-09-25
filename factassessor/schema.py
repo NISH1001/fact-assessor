@@ -12,7 +12,7 @@ class Atom(BaseModel):
     id: int
     text: str  # self-contained claim, as written by the Atomizer
     span: tuple[int, int]  # char offsets in the input text, for UI highlighting
-    checkworthiness: float | None = None
+    claim_score: float | None = None  # P(this is a factual claim worth checking), set by the claim filter
 
 
 class Evidence(BaseModel):

@@ -31,7 +31,7 @@ are checked concurrently, and most of the work is I/O that overlaps.
 ```
 text
  └─ LLMAtomizer ──────── one LLM call: atomic, self-contained claims ("Total lives lost…" → "The Nepal earthquake killed…")
-     └─ LayaCheckworthy ─ Laya, local: drop opinions, greetings, questions
+     └─ LayaClaimFilter ─ Laya, local: drop opinions, greetings, questions
          └─ search ───── Serper (Google), every claim in parallel; slow requests are hedged
              └─ judge ── Laya, local: does each snippet support / refute the claim?
                  ├─ settled → done (no crawling)
@@ -43,19 +43,19 @@ text
 | Step | What does it | Where it runs |
 |---|---|---|
 | Atomize + decontextualize | `LLMAtomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning off) | API, ~2s |
-| Check-worthiness filter | `LayaCheckworthy`: [Laya](https://github.com/NandhaKishorM/laya) `choice` decision | local (MPS / CUDA / CPU) |
+| Claim filter | `LayaClaimFilter`: [Laya](https://github.com/NandhaKishorM/laya) `choice` decision: is this a factual claim? | local (MPS / CUDA / CPU) |
 | Search | [Serper](https://serper.dev), social media and video sites filtered out | API, ~1s |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text | network, ~1s/page |
 | Evidence judge | `LayaJudge`: pages chunked with Laya's own tokenizer, best BM25 passage per page | local |
 | Verdicts, score, graph | strong evidence weighed per side: `supported` / `refuted` / `contested` / `unverified` | local |
 
-Every box above is a swappable, chainable step (`LLMAtomizer() >> LayaCheckworthy() >> Take(8)`), and the whole
+Every box above is a swappable, chainable step (`SerperSearcher() >> not_blocked() >> Take(5)`), and the whole
 thing streams: a claim starts searching the moment it's found, each page is judged the moment its crawl lands,
 and results come out as each claim settles. See [Compose your own pipeline](#compose-your-own-pipeline).
 
 Laya is a non-autoregressive decision model (a Jev-style encoder that classifies instead of generating), so the
 filter and the judge are single forward passes. Every Laya request that arrives within a few milliseconds, from
-any claim or page, is merged into one batch by `LayaRunner`.
+any claim or page, is merged into one batch. The Laya filter and judge share one loaded model automatically.
 
 **Latency** (M-series Mac, MPS, warm): ~4–6s for a 2–5 claim paragraph, most of it network. The atomizer call,
 search, and crawling dominate; Laya passes take 40–150ms each. The first call in a fresh process also loads Laya
@@ -184,7 +184,7 @@ CheckResult
 ├── fact_score      supported / (supported + refuted + contested); None if nothing was checkable
 ├── latency_ms
 ├── atoms           list[AtomResult], in text order
-│   ├── atom        Atom: text (self-contained claim), span (char offsets into your input), checkworthiness
+│   ├── atom        Atom: text (self-contained claim), span (char offsets into your input), claim_score (P(factual claim))
 │   ├── verdict     "supported" | "refuted" | "contested" | "unverified"
 │   ├── confidence  0..1
 │   ├── evidence    list[Evidence]: url, title, text (passage), source ("snippet" | "page"), label, prob
@@ -232,7 +232,7 @@ All keyword arguments to `FactAssessor`:
 | `top_k` | 5 | search results per claim |
 | `atomizer_model` | `openai:gpt-5.6-luna` | any pydantic-ai model string |
 | `device` | `auto` | Laya device: cuda → mps → cpu |
-| `checkworthy_threshold` | 0.4 | min P(factual claim) to keep an atom |
+| `claim_threshold` | 0.4 | min `claim_score` (P(factual claim)) to check an atom; low on purpose, since a dropped real claim is never checked |
 | `early_exit_conf` | 0.9 | 2+ passages this sure (and none against) settle a claim without more crawling |
 | `strong_evidence` | 0.7 | min probability for a passage to count toward a verdict |
 | `crawl_timeout` | 2.5 | seconds per page (a hard limit; a page that takes longer is dropped and the claim goes on without it) |
@@ -248,15 +248,13 @@ transforms it. Conditions combine with `&` (and), `|` (or), `~` (not).
 
 ```python
 from urllib.parse import urlparse
-from factassessor import Crawl4AICrawler, FactAssessor, LayaCheckworthy, LayaRunner, LLMAtomizer, Pred, SerperSearcher, Take, not_blocked
+from factassessor import Crawl4AICrawler, FactAssessor, LayaClaimFilter, Pred, SerperSearcher, Take, not_blocked
 
 official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu")))   # a condition
 long_enough = Pred(lambda atom: len(atom.text) > 15)
 
-laya = LayaRunner()                                  # one Laya model, shared by the filter and the judge
 fa = FactAssessor(
-    laya=laya,
-    atomizer=LLMAtomizer() >> LayaCheckworthy(laya, threshold=0.5) >> long_enough >> Take(10),
+    claim_filter=LayaClaimFilter(threshold=0.5) >> long_enough,
     searcher=SerperSearcher(num=20) >> (not_blocked() & official) >> Take(5),
     crawler=Crawl4AICrawler(timeout=4.0),
 )
@@ -270,12 +268,12 @@ streaming, concurrency, and chaining come for free.
 
 | Argument | Role | You implement | Default |
 |---|---|---|---|
-| `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer() >> LayaCheckworthy(laya) >> Take(n_atoms)` |
+| `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer()` |
+| `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `LayaClaimFilter(threshold=0.4)` |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `FallbackCrawler` |
-| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge(laya)` |
+| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge()`; also `GlinerJudge`, `LLMJudge` |
 | `policy=` | `Policy` | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
-| `laya=` | `LayaRunner` | | one per assessor, shared by filter and judge |
 
 A new crawler, for example, is just:
 
@@ -344,14 +342,31 @@ from factassessor.gliner import GlinerJudge     # needs fact-assessor[gliner]; d
 fa = FactAssessor(judge=GlinerJudge())            # variant="int8" is 2x faster but much less accurate
 ```
 
+**LLM judge** (`LLMJudge`, pydantic-ai structured output; default `openai:gpt-6-luna`, reasoning off). The most
+accurate judge we measured, ~10x slower per pair than Laya, which matters less than it sounds: pairs run in parallel
+alongside searching and crawling (a 3-claim check took 5.5s with it vs 5.3s with Laya).
+
+```python
+FactAssessor(judge=LLMJudge())                     # needs OPENAI_API_KEY
+FactAssessor(judge=LLMJudge(window_ms=20))         # batch requests arriving within 20ms into one API call
+```
+
 | Judge (15-case benchmark, M-series Mac) | Correct | Time for 15 pairs |
 |---|---|---|
-| `LayaJudge` (default, MPS) | 13/15 | 0.27s |
-| `GlinerJudge` fp32 (CPU) | 12/15 | 2.2s |
+| `LLMJudge` gpt-6-luna | **15/15** (3 of 4 runs; 14 in the other) | ~2.1s (API) |
+| `LLMJudge` gpt-5.6-luna | 14/15 | ~2.1s (API) |
+| `LayaJudge` (default, MPS) | 13/15 | 0.2s |
+| `GlinerJudge` fp32 (CPU) | 12/15 | 1.8s |
 | `GlinerJudge` int8 (CPU) | 7/15 | 1.0s |
 
-GLiNER's misses were all false "supports" (it let "NASA was founded in 1972" through), so Laya stays the default.
+GLiNER's misses were all false "supports" (it let "NASA was founded in 1972" through). Batching the LLM judge into
+one call saves API calls but measured ~0.2s slower than parallel calls (one response writes every answer in
+sequence), so parallel is the default.
 Reproduce with `uv run --extra gliner python benchmarks/compare_judges.py`.
+
+**Claim filters** (`benchmarks/compare_claim_filters.py`, 19 statements): `LayaClaimFilter` 17/19 in 0.22s,
+`GlinerClaimFilter` 17/19 in 2.3s. Laya's misses keep two opinions (harmless: one extra search each); GLiNER's drop
+two real claims (they're never checked), so Laya stays the default.
 
 **Search without an API key:**
 
@@ -379,14 +394,15 @@ factassessor/
   assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
   pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Pred: the streaming runner
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
-  atom_filter.py     LayaCheckworthy: atoms -> factual atoms
+  claim_filter.py    ClaimFilter (role), LayaClaimFilter: atoms -> the factual claims
   search.py          Searcher (role), SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, hedging
   crawl.py           Crawler (role), Crawl4AICrawler, HTTPXCrawler, FallbackCrawler: url -> clean pages
   verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
   evidence_judge.py  Judge (role), LayaJudge
-  gliner.py          GlinerJudge: GLiNER2.5-decide via ONNX (optional extra)
+  gliner.py          GlinerJudge, GlinerClaimFilter: GLiNER2.5-decide via ONNX (optional extra), one shared model
   kg.py              knowledge graph (kg.build, kg.to_mermaid), built on demand from a result
-  laya.py            LayaRunner: shared model, micro-batching, batch cap
+  laya.py            the Laya runtime (internal): one model per device per process, micro-batching, batch cap
+  llm_judge.py       LLMJudge: the judge as a pydantic-ai structured call (optionally batched)
   passages.py        page cleaning, token-exact chunking, BM25
   schema.py          Atom, Evidence, AtomResult, CheckResult (fact_score computed from its atoms), stream events
 ```

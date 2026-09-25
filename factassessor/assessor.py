@@ -1,8 +1,8 @@
 """FactAssessor: the ready-made fact-checking pipeline, and the facade that runs any pipeline.
 
-    atomizer                         searcher (per claim)                crawler (per hit)
-    LLMAtomizer >> LayaCheckworthy   SerperSearcher >> not_blocked()     Crawl4AICrawler
-                >> Take(n_atoms)                    >> Take(top_k)
+    atomizer >> claim_filter              searcher (per claim)                crawler (per hit)
+    LLMAtomizer >> LayaClaimFilter        SerperSearcher >> not_blocked()     Crawl4AICrawler
+                >> Take(n_atoms)                         >> Take(top_k)
                     \\                                  judge: LayaJudge   policy: WeightedPolicy
                      `-> Verify(searcher, crawler, judge, policy) -> results -> fact score
                                                             (knowledge graph: kg.build(result), on demand)
@@ -19,23 +19,24 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-from factassessor.atom_filter import LayaCheckworthy
+from factassessor.claim_filter import ClaimFilter, LayaClaimFilter
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
 from factassessor.atomizer import LLMAtomizer
 from factassessor.crawl import Crawl4AICrawler
 from factassessor.evidence_judge import Judge, LayaJudge
-from factassessor.laya import LayaRunner
 from factassessor.pipeline import Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
 from factassessor.verify import Policy, Verify, WeightedPolicy
 
 _END = object()
+_DEFAULT: Any = object()  # "build the default" (so claim_filter=None can mean "no filter")
 
 
 class FactAssessor:
-    """Pass components to replace any part (`atomizer=`, `searcher=`, `crawler=`, `judge=`, `policy=`, `laya=`);
-    the other arguments configure the defaults and are ignored for a component you pass yourself."""
+    """Pass components to replace any part (`atomizer=`, `claim_filter=`, `searcher=`, `crawler=`, `judge=`,
+    `policy=`); the other arguments configure the defaults and are ignored for a component you pass yourself.
+    Model-backed components share their models automatically (one Laya, one GLiNER per process)."""
 
     def __init__(
         self,
@@ -45,7 +46,7 @@ class FactAssessor:
         device: str = "auto",
         serper_api_key: str | None = None,
         laya_model: str = "english",  # Laya checkpoint: english | multilingual | typed-decisions
-        checkworthy_threshold: float = 0.4,  # P(factual_claim); low on purpose: a dropped real claim is never checked
+        claim_threshold: float = 0.4,  # min claim_score to check an atom; low on purpose: a dropped real claim is never checked
         early_exit_conf: float = 0.9,  # 2+ passages this sure, none against -> stop gathering evidence
         strong_evidence: float = 0.7,  # a passage counts toward a verdict at or above this prob
         crawl_timeout: float = 2.5,
@@ -55,17 +56,19 @@ class FactAssessor:
         blocked_domains: tuple[str, ...] = BLOCKED_DOMAINS,
         timeout: float = 15.0,  # per claim; a claim still running then comes back unverified
         atomizer_model: str = DEFAULT_ATOMIZER_MODEL,
-        laya: LayaRunner | None = None,
         atomizer: Step | None = None,  # an Atomizer, or any chain starting with one (text -> atoms)
+        claim_filter: ClaimFilter | Step | None = _DEFAULT,  # None: no filter (e.g. your atomizer chain already filters)
         searcher: Step | None = None,  # a Searcher, or any chain starting with one (query -> hits)
         crawler: Step | None = None,  # a Crawler, or any step url -> page
         judge: Judge | None = None,
         policy: Policy | None = None,
     ) -> None:
-        self.laya = laya or LayaRunner(device)  # one model shared by the filter and the judge
-        self.laya_model = laya_model
-        self.atomizer = atomizer or (
-            LLMAtomizer(atomizer_model) >> LayaCheckworthy(self.laya, checkworthy_threshold, laya_model) >> Take(n_atoms)
+        self.atomizer = atomizer or LLMAtomizer(atomizer_model)
+        self.claim_filter = (
+            LayaClaimFilter(claim_threshold, model=laya_model, device=device) if claim_filter is _DEFAULT else claim_filter
+        )
+        self.atoms = (  # text -> the atoms worth checking
+            self.atomizer >> self.claim_filter >> Take(n_atoms) if self.claim_filter else self.atomizer >> Take(n_atoms)
         )
         self.searcher = searcher or (
             SerperSearcher(serper_api_key, num=2 * top_k, timeout=search_timeout, hedge_after=search_hedge_after)
@@ -73,7 +76,7 @@ class FactAssessor:
             >> Take(top_k)
         )
         self.crawler = crawler or Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
-        self.judge = judge or LayaJudge(self.laya, laya_model)
+        self.judge = judge or LayaJudge(model=laya_model, device=device)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf)
         self.verify = Verify(self.searcher, self.crawler, self.judge, self.policy, timeout=timeout)
         self._loop: asyncio.AbstractEventLoop | None = None  # background loop behind assess_sync()
@@ -95,7 +98,7 @@ class FactAssessor:
         async def run() -> None:
             dropped.set(skipped)  # filters report the atoms they drop here (this task's context only)
             try:
-                async for result in (self.atomizer >> Map(found) >> self.verify)(once(text)):
+                async for result in (self.atoms >> Map(found) >> self.verify)(once(text)):
                     results.append(result)
                     events.put_nowait(ClaimVerified(result=result))
             finally:
@@ -148,11 +151,11 @@ class FactAssessor:
 
     async def aload(self) -> None:
         """Warm up every component (Laya weights, browser, HTTP pool) so the first check is fast."""
-        await (self.atomizer >> self.verify).aload()
+        await (self.atoms >> self.verify).aload()
 
     async def aclose(self) -> None:
         """Close the browser and HTTP pool."""
-        await (self.atomizer >> self.verify).aclose()
+        await (self.atoms >> self.verify).aclose()
 
     async def __aenter__(self) -> FactAssessor:
         return self

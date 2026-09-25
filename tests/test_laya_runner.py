@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from factassessor import LayaRunner
+from factassessor.laya import LayaRunner
 
 
 class FakeRouter:

@@ -27,17 +27,22 @@ def _(mo):
     mo.md("""
     # FactAssessor
 
-    text → atoms (one fact each) → filter → search → crawl → judge → verdicts, fact score, knowledge graph.
+    text → atoms (one fact each) → claim filter → search → crawl → judge → verdicts, fact score, knowledge graph.
 
     **Build a pipeline** below by picking each part, see the exact code for your choice, and fact-check some text.
-    Further down: **recipes**, the different ways to set up a pipeline in code. For how the pieces work
-    inside, see `fa_walk.py`.
+    Further down: **recipes**, the different ways to set up a pipeline in code. For how the pieces work inside,
+    see `fa_walk.py`.
     """)
     return
 
 
 @app.cell
 def _(mo, os):
+    filter_choice = mo.ui.dropdown(
+        options=["Laya (local, default)", "GLiNER2.5-decide (ONNX, CPU)", "None (check every atom)"],
+        value="Laya (local, default)",
+        label="Claim filter",
+    )
     searcher_choice = mo.ui.dropdown(
         options=["Serper (Google)", "DuckDuckGo (no key)", "SearXNG (self-hosted)"], value="Serper (Google)", label="Searcher"
     )
@@ -50,13 +55,16 @@ def _(mo, os):
         label="Crawler",
     )
     judge_choice = mo.ui.dropdown(
-        options=["Laya (local, default)", "GLiNER2.5-decide (ONNX, CPU)"], value="Laya (local, default)", label="Judge"
+        options=["Laya (local, default)", "GLiNER2.5-decide (ONNX, CPU)", "LLM (gpt-6-luna, most accurate)"],
+        value="Laya (local, default)",
+        label="Judge",
     )
     n_atoms = mo.ui.slider(1, 12, value=5, label="Max claims (n_atoms)")
     top_k = mo.ui.slider(1, 10, value=5, label="Search results per claim (top_k)")
     mo.vstack(
         [
             mo.md("## Build a pipeline"),
+            filter_choice,
             mo.hstack([searcher_choice, sources_choice], justify="start"),
             serper_key,
             searxng_url,
@@ -64,14 +72,24 @@ def _(mo, os):
             mo.hstack([n_atoms, top_k], justify="start"),
         ]
     )
-    return crawler_choice, judge_choice, n_atoms, searcher_choice, searxng_url, serper_key, sources_choice, top_k
+    return (
+        crawler_choice, filter_choice, judge_choice, n_atoms, searcher_choice, searxng_url, serper_key, sources_choice, top_k,
+    )
 
 
 @app.cell
-def _(crawler_choice, judge_choice, mo, n_atoms, searcher_choice, sources_choice, top_k):
+def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice, sources_choice, top_k):
     # The Python for the current selection: exactly what the "Fact-check" button builds.
-    _imports = {"FactAssessor", "LayaCheckworthy", "LayaRunner", "LLMAtomizer", "Take", "not_blocked"}
-    _lines = ["laya = LayaRunner()   # one local Laya model, shared by the filter and the judge", ""]
+    _imports = {"FactAssessor", "LLMAtomizer", "Take", "not_blocked"}
+    _pre = []
+
+    _filter = {
+        "Laya (local, default)": ("LayaClaimFilter", "LayaClaimFilter(threshold=0.4)"),
+        "GLiNER2.5-decide (ONNX, CPU)": ("GlinerClaimFilter", 'GlinerClaimFilter(model="2.5-decide", threshold=0.4)'),
+        "None (check every atom)": (None, "None"),
+    }[filter_choice.value]
+    if _filter[0]:
+        _imports.add(_filter[0])
 
     _search = {
         "Serper (Google)": ("SerperSearcher", "SerperSearcher(num={num})"),
@@ -79,11 +97,11 @@ def _(crawler_choice, judge_choice, mo, n_atoms, searcher_choice, sources_choice
         "SearXNG (self-hosted)": ("SearxngSearcher", 'SearxngSearcher("http://localhost:8888", num={num})'),
     }[searcher_choice.value]
     _imports.add(_search[0])
-    _filters = "not_blocked()"
+    _keep = "not_blocked()"
     if sources_choice.value.startswith("Official"):
         _imports.add("Pred")
-        _lines += ['official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu", ".int")))', ""]
-        _filters = "(not_blocked() & official)"
+        _pre += ['official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu", ".int")))', ""]
+        _keep = "(not_blocked() & official)"
 
     _crawl = {
         "Browser (Crawl4AI)": ({"Crawl4AICrawler"}, "Crawl4AICrawler(timeout=2.5)"),
@@ -95,33 +113,34 @@ def _(crawler_choice, judge_choice, mo, n_atoms, searcher_choice, sources_choice
     }[crawler_choice.value]
     _imports |= _crawl[0]
 
-    _judge = "LayaJudge(laya)"
-    _extra_import = ""
-    if judge_choice.value.startswith("GLiNER"):
-        _judge = "GlinerJudge()"
-        _extra_import = "from factassessor.gliner import GlinerJudge   # fact-assessor[gliner]\n"
-    else:
-        _imports.add("LayaJudge")
+    _judge = {
+        "Laya (local, default)": ("LayaJudge", "LayaJudge()"),
+        "GLiNER2.5-decide (ONNX, CPU)": ("GlinerJudge", 'GlinerJudge(model="2.5-decide")'),
+        "LLM (gpt-6-luna, most accurate)": ("LLMJudge", 'LLMJudge("openai:gpt-6-luna")'),
+    }[judge_choice.value]
+    _imports.add(_judge[0])
 
-    _lines += [
+    _lines = _pre + [
         "fa = FactAssessor(",
-        "    laya=laya,",
-        f"    atomizer=LLMAtomizer() >> LayaCheckworthy(laya) >> Take({n_atoms.value}),",
-        f"    searcher={_search[1].format(num=2 * top_k.value)} >> {_filters} >> Take({top_k.value}),",
+        "    atomizer=LLMAtomizer(),",
+        f"    claim_filter={_filter[1]},",
+        f"    searcher={_search[1].format(num=2 * top_k.value)} >> {_keep} >> Take({top_k.value}),",
         f"    crawler={_crawl[1]},",
-        f"    judge={_judge},",
+        f"    judge={_judge[1]},",
+        f"    n_atoms={n_atoms.value},",
         ")",
         "",
         "result = await fa.assess(text)          # or: async for event in fa.stream(text): ...",
     ]
     code = (
         ("from urllib.parse import urlparse\n" if sources_choice.value.startswith("Official") else "")
-        + f"from factassessor import {', '.join(sorted(_imports, key=str.lower))}\n"
-        + _extra_import
-        + "\n"
+        + f"from factassessor import {', '.join(sorted(_imports, key=str.lower))}\n\n"
         + "\n".join(_lines)
     )
-    mo.md(f"**The code for this pipeline**\n\n```python\n{code}\n```")
+    mo.md(
+        f"**The code for this pipeline**\n\n```python\n{code}\n```\n\n"
+        "Model-backed parts share their models automatically: the Laya filter and Laya judge use one copy of Laya."
+    )
     return
 
 
@@ -134,11 +153,13 @@ def _():
         DuckDuckGoSearcher,
         FactAssessor,
         FallbackCrawler,
+        GlinerClaimFilter,
+        GlinerJudge,
         HTTPXCrawler,
-        LayaCheckworthy,
+        LayaClaimFilter,
         LayaJudge,
-        LayaRunner,
         LLMAtomizer,
+        LLMJudge,
         Pred,
         SearxngSearcher,
         SerperSearcher,
@@ -146,24 +167,27 @@ def _():
         not_blocked,
     )
 
-    # Shared across every combination you try, so switching doesn't load another model or open another browser.
-    laya = LayaRunner()
+    # Components built once and reused across every combination you try (models are shared inside anyway;
+    # this also keeps one browser and one HTTP pool).
     browser = Crawl4AICrawler(timeout=2.5)
     fast_fetch = HTTPXCrawler(timeout=2.5)
     official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu", ".int")))
-    judges = {}  # built once each, and warmed as soon as you pick one (next cell)
+    _cache = {}
 
-    def get_judge(judge_name):
-        if judge_name not in judges:
-            if judge_name.startswith("GLiNER"):
-                from factassessor.gliner import GlinerJudge  # fact-assessor[gliner]; ~1.75 GB on first use
+    def component(kind, name):
+        """The filter or judge for a dropdown choice, built once."""
+        if (kind, name) not in _cache:
+            _cache[(kind, name)] = {
+                ("filter", "Laya (local, default)"): lambda: LayaClaimFilter(threshold=0.4),
+                ("filter", "GLiNER2.5-decide (ONNX, CPU)"): lambda: GlinerClaimFilter(threshold=0.4),
+                ("filter", "None (check every atom)"): lambda: None,
+                ("judge", "Laya (local, default)"): lambda: LayaJudge(),
+                ("judge", "GLiNER2.5-decide (ONNX, CPU)"): lambda: GlinerJudge(),
+                ("judge", "LLM (gpt-6-luna, most accurate)"): lambda: LLMJudge("openai:gpt-6-luna"),
+            }[(kind, name)]()
+        return _cache[(kind, name)]
 
-                judges[judge_name] = GlinerJudge()
-            else:
-                judges[judge_name] = LayaJudge(laya)
-        return judges[judge_name]
-
-    def build(searcher_name, key, searxng, sources, crawler_name, judge_name, n, k):
+    def build(filter_name, searcher_name, key, searxng, sources, crawler_name, judge_name, n, k):
         search = {
             "Serper (Google)": lambda: SerperSearcher(api_key=key or None, num=2 * k),
             "DuckDuckGo (no key)": lambda: DuckDuckGoSearcher(num=2 * k),
@@ -176,26 +200,30 @@ def _():
             "HTTPX, then browser if needed": FallbackCrawler(fast_fetch, browser),
         }[crawler_name]
         return FactAssessor(
-            laya=laya,
-            atomizer=LLMAtomizer() >> LayaCheckworthy(laya) >> Take(n),
+            atomizer=LLMAtomizer(),
+            claim_filter=component("filter", filter_name),
             searcher=search >> keep >> Take(k),
             crawler=crawler,
-            judge=get_judge(judge_name),
+            judge=component("judge", judge_name),
+            n_atoms=n,
         )
 
-    return build, get_judge
+    return build, component
 
 
 @app.cell
-async def _(get_judge, judge_choice, mo):
+async def _(component, filter_choice, judge_choice, mo):
     import time as _time
 
-    # Auto warm-up: load the picked judge's model now (re-runs when you change the dropdown), so the first
-    # fact-check doesn't wait for it. Laya also serves the atom filter, so warming it covers both.
+    # Auto warm-up: load the picked filter's and judge's models now (re-runs when you change a dropdown), so the
+    # first fact-check doesn't wait for them. Models are shared, so warming Laya once covers filter and judge.
     _t = _time.perf_counter()
-    with mo.status.spinner(title=f"Loading {judge_choice.value}…"):
-        await get_judge(judge_choice.value).aload()
-    mo.md(f"✅ **{judge_choice.value}** ready ({_time.perf_counter() - _t:.1f}s)")
+    _parts = [component("filter", filter_choice.value), component("judge", judge_choice.value)]
+    with mo.status.spinner(title="Loading models…"):
+        for _part in _parts:
+            if _part is not None:
+                await (_part.start() if hasattr(_part, "start") else _part.aload())
+    mo.md(f"✅ Filter **{filter_choice.value}** and judge **{judge_choice.value}** ready ({_time.perf_counter() - _t:.1f}s)")
     return
 
 
@@ -216,12 +244,12 @@ def _(mo):
 
 
 @app.cell
-async def _(build, crawler_choice, judge_choice, mo, n_atoms, run_button, searcher_choice, searxng_url, serper_key, sources_choice, text_box, top_k):
+async def _(build, crawler_choice, filter_choice, judge_choice, mo, n_atoms, run_button, searcher_choice, searxng_url, serper_key, sources_choice, text_box, top_k):
     mo.stop(not run_button.value, mo.md("*Pick the parts above, then press **Fact-check**.*"))
     if searcher_choice.value.startswith("Serper") and not serper_key.value:
         mo.stop(True, mo.md("⚠️ Serper needs an API key: paste it above, add `SERPER_API_KEY` to `.env`, or pick DuckDuckGo."))
     fa = build(
-        searcher_choice.value, serper_key.value, searxng_url.value, sources_choice.value,
+        filter_choice.value, searcher_choice.value, serper_key.value, searxng_url.value, sources_choice.value,
         crawler_choice.value, judge_choice.value, n_atoms.value, top_k.value,
     )
     # stream(): each claim shows up as "checking…" as soon as it's found and flips to its verdict the moment it
@@ -274,7 +302,10 @@ def _(mo, result):
                 ],
                 selection=None,
             ),
-            mo.md("**Skipped** (not factual claims): " + (", ".join(f"*{s.text}*" for s in result.skipped) or "none")),
+            mo.md(
+                "**Skipped** (not factual claims): "
+                + (", ".join(f"*{s.text}* ({s.claim_score:.2f})" for s in result.skipped) or "none")
+            ),
         ]
     )
     return
@@ -285,7 +316,7 @@ def _(mo):
     mo.md("""
     ## Recipes: ways to set up a pipeline
 
-    **1. Defaults.** Everything built for you (Serper, browser crawler, Laya judge):
+    **1. Defaults.** Everything built for you (LLM atomizer, Laya claim filter, Serper, browser crawler, Laya judge):
 
     ```python
     from factassessor import FactAssessor
@@ -297,27 +328,25 @@ def _(mo):
     **2. Tune the defaults with arguments.** No composition needed:
 
     ```python
-    FactAssessor(n_atoms=8, top_k=3, checkworthy_threshold=0.5, crawl_timeout=2.0, search_hedge_after=1.0)
+    FactAssessor(n_atoms=8, top_k=3, claim_threshold=0.5, crawl_timeout=2.0, search_hedge_after=1.0)
     ```
 
-    **3. Swap one component.** Pass any implementation of its role; everything else stays default:
+    **3. Swap components.** Pass any implementation of a role; everything else stays default. Model-backed
+    components share their models automatically:
 
     ```python
-    FactAssessor(crawler=HTTPXCrawler())                                  # fast fetch, no browser
-    FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))   # fast first, browser if needed
-    FactAssessor(judge=GlinerJudge())                                     # from factassessor.gliner
+    FactAssessor(judge=LLMJudge("openai:gpt-6-luna"))                     # most accurate judge
+    FactAssessor(claim_filter=GlinerClaimFilter(), judge=GlinerJudge())   # GLiNER for both (one shared model)
+    FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))   # fast fetch, browser if needed
     ```
 
     **4. Chain steps with `>>`.** A condition (`Pred`) filters, a plain function transforms, `Take(n)` caps:
 
     ```python
-    long_enough = Pred(lambda atom: len(atom.text) > 15)
-    is_forum    = Pred(lambda hit: "reddit.com" in hit["url"] or "quora.com" in hit["url"])
+    is_forum = Pred(lambda hit: "reddit.com" in hit["url"] or "quora.com" in hit["url"])
 
-    laya = LayaRunner()
     FactAssessor(
-        laya=laya,
-        atomizer=LLMAtomizer() >> LayaCheckworthy(laya, threshold=0.5) >> long_enough >> Take(8),
+        claim_filter=LayaClaimFilter(threshold=0.5) >> Pred(lambda atom: len(atom.text) > 15),
         searcher=SerperSearcher(num=20) >> (not_blocked() & ~is_forum) >> Take(5),
     )
     ```
@@ -332,21 +361,26 @@ def _(mo):
     **6. Write your own component.** Subclass the role and implement its one method:
 
     ```python
-    from factassessor import Crawler
+    from factassessor import ClaimFilter, Crawler
+
+    class LengthFilter(ClaimFilter):
+        async def score(self, atom):
+            return 1.0 if len(atom.text) > 15 else 0.0      # P(factual claim)
 
     class MyCrawler(Crawler):
         async def crawl(self, url):
             ...   # return {"url", "title", "text"}, or None if it failed
 
-    FactAssessor(crawler=MyCrawler())
+    FactAssessor(claim_filter=LengthFilter(), crawler=MyCrawler())
     ```
 
     | Role | Implement | Built in |
     |---|---|---|
     | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
+    | `ClaimFilter` | `score(atom) -> P(claim)` | `LayaClaimFilter`, `GlinerClaimFilter` |
     | `Searcher` | `search(query)` | `SerperSearcher`, `DuckDuckGoSearcher`, `SearxngSearcher` |
     | `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `FallbackCrawler` |
-    | `Judge` | `judge(claim, docs)` | `LayaJudge`, `GlinerJudge` |
+    | `Judge` | `judge(claim, docs)` | `LayaJudge`, `GlinerJudge`, `LLMJudge` |
     | `Policy` | `settled(ev)`, `verdict(ev)` | `WeightedPolicy` |
     """)
     return

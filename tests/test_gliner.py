@@ -1,6 +1,7 @@
 import numpy as np
 
-from factassessor.gliner import LABELS, GlinerJudge
+from factassessor import Atom
+from factassessor.gliner import KIND, LABELS, STANCE, GlinerClaimFilter, GlinerJudge, GlinerModel
 
 CLAIM = "Marie Curie won the Nobel Prize in Physics."  # no year: the fake keys "supports" off "1903" in the evidence
 
@@ -35,11 +36,19 @@ class FakeSession:
         return [np.asarray(rows, dtype=np.float32)]
 
 
+def fake_model():
+    model = GlinerModel("fake/repo")
+    model.tok = WordPieces()
+    model.session = FakeSession(model.tok)
+    return model
+
+
 def judge(**kwargs):
     j = GlinerJudge(**kwargs)
-    tok = WordPieces()
-    j._tok, j._session = tok, FakeSession(tok)
-    j._prompt_ids, j._label_positions = j._encode_prompt()
+    j._model = fake_model()
+    j._session = j._model.session  # the tests below inspect the batches it ran
+    j._tok = j._model.tok
+    j._prompt_ids = j._model._prompt(STANCE)[0]
     return j
 
 
@@ -92,3 +101,25 @@ async def test_no_docs_skips_the_model():
     j = judge()
     assert await j.judge(CLAIM, []) == []
     assert j._session.batches == []
+
+
+async def test_gliner_claim_filter_scores_p_factual_claim():
+    class KindSession:
+        def run(self, outputs, feeds):
+            import numpy as np
+
+            return [np.asarray([[2.0, 0.0, 0.0, 0.0]] * len(feeds["input_ids"]), dtype=np.float32)]
+
+    f = GlinerClaimFilter(threshold=0.4)
+    f._model = fake_model()
+    f._model.session = KindSession()
+    score = await f.score(Atom(id=0, text="NASA was founded in 1958.", span=(0, 25)))
+    assert abs(score - float(np.exp(2) / (np.exp(2) + 3))) < 1e-6
+    assert list(KIND["labels"])[0] == "factual_claim"
+
+
+def test_judge_and_filter_share_one_model_per_model_and_variant():
+    from factassessor.gliner import gliner_model
+
+    assert GlinerJudge().gliner is GlinerClaimFilter().gliner is gliner_model("2.5-decide", "fp32")
+    assert GlinerJudge(variant="int8").gliner is not GlinerJudge().gliner

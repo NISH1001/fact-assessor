@@ -1,4 +1,4 @@
-from factassessor import Atom, LayaCheckworthy, Take, collect
+from factassessor import Atom, ClaimFilter, LayaClaimFilter, Take, collect
 from factassessor.pipeline import dropped
 
 ATOMS = [
@@ -25,26 +25,35 @@ async def atoms():
 
 
 async def test_drops_non_factual_and_scores_the_rest():
-    kept = await collect(LayaCheckworthy(FakeLaya(), threshold=0.4)(atoms()))
-    assert sorted((a.id, a.checkworthiness) for a in kept) == [(1, 0.83), (2, 0.89), (3, 0.45)]
+    kept = await collect(LayaClaimFilter(threshold=0.4, runner=FakeLaya())(atoms()))
+    assert sorted((a.id, a.claim_score) for a in kept) == [(1, 0.83), (2, 0.89), (3, 0.45)]
 
 
 async def test_dropped_atoms_are_reported_as_skipped():
     skipped = []
     token = dropped.set(skipped)
     try:
-        await collect(LayaCheckworthy(FakeLaya(), threshold=0.4)(atoms()))
+        await collect(LayaClaimFilter(threshold=0.4, runner=FakeLaya())(atoms()))
     finally:
         dropped.reset(token)
-    assert [(a.id, a.checkworthiness) for a in skipped] == [(0, 0.08)]
+    assert [(a.id, a.claim_score) for a in skipped] == [(0, 0.08)]
 
 
 async def test_one_laya_decision_per_atom_with_the_claim_as_state():
     laya = FakeLaya()
-    await collect(LayaCheckworthy(laya)(atoms()))
+    await collect(LayaClaimFilter(runner=laya)(atoms()))
     assert sorted(r["state"]["claim"] for r in laya.requests) == sorted(a.text for a in ATOMS)
 
 
 async def test_chains_with_take():
-    kept = await collect((LayaCheckworthy(FakeLaya(), threshold=0.4) >> Take(2))(atoms()))
+    kept = await collect((LayaClaimFilter(threshold=0.4, runner=FakeLaya()) >> Take(2))(atoms()))
     assert len(kept) == 2
+
+
+async def test_any_scoring_function_makes_a_claim_filter():
+    class LongIsFactual(ClaimFilter):
+        async def score(self, atom):
+            return 0.9 if len(atom.text) > 20 else 0.1
+
+    kept = await collect(LongIsFactual(threshold=0.5)(atoms()))
+    assert sorted(a.id for a in kept) == [1, 2, 3] and all(a.claim_score == 0.9 for a in kept)

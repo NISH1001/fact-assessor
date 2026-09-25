@@ -182,7 +182,8 @@ def _(mo):
     | `Judge` | `judge(claim, docs)` | `LayaJudge` (GLiNER2.5-decide: `GlinerJudge`, soon) |
     | `Policy` | `settled`, `verdict` | `WeightedPolicy` |
 
-    One shared **`LayaRunner`** holds the local Laya model; the filter and the judge both use it (it batches their
+    Model-backed components share their model automatically: the Laya claim filter and the Laya judge use one copy
+    of Laya, loaded once and batched together. Nothing to wire up; here we just warm it up so the first call is quick
     requests together).
     """)
     return
@@ -190,13 +191,12 @@ def _(mo):
 
 @app.cell
 async def _(time):
-    from factassessor import LayaRunner
+    from factassessor import LayaJudge as _LayaJudge
 
-    laya = LayaRunner()  # device="auto": cuda -> mps -> cpu
     _t = time.perf_counter()
-    await laya.agent("english")  # load the weights now (~3s; ~0.8 GB download the very first time)
+    await _LayaJudge().aload()  # loads the shared Laya model (~3s; ~0.8 GB download the very first time)
     print(f"Laya ready in {time.perf_counter() - _t:.1f}s")
-    return (laya,)
+    return
 
 
 @app.cell
@@ -222,7 +222,7 @@ async def _(mo, text):
 @app.cell
 def _(mo):
     mo.md("""
-    ### 3b. `LayaCheckworthy`: atoms → factual atoms
+    ### 3b. `LayaClaimFilter`: atoms → factual claims
 
     Scores P(factual claim) for each atom and drops opinions, greetings, and questions. It's a step, so it chains
     straight after the atomizer. Here every atom is scored (plus one opinion) to show what would be kept at 0.4.
@@ -231,17 +231,18 @@ def _(mo):
 
 
 @app.cell
-async def _(asyncio, atoms, laya, mo):
-    from factassessor import LayaCheckworthy
+async def _(asyncio, atoms, mo):
+    from factassessor import LayaClaimFilter
 
     _opinion = atoms[0].model_copy(update={"id": 99, "text": "I think this is the saddest thing ever."})
-    _scorer = LayaCheckworthy(laya, threshold=0.0)  # threshold 0 keeps everything, so we can see every score
-    _scored = await asyncio.gather(*(_scorer.score(a) for a in [*atoms, _opinion]))
+    _filter = LayaClaimFilter(threshold=0.4)
+    _all = [*atoms, _opinion]
+    _scores = await asyncio.gather(*(_filter.score(a) for a in _all))  # score(atom) -> P(factual claim)
     mo.ui.table(
-        [{"kept at 0.4": a.checkworthiness >= 0.4, "p_factual": round(a.checkworthiness, 2), "atom": a.text} for a in _scored],
+        [{"kept at 0.4": p >= _filter.threshold, "claim_score": round(p, 2), "atom": a.text} for a, p in zip(_all, _scores)],
         selection=None,
     )
-    return (LayaCheckworthy,)
+    return (LayaClaimFilter,)
 
 
 @app.cell
@@ -302,10 +303,10 @@ def _(mo):
 
 
 @app.cell
-async def _(atoms, laya, mo, page, raw_hits):
+async def _(atoms, mo, page, raw_hits):
     from factassessor import LayaJudge, WeightedPolicy
 
-    judge = LayaJudge(laya)
+    judge = LayaJudge()  # shares the Laya model the filter uses
     policy = WeightedPolicy(strong=0.7, early_exit=0.9)
     _evidence = await judge.judge(atoms[0].text, raw_hits[:5] + ([page] if page else []))
     _verdict, _confidence = policy.verdict(_evidence)
@@ -333,11 +334,11 @@ def _(mo):
 
 
 @app.cell
-async def _(LLMAtomizer, LayaCheckworthy, Pred, Take, collect, laya, mo, once, text):
+async def _(LLMAtomizer, LayaClaimFilter, Pred, Take, collect, mo, once, text):
     long_enough = Pred(lambda atom: len(atom.text) > 15)
-    atomizer_chain = LLMAtomizer() >> LayaCheckworthy(laya, threshold=0.4) >> long_enough >> Take(8)
+    atomizer_chain = LLMAtomizer() >> LayaClaimFilter(threshold=0.4) >> long_enough >> Take(8)
     _chained = await collect(atomizer_chain(once(text)))
-    mo.ui.table([{"atom": a.text, "p_factual": round(a.checkworthiness, 2)} for a in _chained], selection=None)
+    mo.ui.table([{"atom": a.text, "claim_score": round(a.claim_score, 2)} for a in _chained], selection=None)
     return (atomizer_chain,)
 
 
@@ -409,11 +410,11 @@ def _(
     atomizer_chain,
     crawler,
     judge,
-    laya,
     policy,
     searcher_chain,
 ):
-    custom = FactAssessor(laya=laya, atomizer=atomizer_chain, searcher=searcher_chain, crawler=crawler, judge=judge, policy=policy)
+    # the atomizer chain already filters, so claim_filter=None (otherwise FactAssessor adds its default filter)
+    custom = FactAssessor(atomizer=atomizer_chain, claim_filter=None, searcher=searcher_chain, crawler=crawler, judge=judge, policy=policy)
     return (custom,)
 
 

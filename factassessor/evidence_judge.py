@@ -12,7 +12,7 @@ import copy
 import threading
 from typing import Any
 
-from factassessor.laya import LayaRunner
+from factassessor.laya import laya_runner
 from factassessor.passages import chunk, top_passages
 from factassessor.schema import Evidence
 
@@ -52,15 +52,17 @@ class LayaJudge(Judge):
 
     def __init__(
         self,
-        laya: LayaRunner | None = None,
-        model: str = "english",
+        model: str = "english",  # Laya checkpoint: english | multilingual | typed-decisions
+        device: str = "auto",
         # Frozen-evidence benchmark (12 gold claims): 1 x 128 tokens matched 3 x ~290 on accuracy (10/12) at 1/3
         # the judge time. On MPS cost ~ pairs x tokens, and extra passages mostly added stray strong verdicts.
         passages_per_page: int = 1,
         passage_tokens: int | None = 128,
+        runner: Any = None,  # tests inject a fake; normally the process's shared Laya runner for this device
     ) -> None:
-        self.laya = laya or LayaRunner()
         self.model = model
+        self.device = device
+        self._runner = runner
         self.passages_per_page = passages_per_page
         self.passage_tokens = passage_tokens
         # HF fast tokenizers aren't thread-safe ("Already borrowed"): chunking gets its own copy, used under a lock,
@@ -70,13 +72,16 @@ class LayaJudge(Judge):
         self._tok_lock = threading.Lock()
 
     async def aload(self) -> None:
-        await self.laya.agent(self.model)
+        await self._laya().agent(self.model)
+
+    def _laya(self) -> Any:
+        return self._runner or laya_runner(self.device)
 
     async def judge(self, claim: str, docs: list[dict[str, Any]]) -> list[Evidence]:
         """docs: Serper hits {"url", "title", "snippet"} or crawled pages {"url", "title", "text"}.
         Snippets are judged as-is; pages are chunked with Laya's tokenizer to its exact budget first."""
         passages = await self._passages(claim, docs)
-        results = await self.laya.predict_batch(
+        results = await self._laya().predict_batch(
             [{"state": {"evidence": p["text"], "claim": claim}, "questions": QUESTION, "model": self.model} for p in passages]
         )
         evidence = []
@@ -95,7 +100,7 @@ class LayaJudge(Judge):
         pages = [d for d in docs if "text" in d]
         if pages:
             if self._tok is None:
-                agent = await self.laya.agent(self.model)
+                agent = await self._laya().agent(self.model)
                 self._tok = copy.deepcopy(agent.tok)
                 # Laya packs [CLS] question+options (<= head_max_len) [SEP] state [SEP] into max_len; margin covers
                 # the "evidence:"/"claim:" keys and re-tokenization drift.
