@@ -248,6 +248,45 @@ async def _(asyncio, atoms, mo):
 
 @app.cell
 def _(mo):
+    compare_gliner_filter = mo.ui.checkbox(label="Compare with GLiNER2.5-decide (downloads ~1.75 GB the first time)")
+    mo.vstack(
+        [
+            mo.md("""
+    **Other claim filters.** `ClaimFilter` is a role: any class with `score(atom)` works, and `FactAssessor(claim_filter=...)`
+    takes it. `GlinerClaimFilter` is the built-in alternative: 17/19 on `benchmarks/claim_cases.py` like Laya, but its misses
+    drop real claims (never checked) where Laya's keep opinions (one wasted search), and it's ~10x slower.
+    """),
+            compare_gliner_filter,
+        ]
+    )
+    return (compare_gliner_filter,)
+
+
+@app.cell
+async def _(LayaClaimFilter, asyncio, atoms, compare_gliner_filter, mo, time):
+    mo.stop(not compare_gliner_filter.value, mo.md("*Tick the box to score the same atoms with both filters.*"))
+    from factassessor import GlinerClaimFilter
+
+    _scores, _times = {}, {}
+    for _name, _filter in (("Laya", LayaClaimFilter()), ("GLiNER", GlinerClaimFilter())):
+        await _filter.start()
+        _t = time.perf_counter()
+        _scores[_name] = await asyncio.gather(*(_filter.score(a) for a in atoms))
+        _times[_name] = time.perf_counter() - _t
+    mo.vstack(
+        [
+            mo.md(f"Laya {_times['Laya'] * 1000:.0f} ms, GLiNER {_times['GLiNER'] * 1000:.0f} ms for {len(atoms)} atoms"),
+            mo.ui.table(
+                [{"atom": a.text, "Laya": round(l, 2), "GLiNER": round(g, 2)} for a, l, g in zip(atoms, _scores["Laya"], _scores["GLiNER"])],
+                selection=None,
+            ),
+        ]
+    )
+    return
+
+
+@app.cell
+def _(mo):
     mo.md("""
     ### 3c. `SerperSearcher`: query → search hits
 
@@ -294,6 +333,36 @@ async def _(mo, raw_hits):
 @app.cell
 def _(mo):
     mo.md("""
+    **Faster crawlers.** `Crawler` is a role too. `HTTPXCrawler` fetches with a plain HTTP request (no browser, no
+    JavaScript): much faster, but it can't read pages built by JavaScript. `FallbackCrawler(fast, browser)` tries the fast
+    one first and opens the browser only for pages it couldn't read. The same search hits through each:
+    """)
+    return
+
+
+@app.cell
+async def _(asyncio, crawler, mo, raw_hits, time):
+    from factassessor import FallbackCrawler, HTTPXCrawler
+
+    _urls = [h["url"] for h in raw_hits[:5]]
+    _fast = HTTPXCrawler(timeout=2.5)
+    _rows = []
+    for _name, _crawler in (
+        ("Crawl4AICrawler (browser)", crawler),
+        ("HTTPXCrawler", _fast),
+        ("FallbackCrawler(HTTPXCrawler, browser)", FallbackCrawler(_fast, crawler)),
+    ):
+        _t = time.perf_counter()
+        _pages = await asyncio.gather(*(_crawler.crawl(u) for u in _urls))
+        _rows.append({"crawler": _name, "pages read": f"{sum(p is not None for p in _pages)}/{len(_urls)}", "all at once": f"{time.perf_counter() - _t:.1f}s"})
+    await _fast.stop()
+    mo.ui.table(_rows, selection=None)
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""
     ### 3e. `LayaJudge` + `WeightedPolicy`: evidence → verdict
 
     The judge labels each passage *supports* / *refutes* / *not_enough_info* for a claim (pages are cut to their most
@@ -321,6 +390,47 @@ async def _(atoms, mo, page, raw_hits):
         ]
     )
     return judge, policy
+
+
+@app.cell
+def _(mo):
+    compare_llm = mo.ui.checkbox(label="LLMJudge (gpt-6-luna; calls the OpenAI API)")
+    compare_gliner_judge = mo.ui.checkbox(label="GlinerJudge (downloads ~1.75 GB the first time)")
+    mo.vstack(
+        [
+            mo.md("""
+    **Other judges.** `Judge` is a role (`judge(claim, docs)`). `LLMJudge` asks an LLM for structured verdicts (the most
+    accurate we measured: 15/15 vs Laya's 13/15, ~10x slower per pair); `GlinerJudge` runs GLiNER2.5-decide on CPU
+    (12/15). Tick to judge the same evidence with them:
+    """),
+            mo.hstack([compare_llm, compare_gliner_judge], justify="start"),
+        ]
+    )
+    return compare_gliner_judge, compare_llm
+
+
+@app.cell
+async def _(atoms, compare_gliner_judge, compare_llm, judge, mo, page, policy, raw_hits, time):
+    from factassessor import GlinerJudge, LLMJudge
+
+    _docs = raw_hits[:5] + ([page] if page else [])
+    _judges = [("LayaJudge", judge)]
+    if compare_llm.value:
+        _judges.append(("LLMJudge", LLMJudge()))
+    if compare_gliner_judge.value:
+        _judges.append(("GlinerJudge", GlinerJudge()))
+    _rows = []
+    for _name, _judge in _judges:
+        await _judge.aload()
+        _t = time.perf_counter()
+        _ev = await _judge.judge(atoms[0].text, _docs)
+        _verdict, _conf = policy.verdict(_ev)
+        _rows.append({
+            "judge": _name, "verdict": _verdict, "confidence": round(_conf, 2), "time": f"{time.perf_counter() - _t:.2f}s",
+            "labels": ", ".join(f"{e.label} {e.prob:.2f}" for e in _ev),
+        })
+    mo.ui.table(_rows, selection=None)
+    return
 
 
 @app.cell
@@ -398,9 +508,18 @@ def _(mo):
     mo.md("""
     ## 5. Putting it together
 
-    Hand your chains to `FactAssessor`: it wires them into `Verify`, runs every claim concurrently, and adds the fact
-    score and knowledge graph. `stream` shows each claim as it's found and flips it to its verdict the moment it
-    settles.
+    Hand your parts to `FactAssessor`: it wires them into `Verify` and runs every claim concurrently. Two ways to give it
+    a claim filter:
+
+    ```python
+    # 1. separate arguments: FactAssessor chains atomizer >> claim_filter >> Take(n_atoms) itself
+    FactAssessor(atomizer=LLMAtomizer(), claim_filter=LayaClaimFilter(threshold=0.4), searcher=..., judge=...)
+
+    # 2. a chain that already filters (what we built in section 4): say so with claim_filter=None
+    FactAssessor(atomizer=atomizer_chain, claim_filter=None, searcher=..., judge=...)
+    ```
+
+    `stream` shows each claim as it's found and flips it to its verdict the moment it settles.
     """)
     return
 
@@ -446,12 +565,38 @@ async def _(custom, mo, run_button, text_box):
 
 @app.cell
 def _(mo, result):
+    from collections import Counter
+
     from factassessor import kg
 
-    # the knowledge graph is a view of the result, built on demand (not a pipeline step)
+    # The knowledge graph is a view of the result, built on demand (~0.1ms), not a pipeline step.
     _graph = kg.build(result)
     _score = "n/a" if result.fact_score is None else f"{result.fact_score:.0%}"
-    mo.vstack([mo.md(f"**Fact score {_score}** in {result.latency_ms / 1000:.1f}s"), mo.mermaid(kg.to_mermaid(_graph))])
+    _nodes = Counter(n["kind"] for n in _graph["nodes"])
+    _edges = Counter(e["relation"] for e in _graph["edges"])
+    mo.vstack(
+        [
+            mo.md(f"""
+    ### The knowledge graph
+
+    **Fact score {_score}** (`result.fact_score`, computed from the claims) in {result.latency_ms / 1000:.1f}s.
+
+    `kg.build(result)` gives plain dicts: **{dict(_nodes)}** nodes and **{dict(_edges)}** edges.
+
+    - `sentence` →contains→ `claim`: which sentence of your text each claim came from (`same_sentence` links them)
+    - `passage` →supports / refutes (probability)→ `claim`: the evidence text behind each verdict; a passage used by
+      several claims is one node
+    - `source` →published→ `passage`: the site it came from
+
+    `kg.to_mermaid(graph)` draws it:
+    """),
+            mo.mermaid(kg.to_mermaid(_graph)),
+            mo.ui.table(
+                [{"from": e["source"], "relation": e["relation"], "weight": e["weight"], "to": e["target"]} for e in _graph["edges"]],
+                selection=None,
+            ),
+        ]
+    )
     return
 
 

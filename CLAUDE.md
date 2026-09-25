@@ -1,7 +1,8 @@
 # fact-assessor
 
 Async fact assessment: text → LLM atomizer → Laya filter → Serper → crawl4ai → Laya judge → verdicts, score, graph.
-See README.md for the pipeline, docs/design/decisions.md for measured trade-offs behind every choice, and
+See README.md for the pipeline, docs/WALKTHROUGH.md for a guided tour (mirrors notebooks/fa_walk.py; keep them in
+sync), docs/design/decisions.md for measured trade-offs behind every choice, and
 docs/design/streaming-pipeline.md for the planned composable design (draft, awaiting review).
 
 ## Conventions

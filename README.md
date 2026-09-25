@@ -96,7 +96,7 @@ uv sync
 uv run crawl4ai-setup
 cp .env.example .env           # then fill in the keys
 uv run marimo edit --no-sandbox notebooks/fa.py         # pick searcher / crawler / judge, see the code, run it
-uv run marimo edit --no-sandbox notebooks/fa_walk.py    # guided walk: building blocks -> custom pipeline
+uv run marimo edit --no-sandbox notebooks/fa_walk.py    # guided walk: building blocks -> custom pipeline (also docs/WALKTHROUGH.md)
 ```
 
 | Variable | Used by |
@@ -425,6 +425,7 @@ Benchmarks: `benchmarks/compare_judges.py` compares judges on `benchmarks/judge_
 - LLMAtomizer: keep opinions marked as opinions. Unwrapping hedges currently also strips "I think", so
   "I think pizza is the best food" becomes a plain claim; the default filter catches it, a custom one may not.
 
+Step-by-step tour with example output: [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md).
 Design notes: [docs/design/streaming-pipeline.md](docs/design/streaming-pipeline.md). Why things are the way they
 are (benchmarks, trade-offs): [docs/design/decisions.md](docs/design/decisions.md).
 
