@@ -95,7 +95,7 @@ git clone https://github.com/NISH1001/fact-assessor && cd fact-assessor
 uv sync
 uv run crawl4ai-setup
 cp .env.example .env           # then fill in the keys
-uv run marimo edit --no-sandbox notebooks/fa.py         # ways to build a pipeline; pick one and run it
+uv run marimo edit --no-sandbox notebooks/fa.py         # pick searcher / crawler / judge, see the code, run it
 uv run marimo edit --no-sandbox notebooks/fa_walk.py    # guided walk: building blocks -> custom pipeline
 ```
 
@@ -272,7 +272,7 @@ streaming, concurrency, and chaining come for free.
 |---|---|---|---|
 | `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer() >> LayaCheckworthy(laya) >> Take(n_atoms)` |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
-| `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)` |
+| `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `FallbackCrawler` |
 | `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge(laya)` |
 | `policy=` | `Policy` | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 | `laya=` | `LayaRunner` | | one per assessor, shared by filter and judge |
@@ -312,7 +312,27 @@ Another LLM for atomization (install its extra first, e.g. `uv add "pydantic-ai-
 How the composition works under the hood (streams, `>>`, concurrency, cancellation, where it isn't pure):
 [docs/design/functional.md](docs/design/functional.md).
 
-### Other judges and searchers
+### Other crawlers, judges, and searchers
+
+**Faster crawling.** `HTTPXCrawler` fetches pages with a plain HTTP request (no browser, no JavaScript);
+`FallbackCrawler` tries crawlers in order and keeps the first page with text:
+
+```python
+from factassessor import Crawl4AICrawler, FallbackCrawler, HTTPXCrawler
+
+FactAssessor(crawler=HTTPXCrawler())                                          # fastest; misses JavaScript pages
+FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))      # fast first, browser only if needed
+```
+
+| Crawler (same 20 live search-result URLs) | Pages read | All 20 at once | Per page (median) |
+|---|---|---|---|
+| `Crawl4AICrawler` (default) | 16/20 | 4.8s | 2.14s |
+| `HTTPXCrawler` | 11/20 | 1.0s | 0.15s |
+| `FallbackCrawler(HTTPX, browser)` | 16/20 | 2.9s | 1.15s |
+
+End to end the gain is smaller, since many claims settle on search snippets without crawling (Nepal example:
+6.1s → 5.2s median; mixed example: about the same). `HTTPXCrawler` has a 1s connect timeout plus a hard 2.5s total
+deadline (httpx's own timeouts are per phase), reads only HTML, and stops at 3 MB.
 
 **GLiNER2.5-decide judge** ([GLiNER2.5-decide](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model),
 another Jev/Laya-style decision model, as ONNX from
@@ -361,7 +381,7 @@ factassessor/
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
   atom_filter.py     LayaCheckworthy: atoms -> factual atoms
   search.py          Searcher (role), SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, hedging
-  crawl.py           Crawler (role), Crawl4AICrawler: url -> clean pages
+  crawl.py           Crawler (role), Crawl4AICrawler, HTTPXCrawler, FallbackCrawler: url -> clean pages
   verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
   evidence_judge.py  Judge (role), LayaJudge
   gliner.py          GlinerJudge: GLiNER2.5-decide via ONNX (optional extra)
@@ -377,9 +397,8 @@ Benchmarks: `benchmarks/compare_judges.py` compares judges on `benchmarks/judge_
 
 - **Streaming atomizer**: emit claims while the LLM is still writing them (the pipeline already streams from there
   on), so the first verdict arrives ~1s sooner.
-- **`HTTPXCrawler`**: plain HTTP fetch + text extraction for static pages (~0.2–0.5s vs ~1s for a browser), with
-  the browser as fallback. Timeouts: a short connect timeout plus a hard total deadline (httpx's own default is 5s
-  *per phase*, so a slow-dripping server can exceed it).
+- **Default crawler**: consider `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())` as the default once more
+  end-to-end runs confirm it's faster.
 - **Offline atomizer** (TODO): an `Atomizer` without an LLM, e.g. spaCy sentence/clause splitting plus coreference.
   An early prototype did this in ~5ms but kept multi-fact sentences together ("Nepal's 2017 earthquake of 7.8
   magnitude" is three facts), which let wrong details through; useful as a no-API fallback.

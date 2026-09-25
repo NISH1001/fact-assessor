@@ -849,9 +849,11 @@ name = "fact-assessor"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "beautifulsoup4" },
     { name = "crawl4ai" },
     { name = "httpx" },
     { name = "laya" },
+    { name = "lxml" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", extra = ["openai"] },
     { name = "python-dotenv" },
@@ -874,10 +876,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.15.0" },
     { name = "crawl4ai", specifier = ">=0.9.4" },
     { name = "ddgs", marker = "extra == 'ddg'", specifier = ">=9.16.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "laya", specifier = ">=0.3.20" },
+    { name = "lxml", specifier = ">=6.1.3" },
     { name = "onnxruntime", marker = "extra == 'gliner'", specifier = ">=1.30.0" },
     { name = "pydantic", specifier = ">=2.6" },
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.49.0" },

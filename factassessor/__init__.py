@@ -7,7 +7,7 @@ from factassessor import kg  # noqa: E402
 from factassessor.assessor import FactAssessor
 from factassessor.atom_filter import LayaCheckworthy
 from factassessor.atomizer import Atomizer, LLMAtomizer
-from factassessor.crawl import Crawl4AICrawler, Crawler
+from factassessor.crawl import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler
 from factassessor.evidence_judge import Judge, LayaJudge
 from factassessor.laya import LayaRunner
 from factassessor.pipeline import Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
@@ -29,7 +29,7 @@ __all__ = [
     # roles (base types) and their implementations
     "Atomizer", "LLMAtomizer",
     "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher",
-    "Crawler", "Crawl4AICrawler",
+    "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "FallbackCrawler",
     "Judge", "LayaJudge",
     "Policy", "WeightedPolicy",
     "LayaCheckworthy", "Verify", "LayaRunner",
