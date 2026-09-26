@@ -408,8 +408,9 @@ factassessor/
 ```
 
 Benchmarks: `scripts/compare_judges.py` compares judges on `data/judge_cases.json`, `scripts/compare_claim_filters.py`
-claim filters on `data/claim_cases.json`, and `scripts/eval.py` runs the whole pipeline on synthetic texts
-(`data/eval_texts.jsonl`, built from `data/fact_pairs.json` by `scripts/synthetic.py`).
+claim filters on `data/claim_cases.json`, and `scripts/eval.py` is the end-to-end harness: synthetic texts
+(`data/eval_texts.jsonl`, built from `data/fact_pairs.json`), evidence recorded once (DuckDuckGo by default), and
+laya / gliner / llm runs on it, with a comparison and plots in `data/results/` (`uv run python scripts/eval.py --help`).
 
 ## Roadmap
 

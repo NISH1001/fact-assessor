@@ -1,16 +1,18 @@
 {
- "variant": "laya",
+ "variant": "gliner",
  "live": false,
  "source": "recorded (ddg search, crawl4ai)",
+ "timeout": 600.0,
+ "llm_model": null,
  "warmup": {
-  "load": 4.685442542016972,
-  "claim_filter_first": 0.1428749170154333,
-  "claim_filter_warm": 0.03243175000534393,
-  "judge_first": 0.036309874994913116,
-  "judge_warm": 0.03141691698692739,
+  "load": 2.380623834003927,
+  "claim_filter_first": 0.12629504199139774,
+  "claim_filter_warm": 0.11905570898670703,
+  "judge_first": 0.10053012499702163,
+  "judge_warm": 0.09968158300034702,
   "assess": [
-   1.8988275840238202,
-   1.2333389580016956
+   17.196414916979847,
+   16.974868165998487
   ]
  },
  "texts": [
@@ -21,30 +23,30 @@
    "sentences": 3,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 1.2614473749999888,
-   "first_verdict_s": 0.9042853330029175,
+   "latency_s": 16.929805249994388,
+   "first_verdict_s": 14.76216499999282,
    "atoms": [
     {
      "text": "The chemical symbol for gold is Au.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9789,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Isaac Newton published the Principia in 1687.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9202,
+     "confidence": 0.7617064714431763,
      "error": null,
-     "pages": 4
+     "pages": 5
     },
     {
      "text": "The chemical formula of water is H2O.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9816,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     }
@@ -56,25 +58,25 @@
    "length": "short",
    "sentences": 2,
    "true_share": 1.0,
-   "fact_score": 1.0,
-   "latency_s": 0.36508454199065454,
-   "first_verdict_s": 0.3650194169895258,
+   "fact_score": null,
+   "latency_s": 4.580225624988088,
+   "first_verdict_s": 3.5866494580113795,
    "atoms": [
     {
      "text": "Neil Armstrong was the first person to walk on the Moon.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9679,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "Google was founded in 1998.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9846,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     }
    ]
   },
@@ -84,47 +86,47 @@
    "length": "short",
    "sentences": 4,
    "true_share": 1.0,
-   "fact_score": 1.0,
-   "latency_s": 1.5827765410067514,
-   "first_verdict_s": 1.179541916004382,
+   "fact_score": 0.5,
+   "latency_s": 13.388414082990494,
+   "first_verdict_s": 8.30033270799322,
    "atoms": [
     {
      "text": "Marie Curie won the Nobel Prize in Physics.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9252,
+     "confidence": 0.7412354350090027,
      "error": null,
      "pages": 5
     },
     {
      "text": "Marie Curie won the Nobel Prize in Physics in 1903.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.937,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Mars has two moons.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.967,
+     "verdict": "refuted",
+     "confidence": 0.8384697437286377,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Mariana Trench is the deepest known part of the ocean.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9705,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Pacific Ocean is the largest ocean on Earth.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9114,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     }
@@ -136,41 +138,41 @@
    "length": "short",
    "sentences": 4,
    "true_share": 0.0,
-   "fact_score": 0.0,
-   "latency_s": 1.62568112500594,
-   "first_verdict_s": 1.2069181250117254,
+   "fact_score": 1.0,
+   "latency_s": 16.424266542016994,
+   "first_verdict_s": 13.832005792006385,
    "atoms": [
     {
      "text": "The Titanic sank in 1915.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9537,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 3
     },
     {
      "text": "Mount Everest is about 6,200 meters tall.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9136,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 3
     },
     {
      "text": "Apollo 11 landed on the Moon in 1975.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9225,
+     "verdict": "supported",
+     "confidence": 0.7823382616043091,
      "error": null,
-     "pages": 2
+     "pages": 5
     },
     {
      "text": "Albert Einstein was born in Vienna.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9654,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     }
    ]
   },
@@ -180,33 +182,33 @@
    "length": "short",
    "sentences": 3,
    "true_share": 0.0,
-   "fact_score": 0.0,
-   "latency_s": 1.1005237080098595,
-   "first_verdict_s": 0.7806995419960003,
+   "fact_score": 1.0,
+   "latency_s": 9.436406000022544,
+   "first_verdict_s": 6.86415800001123,
    "atoms": [
     {
      "text": "Buzz Aldrin was the first person to walk on the Moon.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9501,
+     "verdict": "supported",
+     "confidence": 0.7691645622253418,
      "error": null,
      "pages": 5
     },
     {
      "text": "Saturn is the largest planet in the Solar System.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9574,
+     "verdict": "supported",
+     "confidence": 0.7681443095207214,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Apollo 11 landed on the Moon in 1975.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9225,
+     "verdict": "supported",
+     "confidence": 0.7823382616043091,
      "error": null,
-     "pages": 2
+     "pages": 5
     }
    ]
   },
@@ -217,30 +219,30 @@
    "sentences": 4,
    "true_share": 0.0,
    "fact_score": 0.0,
-   "latency_s": 1.6710908749955706,
-   "first_verdict_s": 1.3019147089798935,
+   "latency_s": 27.596851334004896,
+   "first_verdict_s": 24.116812209016643,
    "atoms": [
     {
      "text": "Albert Einstein was born in Vienna.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9654,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "The Atlantic Ocean is the largest ocean on Earth.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9542,
+     "confidence": 0.7272119522094727,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Google was founded in 1988.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9679,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
@@ -248,7 +250,7 @@
      "text": "Africa is the coldest continent.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.891,
+     "confidence": 0.8095808625221252,
      "error": null,
      "pages": 5
     }
@@ -261,24 +263,24 @@
    "sentences": 2,
    "true_share": 0.5,
    "fact_score": 0.5,
-   "latency_s": 0.2518448750197422,
-   "first_verdict_s": 0.2517767920217011,
+   "latency_s": 4.321707875002176,
+   "first_verdict_s": 3.050294083019253,
    "atoms": [
     {
      "text": "The Berlin Wall fell in 1979.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9688,
+     "confidence": 0.7158003449440002,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Hubble Space Telescope was launched in 1990.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9659,
+     "confidence": 0.7021505832672119,
      "error": null,
-     "pages": 0
+     "pages": 5
     }
    ]
   },
@@ -288,41 +290,41 @@
    "length": "short",
    "sentences": 4,
    "true_share": 0.5,
-   "fact_score": 0.5,
-   "latency_s": 1.3397032910143025,
-   "first_verdict_s": 1.229726625024341,
+   "fact_score": 0.6666666666666666,
+   "latency_s": 23.54281162499683,
+   "first_verdict_s": 20.264108957984718,
    "atoms": [
     {
      "text": "The Mariana Trench is the deepest known part of the ocean.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9705,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Isaac Newton published the Principia in 1787.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9487,
+     "verdict": "supported",
+     "confidence": 0.8052833676338196,
      "error": null,
-     "pages": 2
+     "pages": 4
     },
     {
      "text": "The Atlantic Ocean is the largest ocean on Earth.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9542,
+     "confidence": 0.7272119522094727,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Berlin Wall fell in 1989.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9697,
+     "confidence": 0.7088185548782349,
      "error": null,
-     "pages": 0
+     "pages": 4
     }
    ]
   },
@@ -332,33 +334,33 @@
    "length": "short",
    "sentences": 3,
    "true_share": 0.6666666666666666,
-   "fact_score": 0.6666666666666666,
-   "latency_s": 1.2763686669932213,
-   "first_verdict_s": 1.0114782500022557,
+   "fact_score": 1.0,
+   "latency_s": 14.601297416986199,
+   "first_verdict_s": 12.410161792009603,
    "atoms": [
     {
      "text": "Oxygen has the atomic number 12.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9681,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 4
     },
     {
      "text": "The chemical symbol for gold is Au.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9789,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The United States Declaration of Independence was adopted in 1776.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.945,
+     "confidence": 0.8346911668777466,
      "error": null,
-     "pages": 1
+     "pages": 5
     }
    ]
   },
@@ -368,81 +370,81 @@
    "length": "medium",
    "sentences": 9,
    "true_share": 1.0,
-   "fact_score": 1.0,
-   "latency_s": 1.5081584170111455,
-   "first_verdict_s": 1.3783036250097211,
+   "fact_score": 0.6666666666666666,
+   "latency_s": 20.7583593330055,
+   "first_verdict_s": 11.592181999993045,
    "atoms": [
     {
      "text": "Google was founded in 1998.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9846,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Burj Khalifa is in Dubai.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9633,
+     "confidence": 0.7070184350013733,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Light travels at about 300,000 kilometers per second in a vacuum.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9536,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "Marie Curie won the Nobel Prize in Physics in 1903.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.937,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Mariana Trench is the deepest known part of the ocean.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9705,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Antarctica is the coldest continent.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.956,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Hubble Space Telescope was launched in 1990.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9659,
+     "confidence": 0.7021505832672119,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Python was created by Guido van Rossum.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9754,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 3
+     "pages": 5
     },
     {
      "text": "Mars has two moons.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.967,
+     "verdict": "refuted",
+     "confidence": 0.8384697437286377,
      "error": null,
-     "pages": 0
+     "pages": 5
     }
    ]
   },
@@ -452,47 +454,47 @@
    "length": "medium",
    "sentences": 5,
    "true_share": 1.0,
-   "fact_score": 1.0,
-   "latency_s": 1.4368104580207728,
-   "first_verdict_s": 1.2364721670164727,
+   "fact_score": 0.0,
+   "latency_s": 12.938224500016076,
+   "first_verdict_s": 8.335029750014655,
    "atoms": [
     {
      "text": "Venus is the hottest planet in the Solar System.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9618,
+     "verdict": "refuted",
+     "confidence": 0.8190954327583313,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Great Fire of London happened in 1666.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9689,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Neil Armstrong was the first person to walk on the Moon.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9679,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "Antarctica is the coldest continent.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.956,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Pacific Ocean is the largest ocean on Earth.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9114,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     }
@@ -504,81 +506,81 @@
    "length": "medium",
    "sentences": 9,
    "true_share": 1.0,
-   "fact_score": 1.0,
-   "latency_s": 1.7107012910128105,
-   "first_verdict_s": 1.432513875013683,
+   "fact_score": 0.6666666666666666,
+   "latency_s": 58.17759254100383,
+   "first_verdict_s": 48.851174457988236,
    "atoms": [
     {
      "text": "The Titanic sank in 1912.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9276,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 2
+     "pages": 4
     },
     {
      "text": "An adult human skeleton has 206 bones.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9639,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Burj Khalifa is in Dubai.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9633,
+     "confidence": 0.7070184350013733,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The United States Declaration of Independence was adopted in 1776.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.945,
+     "confidence": 0.8346911668777466,
      "error": null,
-     "pages": 1
+     "pages": 5
     },
     {
      "text": "Albert Einstein was born in Ulm.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9792,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Colosseum is in Rome.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9699,
+     "verdict": "refuted",
+     "confidence": 0.7651532888412476,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Tokyo is the capital of Japan.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9737,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "NASA was founded in 1958.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9769,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Mariana Trench is the deepest known part of the ocean.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9705,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     }
    ]
   },
@@ -588,55 +590,55 @@
    "length": "medium",
    "sentences": 8,
    "true_share": 0.0,
-   "fact_score": 0.125,
-   "latency_s": 2.013643875019625,
-   "first_verdict_s": 1.3055429160012864,
+   "fact_score": 0.5,
+   "latency_s": 19.396291540993843,
+   "first_verdict_s": 11.683029040985275,
    "atoms": [
     {
      "text": "Mars has five moons.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9685,
+     "confidence": 0.8480495810508728,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "DNA has a triple helix structure.",
      "gold": false,
      "verdict": "supported",
-     "confidence": 0.9268,
+     "confidence": 0.7694284319877625,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Saturn is the largest planet in the Solar System.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9574,
+     "verdict": "supported",
+     "confidence": 0.7681443095207214,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Mount Kilimanjaro is in Peru.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9861,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Light travels at about 30,000 kilometers per second in a vacuum.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.8635,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 2
     },
     {
      "text": "Ludwig van Beethoven composed twenty symphonies.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9611,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -644,15 +646,15 @@
      "text": "The Colosseum is in Athens.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9634,
+     "confidence": 0.8095782995223999,
      "error": null,
      "pages": 4
     },
     {
      "text": "The Nile flows into the Red Sea.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9086,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     }
@@ -664,15 +666,15 @@
    "length": "medium",
    "sentences": 5,
    "true_share": 0.0,
-   "fact_score": 0.2,
-   "latency_s": 1.7365536249999423,
-   "first_verdict_s": 1.5371501669869758,
+   "fact_score": 0.5,
+   "latency_s": 174.70675850001862,
+   "first_verdict_s": 171.07387258301605,
    "atoms": [
     {
      "text": "Africa is the coldest continent.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.891,
+     "confidence": 0.8095808625221252,
      "error": null,
      "pages": 5
     },
@@ -680,33 +682,33 @@
      "text": "DNA has a triple helix structure.",
      "gold": false,
      "verdict": "supported",
-     "confidence": 0.9268,
+     "confidence": 0.7694284319877625,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Beijing hosted the Summer Olympics in 1996.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9745,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "An adult human skeleton has 306 bones.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9541,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9412,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     }
    ]
   },
@@ -716,15 +718,15 @@
    "length": "medium",
    "sentences": 7,
    "true_share": 0.0,
-   "fact_score": 0.0,
-   "latency_s": 2.8678401249926537,
-   "first_verdict_s": 0.11835929099470377,
+   "fact_score": 1.0,
+   "latency_s": 31.16113975000917,
+   "first_verdict_s": 0.25473683400196023,
    "atoms": [
     {
      "text": "The Panama Canal connects the Atlantic Ocean to the Indian Ocean.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.8873,
+     "verdict": "supported",
+     "confidence": 0.7129302620887756,
      "error": null,
      "pages": 5
     },
@@ -739,40 +741,40 @@
     {
      "text": "The first iPhone was released in 2010.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9783,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
     {
      "text": "Alexander Fleming discovered penicillin in 1958.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9648,
+     "verdict": "supported",
+     "confidence": 0.7815691232681274,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Buzz Aldrin was the first person to walk on the Moon.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9501,
+     "verdict": "supported",
+     "confidence": 0.7691645622253418,
      "error": null,
      "pages": 5
     },
     {
      "text": "Sydney is the capital of Australia.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.929,
+     "verdict": "supported",
+     "confidence": 0.7503511309623718,
      "error": null,
-     "pages": 3
+     "pages": 5
     },
     {
      "text": "Brazil has won the FIFA World Cup two times.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9328,
+     "verdict": "supported",
+     "confidence": 0.8454902768135071,
      "error": null,
      "pages": 5
     }
@@ -784,73 +786,73 @@
    "length": "medium",
    "sentences": 8,
    "true_share": 0.5,
-   "fact_score": 0.5,
-   "latency_s": 2.0003980420005973,
-   "first_verdict_s": 1.1583159170113504,
+   "fact_score": 0.0,
+   "latency_s": 22.14470825000899,
+   "first_verdict_s": 16.766997958999127,
    "atoms": [
     {
      "text": "The human heart has four chambers.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9606,
+     "verdict": "refuted",
+     "confidence": 0.8512001633644104,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Earth's atmosphere is about 78 percent nitrogen.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9813,
-     "error": null,
-     "pages": 4
-    },
-    {
-     "text": "Charles Dickens wrote Hamlet.",
-     "gold": false,
-     "verdict": "contested",
-     "confidence": 0.6574703500144633,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
     {
      "text": "The chemical symbol for gold is Au.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9789,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "An adult human skeleton has 306 bones.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9541,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "Oxygen has the atomic number 12.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9681,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 4
     },
     {
      "text": "Mount Everest is about 6,200 meters tall.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9136,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 3
     },
     {
      "text": "Russia is the largest country by area.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9673,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
+    },
+    {
+     "text": "Charles Dickens wrote Hamlet.",
+     "gold": false,
+     "verdict": "skipped",
+     "confidence": 0.0,
+     "error": null,
+     "pages": 0
     }
    ]
   },
@@ -860,17 +862,17 @@
    "length": "medium",
    "sentences": 9,
    "true_share": 0.4444444444444444,
-   "fact_score": 0.5,
-   "latency_s": 1.7976883339870255,
-   "first_verdict_s": 1.4568538339808583,
+   "fact_score": 0.6666666666666666,
+   "latency_s": 38.71217266700114,
+   "first_verdict_s": 30.36126170901116,
    "atoms": [
     {
      "text": "An adult human skeleton has 306 bones.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9541,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "The Puerto Rico Trench is the deepest known part of the ocean.",
@@ -883,58 +885,58 @@
     {
      "text": "The Soviet Union launched Sputnik 1 in 1967.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9556,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "NASA was founded in 1958.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9769,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Neil Armstrong was the first person to walk on the Moon.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9679,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "The pound is the SI base unit of mass.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9652,
+     "confidence": 0.7557342648506165,
      "error": null,
      "pages": 4
     },
     {
      "text": "Apollo 11 landed on the Moon in 1975.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9225,
+     "verdict": "supported",
+     "confidence": 0.7823382616043091,
      "error": null,
-     "pages": 2
+     "pages": 5
     },
     {
      "text": "Leonardo da Vinci painted the Mona Lisa.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.971,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Statue of Liberty was a gift from France.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9586,
+     "confidence": 0.7393209934234619,
      "error": null,
-     "pages": 0
+     "pages": 4
     }
    ]
   },
@@ -944,89 +946,89 @@
    "length": "medium",
    "sentences": 10,
    "true_share": 0.5,
-   "fact_score": 0.4,
-   "latency_s": 2.756918166007381,
-   "first_verdict_s": 1.7967488750000484,
+   "fact_score": 0.5,
+   "latency_s": 73.97888291699928,
+   "first_verdict_s": 63.82934454199858,
    "atoms": [
     {
      "text": "The Kalahari is the largest hot desert in the world.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9687,
+     "confidence": 0.7878091931343079,
      "error": null,
      "pages": 5
     },
     {
      "text": "The Eiffel Tower was completed in 1889.",
      "gold": true,
-     "verdict": "contested",
-     "confidence": 0.6422719176726697,
+     "verdict": "refuted",
+     "confidence": 0.7197921872138977,
      "error": null,
      "pages": 5
     },
     {
      "text": "NASA was founded in 1972.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9676,
+     "verdict": "supported",
+     "confidence": 0.7628434300422668,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Louvre Museum is in Paris.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9639,
+     "confidence": 0.7710362672805786,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The human heart has three chambers.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9609,
+     "confidence": 0.8212196230888367,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Charles Darwin published On the Origin of Species in 1901.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9629,
-     "error": null,
-     "pages": 1
-    },
-    {
-     "text": "Sydney is the capital of Australia.",
-     "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.929,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 3
     },
     {
+     "text": "Sydney is the capital of Australia.",
+     "gold": false,
+     "verdict": "supported",
+     "confidence": 0.7503511309623718,
+     "error": null,
+     "pages": 5
+    },
+    {
      "text": "An adult human skeleton has 206 bones.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9639,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Pacific Ocean is the largest ocean on Earth.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9114,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "The Titanic sank in 1912.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9276,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 2
+     "pages": 4
     }
    ]
   },
@@ -1036,177 +1038,177 @@
    "length": "long",
    "sentences": 21,
    "true_share": 1.0,
-   "fact_score": 1.0,
-   "latency_s": 4.340219583013095,
-   "first_verdict_s": 3.599161958001787,
+   "fact_score": 0.7,
+   "latency_s": 279.11173499998404,
+   "first_verdict_s": 259.0262621669972,
    "atoms": [
     {
      "text": "Venus is the hottest planet in the Solar System.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9618,
+     "verdict": "refuted",
+     "confidence": 0.8190954327583313,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Leonardo da Vinci painted the Mona Lisa.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.971,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Johann Sebastian Bach was born in 1685.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9571,
+     "confidence": 0.8587031364440918,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Ottawa is the capital of Canada.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9627,
+     "confidence": 0.7826933264732361,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Google was founded in 1998.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9846,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Albert Einstein was born in Ulm.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9792,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Louvre Museum is in Paris.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9639,
+     "confidence": 0.7710362672805786,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Alexander Graham Bell is credited with patenting the telephone in 1876.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9496,
+     "verdict": "refuted",
+     "confidence": 0.8035928606987,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "The Great Fire of London happened in 1666.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9689,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Oxygen has the atomic number 8.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9849,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "The Sahara is the largest hot desert in the world.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9747,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Burj Khalifa is in Dubai.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9633,
+     "confidence": 0.7070184350013733,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The United Nations was founded in 1945.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9669,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 4
+     "pages": 5
     },
     {
      "text": "The Berlin Wall fell in 1989.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9697,
+     "confidence": 0.7088185548782349,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The chemical symbol for gold is Au.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9789,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Apollo 11 landed on the Moon in 1969.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9422,
+     "confidence": 0.7657060027122498,
      "error": null,
-     "pages": 2
+     "pages": 5
     },
     {
      "text": "Light travels at about 300,000 kilometers per second in a vacuum.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9536,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "The Soviet Union launched Sputnik 1 in 1957.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9488,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 5
     },
     {
      "text": "The Panama Canal connects the Atlantic and Pacific Oceans.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9602,
+     "confidence": 0.7845250368118286,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The chemical formula of water is H2O.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9816,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
     {
      "text": "Water boils at 100 degrees Celsius at sea level.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.969,
+     "verdict": "refuted",
+     "confidence": 0.7350888848304749,
      "error": null,
-     "pages": 0
+     "pages": 4
     }
    ]
   },
@@ -1216,185 +1218,185 @@
    "length": "long",
    "sentences": 22,
    "true_share": 1.0,
-   "fact_score": 1.0,
-   "latency_s": 4.053096541989362,
-   "first_verdict_s": 2.872285874997033,
+   "fact_score": 0.4444444444444444,
+   "latency_s": 82.38542695899378,
+   "first_verdict_s": 60.09464416699484,
    "atoms": [
     {
      "text": "The kilogram is the SI base unit of mass.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9542,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Mariana Trench is the deepest known part of the ocean.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9705,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Light travels at about 300,000 kilometers per second in a vacuum.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9536,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "The Amazon River flows into the Atlantic Ocean.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9778,
+     "verdict": "refuted",
+     "confidence": 0.712742805480957,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "The first iPhone was released in 2007.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.954,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Water boils at 100 degrees Celsius at sea level.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.969,
+     "verdict": "refuted",
+     "confidence": 0.7350888848304749,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The chemical symbol for gold is Au.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9789,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Oxygen has the atomic number 8.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9849,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "The United States Declaration of Independence was adopted in 1776.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.945,
+     "confidence": 0.8346911668777466,
      "error": null,
-     "pages": 1
+     "pages": 5
     },
     {
      "text": "Mars has two moons.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.967,
+     "verdict": "refuted",
+     "confidence": 0.8384697437286377,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Charles Darwin published On the Origin of Species in 1859.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9524,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 2
+     "pages": 4
     },
     {
      "text": "Antarctica is the coldest continent.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.956,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Tokyo is the capital of Japan.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9737,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Ottawa is the capital of Canada.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9627,
+     "confidence": 0.7826933264732361,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Ludwig van Beethoven composed nine symphonies.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9125,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 2
+     "pages": 3
     },
     {
      "text": "Brazil has won the FIFA World Cup five times.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9766,
+     "confidence": 0.7479270696640015,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Colosseum is in Rome.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9699,
+     "verdict": "refuted",
+     "confidence": 0.7651532888412476,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The chemical formula of water is H2O.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9816,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
     {
      "text": "The Pacific Ocean is the largest ocean on Earth.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9114,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "NASA was founded in 1958.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9769,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Venus is the hottest planet in the Solar System.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9618,
+     "verdict": "refuted",
+     "confidence": 0.8190954327583313,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Isaac Newton published the Principia in 1687.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9202,
+     "confidence": 0.7617064714431763,
      "error": null,
-     "pages": 4
+     "pages": 5
     }
    ]
   },
@@ -1404,177 +1406,177 @@
    "length": "long",
    "sentences": 21,
    "true_share": 1.0,
-   "fact_score": 1.0,
-   "latency_s": 3.771843499998795,
-   "first_verdict_s": 2.806347832985921,
+   "fact_score": 0.5454545454545454,
+   "latency_s": 107.63198554099654,
+   "first_verdict_s": 85.78906729098526,
    "atoms": [
     {
      "text": "Isaac Newton published the Principia in 1687.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9202,
+     "confidence": 0.7617064714431763,
      "error": null,
-     "pages": 4
+     "pages": 5
     },
     {
      "text": "The Louvre Museum is in Paris.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9639,
+     "confidence": 0.7710362672805786,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Marie Curie won the Nobel Prize in Physics in 1903.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.937,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Statue of Liberty was a gift from France.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9586,
+     "confidence": 0.7393209934234619,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Hubble Space Telescope was launched in 1990.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9659,
+     "confidence": 0.7021505832672119,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Alexander Graham Bell is credited with patenting the telephone in 1876.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9496,
+     "verdict": "refuted",
+     "confidence": 0.8035928606987,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "The Pacific Ocean is the largest ocean on Earth.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9114,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "Python was created by Guido van Rossum.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9754,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 3
+     "pages": 5
     },
     {
      "text": "Neil Armstrong was the first person to walk on the Moon.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9679,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "The Titanic sank in 1912.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9276,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 2
+     "pages": 4
     },
     {
      "text": "The Wright brothers made their first powered flight in 1903.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.8928,
+     "verdict": "refuted",
+     "confidence": 0.7123217582702637,
      "error": null,
      "pages": 4
     },
     {
      "text": "The human heart has four chambers.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9606,
+     "verdict": "refuted",
+     "confidence": 0.8512001633644104,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Canberra is the capital of Australia.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9772,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "William Shakespeare wrote Hamlet.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9495,
+     "verdict": "contested",
+     "confidence": 0.5349629923078589,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Alexander Fleming discovered penicillin in 1928.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9836,
+     "confidence": 0.7285684943199158,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The kilogram is the SI base unit of mass.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9542,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Nile flows into the Mediterranean Sea.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9634,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "Water boils at 100 degrees Celsius at sea level.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.969,
+     "verdict": "refuted",
+     "confidence": 0.7350888848304749,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Antarctica is the coldest continent.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.956,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The chemical symbol for gold is Au.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9789,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The United States Declaration of Independence was adopted in 1776.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.945,
+     "confidence": 0.8346911668777466,
      "error": null,
-     "pages": 1
+     "pages": 5
     }
    ]
   },
@@ -1584,55 +1586,55 @@
    "length": "long",
    "sentences": 16,
    "true_share": 0.0,
-   "fact_score": 0.06666666666666667,
-   "latency_s": 3.5085460409754887,
-   "first_verdict_s": 2.13250991597306,
+   "fact_score": 0.5,
+   "latency_s": 51.994751749996794,
+   "first_verdict_s": 35.431303124991246,
    "atoms": [
     {
      "text": "Mars has five moons.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9685,
+     "confidence": 0.8480495810508728,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Charles Darwin published On the Origin of Species in 1901.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9629,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 3
     },
     {
      "text": "The Eiffel Tower was completed in 1925.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9672,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Buzz Aldrin was the first person to walk on the Moon.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9501,
+     "verdict": "supported",
+     "confidence": 0.7691645622253418,
      "error": null,
      "pages": 5
     },
     {
      "text": "The Great Barrier Reef is off the coast of Brazil.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9515,
+     "verdict": "supported",
+     "confidence": 0.7674680352210999,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Titanic sank in 1915.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9537,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 3
     },
@@ -1640,39 +1642,39 @@
      "text": "Alexander Graham Bell is credited with patenting the telephone in 1926.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9407,
+     "confidence": 0.8037148118019104,
      "error": null,
      "pages": 3
     },
     {
      "text": "The United Nations was founded in 1955.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9762,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The chemical symbol for gold is Ag.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.942,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "The Hubble Space Telescope was launched in 2005.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.979,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Amazon River flows into the Pacific Ocean.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.9191,
+     "verdict": "refuted",
+     "confidence": 0.7485194206237793,
      "error": null,
      "pages": 4
     },
@@ -1680,41 +1682,41 @@
      "text": "The Kalahari is the largest hot desert in the world.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9687,
+     "confidence": 0.7878091931343079,
      "error": null,
      "pages": 5
     },
     {
      "text": "Alexander Fleming discovered penicillin in 1958.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9648,
+     "verdict": "supported",
+     "confidence": 0.7815691232681274,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Louvre Museum is in Madrid.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9727,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
-    },
-    {
-     "text": "Sydney is the capital of Australia.",
-     "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.929,
-     "error": null,
-     "pages": 3
+     "pages": 5
     },
     {
      "text": "The Statue of Liberty was a gift from Spain.",
      "gold": false,
-     "verdict": "skipped",
+     "verdict": "unverified",
      "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
+    },
+    {
+     "text": "Sydney is the capital of Australia.",
+     "gold": false,
+     "verdict": "supported",
+     "confidence": 0.7503511309623718,
+     "error": null,
+     "pages": 5
     }
    ]
   },
@@ -1724,9 +1726,9 @@
    "length": "long",
    "sentences": 16,
    "true_share": 0.0,
-   "fact_score": 0.14285714285714285,
-   "latency_s": 3.4191102080221754,
-   "first_verdict_s": 0.24656391600728966,
+   "fact_score": 0.7142857142857143,
+   "latency_s": 201.81515845799004,
+   "first_verdict_s": 0.12216787500074133,
    "atoms": [
     {
      "text": "Penguins live mainly in the Northern Hemisphere.",
@@ -1739,104 +1741,104 @@
     {
      "text": "An adult human skeleton has 306 bones.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9541,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "NASA was founded in 1972.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9676,
+     "verdict": "supported",
+     "confidence": 0.7628434300422668,
      "error": null,
-     "pages": 0
+     "pages": 5
+    },
+    {
+     "text": "The Statue of Liberty was a gift from Spain.",
+     "gold": false,
+     "verdict": "unverified",
+     "confidence": 0.0,
+     "error": null,
+     "pages": 5
     },
     {
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9412,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "DNA has a triple helix structure.",
      "gold": false,
      "verdict": "supported",
-     "confidence": 0.9268,
+     "confidence": 0.7694284319877625,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Apollo 11 landed on the Moon in 1975.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9225,
+     "verdict": "supported",
+     "confidence": 0.7823382616043091,
      "error": null,
-     "pages": 2
+     "pages": 5
     },
     {
      "text": "The chemical symbol for gold is Ag.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.942,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "Marie Curie won the Nobel Prize in Physics in 1925.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9337,
+     "verdict": "supported",
+     "confidence": 0.8969405889511108,
      "error": null,
      "pages": 5
     },
     {
      "text": "The first Harry Potter book was published in 2005.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9656,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
-     "text": "Charles Dickens wrote Hamlet.",
+     "text": "Mount Kilimanjaro is in Peru.",
      "gold": false,
-     "verdict": "contested",
-     "confidence": 0.6574703500144633,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
     {
-     "text": "Mount Kilimanjaro is in Peru.",
-     "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9861,
-     "error": null,
-     "pages": 0
-    },
-    {
      "text": "The Amazon River flows into the Pacific Ocean.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.9191,
+     "verdict": "refuted",
+     "confidence": 0.7485194206237793,
      "error": null,
      "pages": 4
     },
     {
      "text": "The Great Barrier Reef is off the coast of Brazil.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9515,
+     "verdict": "supported",
+     "confidence": 0.7674680352210999,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Ludwig van Beethoven composed twenty symphonies.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9611,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -1844,12 +1846,12 @@
      "text": "The human heart has three chambers.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9609,
+     "confidence": 0.8212196230888367,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
-     "text": "The Statue of Liberty was a gift from Spain.",
+     "text": "Charles Dickens wrote Hamlet.",
      "gold": false,
      "verdict": "skipped",
      "confidence": 0.0,
@@ -1864,73 +1866,73 @@
    "length": "long",
    "sentences": 23,
    "true_share": 0.0,
-   "fact_score": 0.09523809523809523,
-   "latency_s": 5.14080950000789,
-   "first_verdict_s": 0.28820499998982996,
+   "fact_score": 0.4,
+   "latency_s": 234.1894826250209,
+   "first_verdict_s": 1.7312338750052731,
    "atoms": [
     {
      "text": "The Eiffel Tower was completed in 1925.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9672,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Titanic sank in 1915.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9537,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 3
     },
     {
      "text": "Beijing hosted the Summer Olympics in 1996.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9745,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Mars has five moons.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9685,
+     "confidence": 0.8480495810508728,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The chemical symbol for gold is Ag.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.942,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "Ludwig van Beethoven composed twenty symphonies.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9611,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "The United States Declaration of Independence was adopted in 1812.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9521,
+     "verdict": "supported",
+     "confidence": 0.7792773842811584,
      "error": null,
-     "pages": 3
+     "pages": 5
     },
     {
      "text": "The Louvre Museum is in Madrid.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9727,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 5
     },
     {
      "text": "Earth's atmosphere is about 21 percent nitrogen.",
@@ -1943,8 +1945,8 @@
     {
      "text": "The Nile flows into the Red Sea.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9086,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -1952,25 +1954,25 @@
      "text": "DNA has a triple helix structure.",
      "gold": false,
      "verdict": "supported",
-     "confidence": 0.9268,
+     "confidence": 0.7694284319877625,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The chemical formula of water is H3O.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9273,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
     {
      "text": "Apollo 11 landed on the Moon in 1975.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9225,
+     "verdict": "supported",
+     "confidence": 0.7823382616043091,
      "error": null,
-     "pages": 2
+     "pages": 5
     },
     {
      "text": "Penguins live mainly in the Northern Hemisphere.",
@@ -1983,40 +1985,40 @@
     {
      "text": "The Amazon River flows into the Pacific Ocean.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.9191,
+     "verdict": "refuted",
+     "confidence": 0.7485194206237793,
      "error": null,
      "pages": 4
     },
     {
      "text": "Mount Kilimanjaro is in Peru.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9861,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9412,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "The human heart has three chambers.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9609,
+     "confidence": 0.8212196230888367,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Kalahari is the largest hot desert in the world.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9687,
+     "confidence": 0.7878091931343079,
      "error": null,
      "pages": 5
     },
@@ -2024,31 +2026,31 @@
      "text": "The Berlin Wall fell in 1979.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9688,
+     "confidence": 0.7158003449440002,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The pound is the SI base unit of mass.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9652,
+     "confidence": 0.7557342648506165,
      "error": null,
      "pages": 4
     },
     {
      "text": "Charles Darwin published On the Origin of Species in 1901.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9629,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 3
     },
     {
      "text": "Brazil has won the FIFA World Cup two times.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9328,
+     "verdict": "supported",
+     "confidence": 0.8454902768135071,
      "error": null,
      "pages": 5
     }
@@ -2060,49 +2062,49 @@
    "length": "long",
    "sentences": 20,
    "true_share": 0.5,
-   "fact_score": 0.5555555555555556,
-   "latency_s": 4.6386890829890035,
-   "first_verdict_s": 3.261563832988031,
+   "fact_score": 0.7142857142857143,
+   "latency_s": 233.63068562501576,
+   "first_verdict_s": 213.40826954200747,
    "atoms": [
     {
      "text": "The Hubble Space Telescope was launched in 1990.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9659,
+     "confidence": 0.7021505832672119,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Berlin Wall fell in 1989.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9697,
+     "confidence": 0.7088185548782349,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Charles Darwin published On the Origin of Species in 1901.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9629,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 3
     },
     {
      "text": "The Soviet Union launched Sputnik 1 in 1957.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9488,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 5
     },
     {
      "text": "Mount Kilimanjaro is in Tanzania.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.977,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Earth's atmosphere is about 21 percent nitrogen.",
@@ -2115,40 +2117,40 @@
     {
      "text": "Python was created by James Gosling.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9502,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 3
     },
     {
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9412,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "Saturn is the largest planet in the Solar System.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9574,
+     "verdict": "supported",
+     "confidence": 0.7681443095207214,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Isaac Newton published the Principia in 1687.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9202,
+     "confidence": 0.7617064714431763,
      "error": null,
-     "pages": 4
+     "pages": 5
     },
     {
      "text": "The first Harry Potter book was published in 2005.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9656,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -2156,73 +2158,73 @@
      "text": "Alexander Graham Bell is credited with patenting the telephone in 1926.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9407,
+     "confidence": 0.8037148118019104,
      "error": null,
      "pages": 3
     },
     {
      "text": "The kilogram is the SI base unit of mass.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9542,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Beijing hosted the Summer Olympics in 2008.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9655,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "An adult human skeleton has 206 bones.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9639,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Kalahari is the largest hot desert in the world.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9687,
+     "confidence": 0.7878091931343079,
      "error": null,
      "pages": 5
     },
     {
      "text": "The Eiffel Tower was completed in 1925.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9672,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
+    },
+    {
+     "text": "The Burj Khalifa is in Doha.",
+     "gold": false,
+     "verdict": "unverified",
+     "confidence": 0.0,
+     "error": null,
+     "pages": 4
     },
     {
      "text": "Leonardo da Vinci painted the Mona Lisa.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.971,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Statue of Liberty was a gift from France.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9586,
+     "confidence": 0.7393209934234619,
      "error": null,
-     "pages": 0
-    },
-    {
-     "text": "The Burj Khalifa is in Doha.",
-     "gold": false,
-     "verdict": "skipped",
-     "confidence": 0.0,
-     "error": null,
-     "pages": 0
+     "pages": 4
     }
    ]
   },
@@ -2232,15 +2234,15 @@
    "length": "long",
    "sentences": 25,
    "true_share": 0.48,
-   "fact_score": 0.5384615384615384,
-   "latency_s": 6.718676333985059,
-   "first_verdict_s": 4.094049499981338,
+   "fact_score": 0.6666666666666666,
+   "latency_s": 107.18340983398957,
+   "first_verdict_s": 79.30059425000218,
    "atoms": [
     {
      "text": "Apollo 11 landed on the Moon.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9273,
+     "confidence": 0.7628880739212036,
      "error": null,
      "pages": 5
     },
@@ -2248,204 +2250,204 @@
      "text": "Apollo 11 landed on the Moon in 1969.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9422,
+     "confidence": 0.7657060027122498,
      "error": null,
-     "pages": 2
+     "pages": 5
     },
     {
      "text": "The kilogram is the SI base unit of mass.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9542,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Canada is the largest country by area.",
      "gold": false,
-     "verdict": "contested",
-     "confidence": 0.578653672970539,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "Sydney is the capital of Australia.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.929,
+     "verdict": "supported",
+     "confidence": 0.7503511309623718,
      "error": null,
-     "pages": 3
+     "pages": 5
     },
     {
      "text": "The United Nations was founded in 1945.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9669,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 4
+     "pages": 5
     },
     {
      "text": "Mount Kilimanjaro is in Peru.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9861,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Great Fire of London happened in 1666.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9689,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Earth's atmosphere is about 78 percent nitrogen.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9813,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
     {
      "text": "Python was created by Guido van Rossum.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9754,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 3
+     "pages": 5
     },
     {
      "text": "The Statue of Liberty was a gift from France.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9586,
-     "error": null,
-     "pages": 0
-    },
-    {
-     "text": "Light travels at about 300,000 kilometers per second in a vacuum.",
-     "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9536,
-     "error": null,
-     "pages": 0
-    },
-    {
-     "text": "Albert Einstein was born in Ulm.",
-     "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9792,
-     "error": null,
-     "pages": 0
-    },
-    {
-     "text": "The Hubble Space Telescope was launched in 2005.",
-     "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.979,
-     "error": null,
-     "pages": 0
-    },
-    {
-     "text": "Charles Dickens wrote Hamlet.",
-     "gold": false,
-     "verdict": "contested",
-     "confidence": 0.6574703500144633,
+     "confidence": 0.7393209934234619,
      "error": null,
      "pages": 4
     },
     {
+     "text": "Light travels at about 300,000 kilometers per second in a vacuum.",
+     "gold": true,
+     "verdict": "unverified",
+     "confidence": 0.0,
+     "error": null,
+     "pages": 2
+    },
+    {
+     "text": "Albert Einstein was born in Ulm.",
+     "gold": true,
+     "verdict": "unverified",
+     "confidence": 0.0,
+     "error": null,
+     "pages": 4
+    },
+    {
+     "text": "The Hubble Space Telescope was launched in 2005.",
+     "gold": false,
+     "verdict": "unverified",
+     "confidence": 0.0,
+     "error": null,
+     "pages": 5
+    },
+    {
      "text": "The Louvre Museum is in Madrid.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9727,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 1
+     "pages": 5
     },
     {
      "text": "Isaac Newton published the Principia in 1687.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9202,
+     "confidence": 0.7617064714431763,
      "error": null,
-     "pages": 4
+     "pages": 5
     },
     {
      "text": "NASA was founded in 1972.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9676,
+     "verdict": "supported",
+     "confidence": 0.7628434300422668,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Ludwig van Beethoven composed twenty symphonies.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9611,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "Alexander Graham Bell is credited with patenting the telephone.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.9572,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "Alexander Graham Bell is credited with patenting the telephone in 1926.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9407,
+     "confidence": 0.8037148118019104,
      "error": null,
      "pages": 3
     },
     {
      "text": "The human heart has four chambers.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9606,
+     "verdict": "refuted",
+     "confidence": 0.8512001633644104,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The first Harry Potter book was published in 2005.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9656,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "Toronto is the capital of Canada.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.8572,
+     "verdict": "contested",
+     "confidence": 0.512745855570288,
      "error": null,
      "pages": 4
     },
     {
      "text": "The Eiffel Tower was completed in 1925.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9672,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The chemical symbol for gold is Au.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9789,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "The Burj Khalifa is in Doha.",
+     "gold": false,
+     "verdict": "unverified",
+     "confidence": 0.0,
+     "error": null,
+     "pages": 4
+    },
+    {
+     "text": "Charles Dickens wrote Hamlet.",
      "gold": false,
      "verdict": "skipped",
      "confidence": 0.0,
@@ -2460,25 +2462,25 @@
    "length": "long",
    "sentences": 19,
    "true_share": 0.5263157894736842,
-   "fact_score": 0.6470588235294118,
-   "latency_s": 4.601906833006069,
-   "first_verdict_s": 3.3787282910197973,
+   "fact_score": 0.4444444444444444,
+   "latency_s": 282.56586216698634,
+   "first_verdict_s": 263.26263566699345,
    "atoms": [
     {
      "text": "Brazil has won the FIFA World Cup five times.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9766,
+     "confidence": 0.7479270696640015,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Jupiter is the largest planet in the Solar System.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9594,
+     "verdict": "refuted",
+     "confidence": 0.7583116888999939,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Earth's atmosphere is about 21 percent nitrogen.",
@@ -2499,40 +2501,40 @@
     {
      "text": "Kyoto is the capital of Japan.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.9284,
+     "verdict": "contested",
+     "confidence": 0.5050279756711704,
      "error": null,
      "pages": 5
     },
     {
      "text": "The Amazon River flows into the Atlantic Ocean.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9778,
+     "verdict": "refuted",
+     "confidence": 0.712742805480957,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "The United States Declaration of Independence was adopted in 1776.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.945,
+     "confidence": 0.8346911668777466,
      "error": null,
-     "pages": 1
+     "pages": 5
     },
     {
      "text": "Oxygen has the atomic number 8.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9849,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 2
     },
     {
      "text": "Toronto is the capital of Canada.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.8572,
+     "verdict": "contested",
+     "confidence": 0.512745855570288,
      "error": null,
      "pages": 4
     },
@@ -2540,63 +2542,63 @@
      "text": "The Atlantic Ocean is the largest ocean on Earth.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9542,
+     "confidence": 0.7272119522094727,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The first Harry Potter book was published in 1997.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9628,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Sahara is the largest hot desert in the world.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9747,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "NASA was founded in 1972.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9676,
+     "verdict": "supported",
+     "confidence": 0.7628434300422668,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "Russia is the largest country by area.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9673,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9412,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 3
     },
     {
      "text": "Beijing hosted the Summer Olympics in 2008.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.9655,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 4
     },
     {
      "text": "Google was founded in 1988.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9679,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
@@ -2604,17 +2606,17 @@
      "text": "The Louvre Museum is in Paris.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9639,
+     "confidence": 0.7710362672805786,
      "error": null,
-     "pages": 0
+     "pages": 5
     },
     {
      "text": "The Soviet Union launched Sputnik 1 in 1967.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9556,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
-     "pages": 0
+     "pages": 5
     }
    ]
   }

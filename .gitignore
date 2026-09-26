@@ -219,3 +219,6 @@ __marimo__/
 
 # macOS
 .DS_Store
+
+# Recorded eval evidence (third-party page text)
+data/evidence/
