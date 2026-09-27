@@ -222,3 +222,6 @@ __marimo__/
 
 # Recorded eval evidence (third-party page text)
 data/evidence/
+
+# Local scratch files
+/tmp/
