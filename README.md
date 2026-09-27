@@ -239,6 +239,11 @@ All keyword arguments to `FactAssessor`:
 | `search_hedge_after` | 1.2 | if a search hasn't answered by then, send the same request again and use whichever reply comes first (fixes Serper's occasional 3s+ outliers; only slow searches cost a second credit; `None` turns it off) |
 | `blocked_domains` | social + video | hosts never used as evidence (subdomains included); `()` to allow all |
 | `timeout` | 15 | per-claim deadline; a claim still running then comes back `unverified` |
+| `max_concurrent_claims` | the judge's | claims checked at once; a claim's `timeout` starts when it gets its turn. Laya and LLM judges: no limit; `GlinerJudge`: 3. `None` = no limit |
+| `max_concurrent_crawls` | 10 | pages the browser crawler loads at once (shared by all claims) |
+| `search_timeout` | 5 | seconds per Serper request |
+| `laya_model` | `english` | Laya checkpoint for the default filter and judge: `english`, `multilingual`, `typed-decisions` |
+| `serper_api_key` | `SERPER_API_KEY` | Serper key (from `.env` or the environment if not given) |
 
 ### Compose your own pipeline
 
@@ -312,6 +317,31 @@ How the composition works under the hood (streams, `>>`, concurrency, cancellati
 
 ### Other crawlers, judges, and searchers
 
+Every built-in option, one line per role. Mix freely; anything not passed keeps its default.
+
+```python
+from factassessor import (
+    FactAssessor, LLMAtomizer,                                      # atomizer
+    LayaClaimFilter, GlinerClaimFilter,                             # claim filter
+    SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, Take,  # searcher
+    Crawl4AICrawler, HTTPXCrawler, FallbackCrawler,                 # crawler
+    LayaJudge, GlinerJudge, LLMJudge,                               # judge
+    WeightedPolicy,                                                 # policy
+)
+
+FactAssessor(
+    atomizer=LLMAtomizer("openai:gpt-6-luna"),                       # any pydantic-ai model
+    claim_filter=LayaClaimFilter(threshold=0.4),                     # or GlinerClaimFilter(), or None (no filter)
+    searcher=SerperSearcher() >> not_blocked() >> Take(5),           # or DuckDuckGoSearcher(), SearxngSearcher(url)
+    crawler=Crawl4AICrawler(timeout=2.5),                            # or HTTPXCrawler(), FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())
+    judge=LayaJudge(),                                               # or GlinerJudge(), LLMJudge()
+    policy=WeightedPolicy(strong=0.7, early_exit=0.9),
+)
+```
+
+Keep `>> not_blocked() >> Take(top_k)` when you pass your own searcher: `FactAssessor` adds it only around its
+default Serper searcher. The same components chain by hand too (see "Compose your own pipeline" above).
+
 **Faster crawling.** `HTTPXCrawler` fetches pages with a plain HTTP request (no browser, no JavaScript);
 `FallbackCrawler` tries crawlers in order and keeps the first page with text:
 
@@ -342,6 +372,11 @@ from factassessor.judges import GlinerJudge     # needs fact-assessor[gliner]; d
 fa = FactAssessor(judge=GlinerJudge())            # variant="int8" is 2x faster but much less accurate
 ```
 
+GLiNER runs on CPU (~7 passages/s on an M3 Max; ONNX Runtime's CoreML path crashes or is slower), so
+`GlinerJudge` checks 3 claims at a time (`concurrency=3`), and the rest wait for a turn instead of timing out
+together. End to end on the synthetic set it's far behind Laya: 22% of all claims right vs 92%, at 14.3s per text
+vs 1.6s (`data/results/`).
+
 **LLM judge** (`LLMJudge`, pydantic-ai structured output; default `openai:gpt-6-luna`, reasoning off). The most
 accurate judge we measured, ~10x slower per pair than Laya, which matters less than it sounds: pairs run in parallel
 alongside searching and crawling (a 3-claim check took 5.5s with it vs 5.3s with Laya).
@@ -364,7 +399,8 @@ one call saves API calls but measured ~0.2s slower than parallel calls (one resp
 sequence), so parallel is the default.
 Reproduce with `uv run --extra gliner python scripts/compare_judges.py`.
 
-**Claim filters** (`scripts/compare_claim_filters.py`, 19 statements): `LayaClaimFilter` 17/19 in 0.22s,
+**Claim filters** (`FactAssessor(claim_filter=GlinerClaimFilter())`, or `claim_filter=None` to check every atom;
+`scripts/compare_claim_filters.py`, 19 statements): `LayaClaimFilter` 17/19 in 0.22s,
 `GlinerClaimFilter` 17/19 in 2.3s. Laya's misses keep two opinions (harmless: one extra search each); GLiNER's drop
 two real claims (they're never checked), so Laya stays the default.
 
@@ -379,7 +415,28 @@ FactAssessor(searcher=SearxngSearcher("http://localhost:8080") >> not_blocked() 
 
 DuckDuckGo needs no setup but is slower (0.7–3.3s per query vs ~0.8s for Serper) and unofficial, so heavy use can
 get rate-limited. Public SearXNG instances don't work for this (none of 25 healthy ones served JSON in our check);
-run your own with JSON enabled (`docker run -p 8080:8080 searxng/searxng`, then add `json` to `search.formats`).
+run your own. A `settings.yml` that works:
+
+```yaml
+use_default_settings: true
+server:
+  secret_key: "<openssl rand -hex 32>"
+  limiter: false        # local, single user (the limiter needs Valkey)
+search:
+  formats: [html, json] # SearxngSearcher reads JSON
+engines:                # more general engines, so one throttling doesn't leave a single source
+  - {name: google, disabled: false}
+  - {name: bing, disabled: false}
+  - {name: yahoo, disabled: false}
+  - {name: qwant, disabled: false}
+```
+
+```bash
+docker run -d --name searxng -p 127.0.0.1:8080:8080 -v "$PWD/searxng:/etc/searxng" searxng/searxng
+```
+
+With that, Google, Bing, and Yahoo answered most queries (30-47 results each); Brave and DuckDuckGo rate-limit or
+show CAPTCHAs under load, which the others cover.
 
 ## Development
 
