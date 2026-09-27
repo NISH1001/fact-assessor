@@ -69,6 +69,13 @@ KINDS = ("true", "false", "mixed")
 DATASET = "synthetic"
 
 
+def use_evidence(tag: str | None) -> None:
+    """A named evidence file next to the default one (evidence-<tag>.json.gz), e.g. from `requery`."""
+    global EVIDENCE
+    if tag:
+        EVIDENCE = EVIDENCE.with_name(f"evidence-{tag}.json.gz")
+
+
 def use_dataset(name: str) -> None:
     """Point the harness at a dataset's texts, evidence, and results."""
     global TEXTS, EVIDENCE, RESULTS, KINDS, DATASET
@@ -257,6 +264,78 @@ async def recrawl_open_access() -> None:
     save_evidence(evidence)
     print(f"{len(todo)} failed pages with a DOI -> {len(recovered)} recovered from open access in "
           f"{time.perf_counter() - start:.1f}s (backup: {backup.name})")
+
+
+# FactReasoner's QueryBuilder instructions (NASA-IMPACT/FactReasoner, src/fact_reasoner/core/query_builder.py),
+# shortened; the output is structured instead of a fenced code block.
+QUERY_INSTRUCTIONS = """Generate a Google Search query about the given STATEMENT: the query most likely to retrieve
+information to verify whether the STATEMENT is factually accurate. Balance specificity (targeted results) with breadth
+(don't miss critical information). Prefer a natural-language query a typical user might enter; use special operators
+(quotation marks, site:, Boolean operators, intitle:) only when they clearly help.
+Examples:
+STATEMENT: The Great Wall of China is visible from space
+QUERY: "The Great Wall of China is visible from space" fact check myth
+STATEMENT: Quantum computers can break RSA encryption easily
+QUERY: "Quantum computers can break RSA encryption easily" fact check cryptography experts"""
+
+
+async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str = LLM_MODEL) -> None:
+    """Same atoms as the recorded evidence, but each claim is searched with an LLM-written query (FactReasoner's
+    approach) instead of its own text. New pages are crawled (browser, then open access); known pages are reused.
+    Writes evidence-<tag>.json.gz; the original evidence is untouched."""
+    from pydantic import BaseModel
+    from pydantic_ai import Agent
+
+    from factassessor import FallbackCrawler
+
+    class Query(BaseModel):
+        query: str
+
+    base = load_evidence()
+    use_evidence(tag)
+    evidence = load_evidence() if EVIDENCE.exists() else {"texts": {}, "pages": dict(base["pages"])}
+    evidence.update(searcher=searcher_name, atomizer=base.get("atomizer"), queries_by=llm_model,
+                    crawler="crawl4ai, then open access (OpenAlex)")
+    agent = Agent(llm_model, output_type=Query, instructions=QUERY_INSTRUCTIONS, model_settings=llm_settings(llm_model))
+    searcher = make_searcher(searcher_name, searxng_url)
+    crawler = FallbackCrawler(Crawl4AICrawler(), OpenAccessCrawler())
+    slots = asyncio.Semaphore(3)
+
+    async def query_for(claim: str) -> str:
+        try:
+            return (await agent.run(f"STATEMENT: {claim}")).output.query.strip() or claim
+        except Exception as exc:
+            print(f"  query builder failed ({exc!r:.60}); using the claim", flush=True)
+            return claim
+
+    async def search(query: str) -> list[dict[str, Any]]:
+        for attempt in range(4):
+            try:
+                async with slots:
+                    hits = await searcher.search(query)
+                if hits:
+                    return [h for h in hits if not is_blocked(h["url"])][:TOP_K]
+            except Exception:
+                pass
+            await asyncio.sleep(2 * (attempt + 1))
+        return []
+
+    for tid, rec in base["texts"].items():
+        if tid in evidence["texts"]:
+            continue
+        start = time.perf_counter()
+        claims = [a["text"] for a in rec["atoms"]]
+        queries = await asyncio.gather(*(query_for(c) for c in claims))
+        hits = await asyncio.gather(*(search(q) for q in queries))
+        urls = list({h["url"] for hs in hits for h in hs} - evidence["pages"].keys())
+        pages = await asyncio.gather(*(crawler.crawl(u) for u in urls))
+        evidence["pages"].update(zip(urls, pages))
+        evidence["texts"][tid] = {"atoms": rec["atoms"], "hits": dict(zip(claims, hits)), "queries": dict(zip(claims, queries))}
+        save_evidence(evidence)
+        print(f"{tid:16s} {len(claims):2d} queries, {sum(map(len, hits)):3d} hits, {sum(p is not None for p in pages)}/{len(urls)} new pages, "
+              f"{time.perf_counter() - start:.1f}s | e.g. {queries[0][:70]!r}", flush=True)
+    await crawler.crawlers[0].stop()
+    await crawler.crawlers[1].stop()
 
 
 class RecordedAtomizer(Atomizer):
@@ -631,9 +710,15 @@ async def main() -> None:
     r.add_argument("variant", choices=[*VARIANTS, "all"])
     r.add_argument("--timeout", type=float, default=15.0, help="per-claim timeout (FactAssessor default 15s)")
     r.add_argument("--limit", type=int, help="only the first N texts (e.g. a quick live timing run)")
+    r.add_argument("--evidence", help="replay evidence-<tag>.json.gz instead of the default (e.g. llmq from requery)")
     r.add_argument("--live", action="store_true", help="live atomizer, search (--searcher), and crawling instead of recorded evidence")
     sub.add_parser("report", parents=[common], help="rebuild data/results/eval-comparison.md and the plots")
     sub.add_parser("recrawl", parents=[common], help="fill failed pages that have a DOI from open access (needs --extra pdf)")
+    rq = sub.add_parser("requery", parents=[common], help="search the recorded atoms again with LLM-written queries")
+    rq.add_argument("--tag", default="llmq", help="evidence-<tag>.json.gz (default llmq)")
+    rq.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="searxng")
+    rq.add_argument("--searxng-url", default="http://localhost:8080")
+    rq.add_argument("--llm-model", default=LLM_MODEL)
     args = parser.parse_args()
     use_dataset(args.dataset)
 
@@ -654,11 +739,14 @@ async def main() -> None:
         await record(args.searcher, args.searxng_url, args.llm_model)
     elif args.cmd == "recrawl":
         await recrawl_open_access()
+    elif args.cmd == "requery":
+        await requery(args.tag, args.searcher, args.searxng_url, args.llm_model)
     elif args.cmd == "run":
+        use_evidence(args.evidence)
         RESULTS.mkdir(parents=True, exist_ok=True)
         for variant in VARIANTS if args.variant == "all" else [args.variant]:
             res = await run(variant, args.live, args.timeout, args.searcher, args.searxng_url, args.llm_model, args.limit)
-            name = f"eval-{variant}{'-live' if args.live else ''}"
+            name = f"eval-{variant}{'-live' if args.live else ''}{'-' + args.evidence if args.evidence else ''}"
             (RESULTS / f"{name}.json").write_text(json.dumps(res, indent=1))
             text = fr_report(res) if DATASET == "factreasoner" else report(res)
             (RESULTS / f"{name}.md").write_text(text)
