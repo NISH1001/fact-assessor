@@ -6,6 +6,11 @@
     uv run --extra ddg python scripts/eval.py run laya --live    # live atomizer/search/crawl (web results drift)
     uv run python scripts/eval.py report                         # rebuild the comparison + plots from data/results/
 
+    # FactReasoner comparison (another team's data: kept in tmp/factreasoner/, gitignored)
+    uv run --with openpyxl --with pandas python scripts/eval.py build --dataset factreasoner --xlsx "tmp/<workbook>.xlsx"
+    uv run python scripts/eval.py record --dataset factreasoner --searcher searxng
+    uv run python scripts/eval.py run laya --dataset factreasoner
+
 Texts: each pair in data/fact_pairs.json is a true sentence and a false variant with one detail changed (date,
 number, place, person). `build` samples them into 27 texts = {true, false, mixed ~50/50} x {short 2-4, medium 5-10,
 long 15-25 sentences} x 3 (seed 7), so every sentence has a label; an atom takes the label of the sentence its span
@@ -20,6 +25,14 @@ Variants (only the models differ):
     laya    LayaClaimFilter + LayaJudge (the default pipeline)
     gliner  GlinerClaimFilter + GlinerJudge
     llm     no claim filter + LLMJudge (gpt-6-luna): everything after the atomizer is the LLM
+
+FactReasoner dataset (`--dataset factreasoner`): the 50 pairs of the workbook's FactReasoner_AKD sheet, an original
+passage (every sentence true: FactReasoner's precision on originals is 1.0 in every row) and a corrupted copy. Corrupted
+sentences are found by diffing the pair: sentences changed from the original are false, unchanged ones true. The
+sheet's per-row F1s (In-Domain: FactReasoner retrieving from the source paper; AKD: open web search via Serper) are kept
+with each text, and the report scores FactAssessor the way FactReasoner was scored: supported vs not supported
+per claim, accuracy / precision / recall / NPV / F1 per passage, averaged over passages. FactReasoner's labels are human
+annotations of its own atoms; ours come from the sentence diff, so the numbers are comparable, not identical in method.
 
 Warm-up before every run, timed and reported separately. Texts run one at a time. On recorded evidence the atomizer,
 search, and crawl return instantly, so latency is the claim filter + judge + policy (the models' cost); `--live`
@@ -46,12 +59,23 @@ from factassessor.crawlers import Crawler
 from factassessor.pipeline import Take
 from factassessor.search import DuckDuckGoSearcher, Searcher, SearxngSearcher, is_blocked, not_blocked
 
-DATA = Path(__file__).parent.parent / "data"
+ROOT = Path(__file__).parent.parent
+DATA = ROOT / "data"
 TEXTS = DATA / "eval_texts.jsonl"
 EVIDENCE = DATA / "evidence" / "evidence.json.gz"
 RESULTS = DATA / "results"
 LENGTHS = {"short": (2, 4), "medium": (5, 10), "long": (15, 25)}  # sentences per text
 KINDS = ("true", "false", "mixed")
+DATASET = "synthetic"
+
+
+def use_dataset(name: str) -> None:
+    """Point the harness at a dataset's texts, evidence, and results."""
+    global TEXTS, EVIDENCE, RESULTS, KINDS, DATASET
+    DATASET = name
+    if name == "factreasoner":  # another team's data: never committed (tmp/ is gitignored)
+        base = ROOT / "tmp" / "factreasoner"
+        TEXTS, EVIDENCE, RESULTS, KINDS = base / "texts.jsonl", base / "evidence.json.gz", base / "results", ("original", "corrupted")
 VARIANTS = {"laya": "LayaClaimFilter + LayaJudge", "gliner": "GlinerClaimFilter + GlinerJudge", "llm": "LLMJudge, no claim filter"}
 LLM_MODEL = "openai:gpt-5-nano"  # the cheapest OpenAI model ($0.05 in / $0.40 out per 1M tokens, Sept 2026)
 TOP_K = 5
@@ -84,6 +108,60 @@ def build_texts(pairs: list[dict[str, str]], seed: int = 7, per_cell: int = 3) -
     return texts
 
 
+_ABBREVIATIONS = ("et al.", "e.g.", "i.e.", "cf.", "vs.", "approx.", "ca.", "fig.", "figs.", "eq.", "eqs.", "no.", "ref.",
+                  "refs.", "sect.", "tab.", "dr.", "mr.", "ms.", "st.")
+
+
+def _sentences(text: str) -> list[str]:
+    """Sentence split for scientific text: a break after "et al.", "e.g.", "Fig." or an initial ("J.") is undone."""
+    import re
+
+    pieces = [p.strip() for p in re.split(r"(?<=[.!?])\s+(?=[A-Z(\[])", " ".join(str(text).split())) if p.strip()]
+    merged: list[str] = []
+    for piece in pieces:
+        if merged and (merged[-1].lower().endswith(_ABBREVIATIONS) or re.search(r"(?:^|[^A-Za-z])[A-Z]\.$", merged[-1])):
+            merged[-1] += " " + piece
+        else:
+            merged.append(piece)
+    return merged
+
+
+def _length(n: int) -> str:
+    return "short" if n <= LENGTHS["short"][1] else "medium" if n <= LENGTHS["medium"][1] else "long"
+
+
+def build_factreasoner(xlsx: str) -> list[dict[str, Any]]:
+    """Original + corrupted text per FactReasoner_AKD pair, sentence labels from the diff, FactReasoner's F1s."""
+    import difflib
+
+    import pandas as pd
+
+    sheet = pd.read_excel(xlsx, sheet_name="FactReasoner_AKD")
+    sheet = sheet[pd.to_numeric(sheet.iloc[:, 0], errors="coerce").notna()]
+    num = lambda v: None if pd.isna(pd.to_numeric(v, errors="coerce")) else float(pd.to_numeric(v, errors="coerce"))  # noqa: E731
+    texts = []
+    for pair, (_, row) in enumerate(sheet.iterrows(), start=1):  # not S.No: it restarts at 1 for each SME
+        original, corrupted = _sentences(row.iloc[5]), _sentences(row.iloc[7])
+        unchanged = set()
+        for op, _, _, j1, j2 in difflib.SequenceMatcher(None, original, corrupted, autojunk=False).get_opcodes():
+            if op == "equal":
+                unchanged.update(range(j1, j2))
+        for kind, sents, truths, cols in (
+            ("original", original, [True] * len(original), (13, 15)),
+            ("corrupted", corrupted, [i in unchanged for i in range(len(corrupted))], (14, 16)),
+        ):
+            spans, offset = [], 0
+            for sent, true in zip(sents, truths):
+                spans.append({"text": sent, "true": true, "span": [offset, offset + len(sent)]})
+                offset += len(sent) + 1
+            texts.append({
+                "id": f"fr{pair:02d}-{kind}", "kind": kind, "length": _length(len(sents)), "pair": pair,
+                "text": " ".join(sents), "sentences": spans, "source": str(row.iloc[2]),
+                "reference": {"in_domain_f1": num(row.iloc[cols[0]]), "akd_serper_f1": num(row.iloc[cols[1]])},
+            })
+    return texts
+
+
 def load_texts() -> list[dict[str, Any]]:
     return [json.loads(line) for line in TEXTS.read_text().splitlines()]
 
@@ -105,7 +183,7 @@ def load_evidence() -> dict[str, Any]:
 
 
 def save_evidence(evidence: dict[str, Any]) -> None:
-    EVIDENCE.parent.mkdir(exist_ok=True)
+    EVIDENCE.parent.mkdir(parents=True, exist_ok=True)
     EVIDENCE.write_bytes(gzip.compress(json.dumps(evidence, ensure_ascii=False).encode()))
 
 
@@ -124,6 +202,7 @@ async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODE
     await crawler.start()
     evidence = load_evidence()
     evidence["searcher"] = searcher_name
+    evidence["atomizer"] = llm_model
     slots = asyncio.Semaphore(3)  # DuckDuckGo rate-limits bursts
 
     async def search(query: str) -> list[dict[str, Any]]:
@@ -266,14 +345,15 @@ async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "
         true_share = sum(s["true"] for s in ex["sentences"]) / len(ex["sentences"])
         rows.append({"id": ex["id"], "kind": ex["kind"], "length": ex["length"], "sentences": len(ex["sentences"]),
                      "true_share": true_share, "fact_score": result.fact_score, "latency_s": total,
-                     "first_verdict_s": first, "atoms": atoms})
+                     "first_verdict_s": first, "atoms": atoms, "pair": ex.get("pair"), "reference": ex.get("reference")})
         decided = [a for a in atoms if a["verdict"] in ("supported", "refuted")]
         right = sum((a["verdict"] == "supported") == a["gold"] for a in decided)
         score = "–" if result.fact_score is None else f"{result.fact_score:.2f}"
         print(f"[{variant}] {ex['id']:16s} {len(ex['sentences']):2d} sent -> {len(atoms):2d} atoms | {right}/{len(decided)} right "
               f"of decided | score {score} vs {true_share:.2f} | first {first or 0:.1f}s total {total:.1f}s", flush=True)
     await fa.aclose()
-    return {"variant": variant, "live": live, "source": source, "timeout": timeout,
+    atomizer = llm_model if live else evidence.get("atomizer")
+    return {"variant": variant, "live": live, "source": source, "timeout": timeout, "atomizer": atomizer,
             "llm_model": llm_model if variant == "llm" or live else None, "warmup": warm, "texts": rows}
 
 
@@ -299,6 +379,60 @@ def claim_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "latency": statistics.median(r["latency_s"] for r in rows),
         "first": statistics.median(r["first_verdict_s"] or 0 for r in rows),
     }
+
+
+def fr_metrics(atoms: list[dict[str, Any]]) -> dict[str, float | None]:
+    """One passage, scored like FactReasoner: positive = supported. Zero when undefined, as in its sheet ("no true
+    statements in the corrupted passage, so P, R, F1 = 0"); NPV None when nothing was marked not supported."""
+    labelled = [a for a in atoms if a["gold"] is not None]
+    tp = sum(a["gold"] and a["verdict"] == "supported" for a in labelled)
+    fp = sum(not a["gold"] and a["verdict"] == "supported" for a in labelled)
+    fn = sum(a["gold"] and a["verdict"] != "supported" for a in labelled)
+    tn = sum(not a["gold"] and a["verdict"] != "supported" for a in labelled)
+    p = tp / (tp + fp) if tp + fp else 0.0
+    r = tp / (tp + fn) if tp + fn else 0.0
+    return {"accuracy": (tp + tn) / len(labelled) if labelled else None, "precision": p, "recall": r,
+            # NPV only means something when the passage has false claims (FactReasoner leaves it blank for originals)
+            "npv": tn / (tn + fn) if tn + fn and tn + fp else None, "f1": 2 * p * r / (p + r) if p + r else 0.0,
+            "atoms": len(labelled), "false_atoms": sum(not a["gold"] for a in labelled)}
+
+
+def fr_report(res: dict[str, Any]) -> str:
+    rows = res["texts"]
+    mean = lambda vals: statistics.mean(v for v in vals if v is not None) if any(v is not None for v in vals) else None  # noqa: E731
+    lines = [f"# FactAssessor vs FactReasoner: {len(rows) // 2} pairs (FactReasoner_AKD sheet)", "",
+             f"FactAssessor: {VARIANTS[res['variant']]}; evidence {res['source']}; atomizer {res.get('atomizer') or '?'}. "
+             "Claim-level scoring as in the FactReasoner sheet (positive = supported; per passage, then averaged). "
+             "FactReasoner's labels are human annotations of its atoms; ours come from diffing each pair.", ""]
+    lines += ["| | F1 original | F1 corrupted |", "|---|---|---|"]
+    by_kind = {k: [r for r in rows if r["kind"] == k] for k in ("original", "corrupted")}
+    fa = {k: [fr_metrics(r["atoms"]) for r in rs] for k, rs in by_kind.items()}
+    for name, key in (("FactReasoner, open web (AKD, Serper)", "akd_serper_f1"), ("FactReasoner, in-domain (source paper)", "in_domain_f1")):
+        lines.append(f"| {name} | {fmt(mean([r['reference'][key] for r in by_kind['original']]), 'f')} | "
+                     f"{fmt(mean([r['reference'][key] for r in by_kind['corrupted']]), 'f')} |")
+    lines.append(f"| **FactAssessor, open web** | **{fmt(mean([m['f1'] for m in fa['original']]), 'f')}** | "
+                 f"**{fmt(mean([m['f1'] for m in fa['corrupted']]), 'f')}** |")
+    lines += ["", "## FactAssessor in detail", "", "| | accuracy | precision | recall | NPV | F1 | atoms / passage | false atoms | latency (median) |",
+              "|---|---|---|---|---|---|---|---|---|"]
+    for k, ms in fa.items():
+        lat = statistics.median(r["latency_s"] for r in by_kind[k])
+        lines.append(f"| {k} | {fmt(mean([m['accuracy'] for m in ms]), 'f')} | {fmt(mean([m['precision'] for m in ms]), 'f')} | "
+                     f"{fmt(mean([m['recall'] for m in ms]), 'f')} | {fmt(mean([m['npv'] for m in ms]), 'f')} | "
+                     f"{fmt(mean([m['f1'] for m in ms]), 'f')} | {statistics.mean(m['atoms'] for m in ms):.1f} | "
+                     f"{sum(m['false_atoms'] for m in ms)} | {lat:.1f}s |")
+    wins = {"better": 0, "tied": 0, "worse": 0}
+    for k in fa:
+        for r, m in zip(by_kind[k], fa[k]):
+            ref = r["reference"]["akd_serper_f1"]
+            if ref is not None:
+                wins["better" if m["f1"] > ref + 1e-9 else "worse" if m["f1"] < ref - 1e-9 else "tied"] += 1
+    pairs = {r["pair"]: r for r in by_kind["original"]}
+    drops = [(pairs[r["pair"]]["fact_score"], r["fact_score"]) for r in by_kind["corrupted"] if r["pair"] in pairs]
+    drops = [(o, c) for o, c in drops if o is not None and c is not None]
+    lines += ["", f"Per passage vs FactReasoner open web: FactAssessor F1 higher on {wins['better']}, tied on {wins['tied']}, "
+              f"lower on {wins['worse']} (of {sum(wins.values())}). Corrupted copy scored below its original: "
+              f"{sum(c < o for o, c in drops)} of {len(drops)} pairs.", ""]
+    return "\n".join(lines)
 
 
 def groups(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -460,33 +594,52 @@ def plot() -> None:
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("build", help="build data/eval_texts.jsonl from data/fact_pairs.json")
-    rec = sub.add_parser("record", help="record atoms, hits, and pages once")
-    for p in (rec, r := sub.add_parser("run", help="evaluate variants")):
-        p.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="ddg", help="for record and run --live")
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--dataset", choices=["synthetic", "factreasoner"], default="synthetic")
+    b = sub.add_parser("build", parents=[common], help="build the texts (synthetic: from data/fact_pairs.json)")
+    b.add_argument("--xlsx", help="factreasoner: the evaluation workbook")
+    rec = sub.add_parser("record", parents=[common], help="record atoms, hits, and pages once")
+    for p in (rec, r := sub.add_parser("run", parents=[common], help="evaluate variants")):
+        p.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="searxng", help="for record and run --live")
         p.add_argument("--searxng-url", default="http://localhost:8080", help="your SearXNG instance (JSON enabled)")
         p.add_argument("--llm-model", default=LLM_MODEL, help="LLM for the atomizer (record, --live) and the llm judge")
     r.add_argument("variant", choices=[*VARIANTS, "all"])
     r.add_argument("--timeout", type=float, default=15.0, help="per-claim timeout (FactAssessor default 15s)")
     r.add_argument("--live", action="store_true", help="live atomizer, search (--searcher), and crawling instead of recorded evidence")
-    sub.add_parser("report", help="rebuild data/results/eval-comparison.md and the plots")
+    sub.add_parser("report", parents=[common], help="rebuild data/results/eval-comparison.md and the plots")
     args = parser.parse_args()
+    use_dataset(args.dataset)
 
     if args.cmd == "build":
-        texts = build_texts(json.loads((DATA / "fact_pairs.json").read_text()))
+        if DATASET == "factreasoner":
+            if not args.xlsx:
+                raise SystemExit("--xlsx: the FactReasoner evaluation workbook")
+            texts = build_factreasoner(args.xlsx)
+            TEXTS.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            texts = build_texts(json.loads((DATA / "fact_pairs.json").read_text()))
+        duplicates = sorted({t["id"] for t in texts if sum(u["id"] == t["id"] for u in texts) > 1})
+        if duplicates:  # evidence is keyed by id: a collision would give one text another's atoms
+            raise SystemExit(f"duplicate text ids: {duplicates[:5]}")
         TEXTS.write_text("".join(json.dumps(t, ensure_ascii=False) + "\n" for t in texts))
         print(f"{len(texts)} texts, {sum(len(t['sentences']) for t in texts)} sentences -> {TEXTS}")
     elif args.cmd == "record":
         await record(args.searcher, args.searxng_url, args.llm_model)
     elif args.cmd == "run":
-        RESULTS.mkdir(exist_ok=True)
+        RESULTS.mkdir(parents=True, exist_ok=True)
         for variant in VARIANTS if args.variant == "all" else [args.variant]:
             res = await run(variant, args.live, args.timeout, args.searcher, args.searxng_url, args.llm_model)
             name = f"eval-{variant}{'-live' if args.live else ''}"
             (RESULTS / f"{name}.json").write_text(json.dumps(res, indent=1))
-            (RESULTS / f"{name}.md").write_text(report(res))
-            print("\n" + report(res))
-    if args.cmd in ("run", "report"):
+            text = fr_report(res) if DATASET == "factreasoner" else report(res)
+            (RESULTS / f"{name}.md").write_text(text)
+            print("\n" + text)
+    if DATASET == "factreasoner" and args.cmd == "report":
+        for path in sorted(RESULTS.glob("eval-*.json")):
+            text = fr_report(json.loads(path.read_text()))
+            path.with_suffix(".md").write_text(text)
+            print(text)
+    elif DATASET != "factreasoner" and args.cmd in ("run", "report"):
         (RESULTS / "eval-comparison.md").write_text(comparison())
         plot()
         print(f"-> {RESULTS / 'eval-comparison.md'}, eval-comparison.png, eval-verdicts.png")
