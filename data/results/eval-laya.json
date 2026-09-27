@@ -2,15 +2,17 @@
  "variant": "laya",
  "live": false,
  "source": "recorded (ddg search, crawl4ai)",
+ "timeout": 15.0,
+ "llm_model": null,
  "warmup": {
-  "load": 4.685442542016972,
-  "claim_filter_first": 0.1428749170154333,
-  "claim_filter_warm": 0.03243175000534393,
-  "judge_first": 0.036309874994913116,
-  "judge_warm": 0.03141691698692739,
+  "load": 2.4386036249925382,
+  "claim_filter_first": 0.24667066600522958,
+  "claim_filter_warm": 0.033596000022953376,
+  "judge_first": 0.08041708299424499,
+  "judge_warm": 0.03139633298269473,
   "assess": [
-   1.8988275840238202,
-   1.2333389580016956
+   0.876390082994476,
+   0.8154641669825651
   ]
  },
  "texts": [
@@ -21,8 +23,8 @@
    "sentences": 3,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 1.2614473749999888,
-   "first_verdict_s": 0.9042853330029175,
+   "latency_s": 0.8169804170029238,
+   "first_verdict_s": 0.48246529200696386,
    "atoms": [
     {
      "text": "The chemical symbol for gold is Au.",
@@ -57,8 +59,8 @@
    "sentences": 2,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 0.36508454199065454,
-   "first_verdict_s": 0.3650194169895258,
+   "latency_s": 0.42396466599893756,
+   "first_verdict_s": 0.4238988749857526,
    "atoms": [
     {
      "text": "Neil Armstrong was the first person to walk on the Moon.",
@@ -85,8 +87,8 @@
    "sentences": 4,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 1.5827765410067514,
-   "first_verdict_s": 1.179541916004382,
+   "latency_s": 1.1331805830122903,
+   "first_verdict_s": 0.7624906660057604,
    "atoms": [
     {
      "text": "Marie Curie won the Nobel Prize in Physics.",
@@ -137,8 +139,8 @@
    "sentences": 4,
    "true_share": 0.0,
    "fact_score": 0.0,
-   "latency_s": 1.62568112500594,
-   "first_verdict_s": 1.2069181250117254,
+   "latency_s": 1.3227077079936862,
+   "first_verdict_s": 0.871196082996903,
    "atoms": [
     {
      "text": "The Titanic sank in 1915.",
@@ -181,8 +183,8 @@
    "sentences": 3,
    "true_share": 0.0,
    "fact_score": 0.0,
-   "latency_s": 1.1005237080098595,
-   "first_verdict_s": 0.7806995419960003,
+   "latency_s": 1.0621603750041686,
+   "first_verdict_s": 0.7315989159978926,
    "atoms": [
     {
      "text": "Buzz Aldrin was the first person to walk on the Moon.",
@@ -217,8 +219,8 @@
    "sentences": 4,
    "true_share": 0.0,
    "fact_score": 0.0,
-   "latency_s": 1.6710908749955706,
-   "first_verdict_s": 1.3019147089798935,
+   "latency_s": 1.008530958002666,
+   "first_verdict_s": 0.6718926249886863,
    "atoms": [
     {
      "text": "Albert Einstein was born in Vienna.",
@@ -261,8 +263,8 @@
    "sentences": 2,
    "true_share": 0.5,
    "fact_score": 0.5,
-   "latency_s": 0.2518448750197422,
-   "first_verdict_s": 0.2517767920217011,
+   "latency_s": 0.23964991598040797,
+   "first_verdict_s": 0.2395926250028424,
    "atoms": [
     {
      "text": "The Berlin Wall fell in 1979.",
@@ -289,8 +291,8 @@
    "sentences": 4,
    "true_share": 0.5,
    "fact_score": 0.5,
-   "latency_s": 1.3397032910143025,
-   "first_verdict_s": 1.229726625024341,
+   "latency_s": 0.7982566249847878,
+   "first_verdict_s": 0.7981989170075394,
    "atoms": [
     {
      "text": "The Mariana Trench is the deepest known part of the ocean.",
@@ -304,9 +306,9 @@
      "text": "Isaac Newton published the Principia in 1787.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9487,
+     "confidence": 0.9556,
      "error": null,
-     "pages": 2
+     "pages": 0
     },
     {
      "text": "The Atlantic Ocean is the largest ocean on Earth.",
@@ -333,8 +335,8 @@
    "sentences": 3,
    "true_share": 0.6666666666666666,
    "fact_score": 0.6666666666666666,
-   "latency_s": 1.2763686669932213,
-   "first_verdict_s": 1.0114782500022557,
+   "latency_s": 0.5926182499970309,
+   "first_verdict_s": 0.4602913749986328,
    "atoms": [
     {
      "text": "Oxygen has the atomic number 12.",
@@ -342,7 +344,7 @@
      "verdict": "refuted",
      "confidence": 0.9681,
      "error": null,
-     "pages": 1
+     "pages": 0
     },
     {
      "text": "The chemical symbol for gold is Au.",
@@ -369,8 +371,8 @@
    "sentences": 9,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 1.5081584170111455,
-   "first_verdict_s": 1.3783036250097211,
+   "latency_s": 1.551659374992596,
+   "first_verdict_s": 1.044804875011323,
    "atoms": [
     {
      "text": "Google was founded in 1998.",
@@ -453,8 +455,8 @@
    "sentences": 5,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 1.4368104580207728,
-   "first_verdict_s": 1.2364721670164727,
+   "latency_s": 1.0362619999796152,
+   "first_verdict_s": 0.841904707980575,
    "atoms": [
     {
      "text": "Venus is the hottest planet in the Solar System.",
@@ -505,8 +507,8 @@
    "sentences": 9,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 1.7107012910128105,
-   "first_verdict_s": 1.432513875013683,
+   "latency_s": 1.3967561249737628,
+   "first_verdict_s": 1.0852241249813233,
    "atoms": [
     {
      "text": "The Titanic sank in 1912.",
@@ -589,8 +591,8 @@
    "sentences": 8,
    "true_share": 0.0,
    "fact_score": 0.125,
-   "latency_s": 2.013643875019625,
-   "first_verdict_s": 1.3055429160012864,
+   "latency_s": 1.697882332984591,
+   "first_verdict_s": 1.0035751669784077,
    "atoms": [
     {
      "text": "Mars has five moons.",
@@ -643,8 +645,8 @@
     {
      "text": "The Colosseum is in Athens.",
      "gold": false,
-     "verdict": "refuted",
-     "confidence": 0.9634,
+     "verdict": "contested",
+     "confidence": 0.6651668281877336,
      "error": null,
      "pages": 4
     },
@@ -665,8 +667,8 @@
    "sentences": 5,
    "true_share": 0.0,
    "fact_score": 0.2,
-   "latency_s": 1.7365536249999423,
-   "first_verdict_s": 1.5371501669869758,
+   "latency_s": 0.8716383340070024,
+   "first_verdict_s": 0.6895674999977928,
    "atoms": [
     {
      "text": "Africa is the coldest continent.",
@@ -704,7 +706,7 @@
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9412,
+     "confidence": 0.9422,
      "error": null,
      "pages": 0
     }
@@ -717,8 +719,8 @@
    "sentences": 7,
    "true_share": 0.0,
    "fact_score": 0.0,
-   "latency_s": 2.8678401249926537,
-   "first_verdict_s": 0.11835929099470377,
+   "latency_s": 1.8128298750089016,
+   "first_verdict_s": 0.12763608299428597,
    "atoms": [
     {
      "text": "The Panama Canal connects the Atlantic Ocean to the Indian Ocean.",
@@ -785,8 +787,8 @@
    "sentences": 8,
    "true_share": 0.5,
    "fact_score": 0.5,
-   "latency_s": 2.0003980420005973,
-   "first_verdict_s": 1.1583159170113504,
+   "latency_s": 1.621597165998537,
+   "first_verdict_s": 0.34332566597731784,
    "atoms": [
     {
      "text": "The human heart has four chambers.",
@@ -834,7 +836,7 @@
      "verdict": "refuted",
      "confidence": 0.9681,
      "error": null,
-     "pages": 1
+     "pages": 0
     },
     {
      "text": "Mount Everest is about 6,200 meters tall.",
@@ -861,8 +863,8 @@
    "sentences": 9,
    "true_share": 0.4444444444444444,
    "fact_score": 0.5,
-   "latency_s": 1.7976883339870255,
-   "first_verdict_s": 1.4568538339808583,
+   "latency_s": 1.92359791698982,
+   "first_verdict_s": 0.5078839579946361,
    "atoms": [
     {
      "text": "An adult human skeleton has 306 bones.",
@@ -944,9 +946,9 @@
    "length": "medium",
    "sentences": 10,
    "true_share": 0.5,
-   "fact_score": 0.4,
-   "latency_s": 2.756918166007381,
-   "first_verdict_s": 1.7967488750000484,
+   "fact_score": 0.5,
+   "latency_s": 2.508654542005388,
+   "first_verdict_s": 0.6979641670186538,
    "atoms": [
     {
      "text": "The Kalahari is the largest hot desert in the world.",
@@ -959,8 +961,8 @@
     {
      "text": "The Eiffel Tower was completed in 1889.",
      "gold": true,
-     "verdict": "contested",
-     "confidence": 0.6422719176726697,
+     "verdict": "supported",
+     "confidence": 0.9038,
      "error": null,
      "pages": 5
     },
@@ -1037,8 +1039,8 @@
    "sentences": 21,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 4.340219583013095,
-   "first_verdict_s": 3.599161958001787,
+   "latency_s": 3.8491741659818217,
+   "first_verdict_s": 0.4408266249811277,
    "atoms": [
     {
      "text": "Venus is the hottest planet in the Solar System.",
@@ -1217,8 +1219,8 @@
    "sentences": 22,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 4.053096541989362,
-   "first_verdict_s": 2.872285874997033,
+   "latency_s": 3.6568507500051055,
+   "first_verdict_s": 0.5354739160102326,
    "atoms": [
     {
      "text": "The kilogram is the SI base unit of mass.",
@@ -1405,8 +1407,8 @@
    "sentences": 21,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 3.771843499998795,
-   "first_verdict_s": 2.806347832985921,
+   "latency_s": 3.8322061669896357,
+   "first_verdict_s": 0.8207781669916585,
    "atoms": [
     {
      "text": "Isaac Newton published the Principia in 1687.",
@@ -1516,7 +1518,7 @@
      "text": "William Shakespeare wrote Hamlet.",
      "gold": true,
      "verdict": "supported",
-     "confidence": 0.9495,
+     "confidence": 0.9511,
      "error": null,
      "pages": 0
     },
@@ -1585,8 +1587,8 @@
    "sentences": 16,
    "true_share": 0.0,
    "fact_score": 0.06666666666666667,
-   "latency_s": 3.5085460409754887,
-   "first_verdict_s": 2.13250991597306,
+   "latency_s": 3.287072833016282,
+   "first_verdict_s": 0.8401270410104189,
    "atoms": [
     {
      "text": "Mars has five moons.",
@@ -1624,7 +1626,7 @@
      "text": "The Great Barrier Reef is off the coast of Brazil.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9515,
+     "confidence": 0.9544,
      "error": null,
      "pages": 0
     },
@@ -1725,8 +1727,8 @@
    "sentences": 16,
    "true_share": 0.0,
    "fact_score": 0.14285714285714285,
-   "latency_s": 3.4191102080221754,
-   "first_verdict_s": 0.24656391600728966,
+   "latency_s": 3.592254707997199,
+   "first_verdict_s": 0.24402920799911954,
    "atoms": [
     {
      "text": "Penguins live mainly in the Northern Hemisphere.",
@@ -1756,7 +1758,7 @@
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9412,
+     "confidence": 0.9422,
      "error": null,
      "pages": 0
     },
@@ -1828,7 +1830,7 @@
      "text": "The Great Barrier Reef is off the coast of Brazil.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9515,
+     "confidence": 0.9544,
      "error": null,
      "pages": 0
     },
@@ -1864,9 +1866,9 @@
    "length": "long",
    "sentences": 23,
    "true_share": 0.0,
-   "fact_score": 0.09523809523809523,
-   "latency_s": 5.14080950000789,
-   "first_verdict_s": 0.28820499998982996,
+   "fact_score": 0.09090909090909091,
+   "latency_s": 4.986048624996329,
+   "first_verdict_s": 0.27663891698466614,
    "atoms": [
     {
      "text": "The Eiffel Tower was completed in 1925.",
@@ -1920,9 +1922,9 @@
      "text": "The United States Declaration of Independence was adopted in 1812.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9521,
+     "confidence": 0.9393,
      "error": null,
-     "pages": 3
+     "pages": 0
     },
     {
      "text": "The Louvre Museum is in Madrid.",
@@ -1935,8 +1937,8 @@
     {
      "text": "Earth's atmosphere is about 21 percent nitrogen.",
      "gold": false,
-     "verdict": "unverified",
-     "confidence": 0.0,
+     "verdict": "refuted",
+     "confidence": 0.8198,
      "error": null,
      "pages": 4
     },
@@ -2000,7 +2002,7 @@
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9412,
+     "confidence": 0.9422,
      "error": null,
      "pages": 0
     },
@@ -2060,9 +2062,9 @@
    "length": "long",
    "sentences": 20,
    "true_share": 0.5,
-   "fact_score": 0.5555555555555556,
-   "latency_s": 4.6386890829890035,
-   "first_verdict_s": 3.261563832988031,
+   "fact_score": 0.5263157894736842,
+   "latency_s": 4.162180292012636,
+   "first_verdict_s": 0.7457368340110406,
    "atoms": [
     {
      "text": "The Hubble Space Telescope was launched in 1990.",
@@ -2107,8 +2109,8 @@
     {
      "text": "Earth's atmosphere is about 21 percent nitrogen.",
      "gold": false,
-     "verdict": "unverified",
-     "confidence": 0.0,
+     "verdict": "refuted",
+     "confidence": 0.8198,
      "error": null,
      "pages": 4
     },
@@ -2124,7 +2126,7 @@
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9412,
+     "confidence": 0.9422,
      "error": null,
      "pages": 0
     },
@@ -2233,8 +2235,8 @@
    "sentences": 25,
    "true_share": 0.48,
    "fact_score": 0.5384615384615384,
-   "latency_s": 6.718676333985059,
-   "first_verdict_s": 4.094049499981338,
+   "latency_s": 5.87328820800758,
+   "first_verdict_s": 1.2773176250047982,
    "atoms": [
     {
      "text": "Apollo 11 landed on the Moon.",
@@ -2424,7 +2426,7 @@
      "text": "Toronto is the capital of Canada.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.8572,
+     "confidence": 0.9186,
      "error": null,
      "pages": 4
     },
@@ -2460,9 +2462,9 @@
    "length": "long",
    "sentences": 19,
    "true_share": 0.5263157894736842,
-   "fact_score": 0.6470588235294118,
-   "latency_s": 4.601906833006069,
-   "first_verdict_s": 3.3787282910197973,
+   "fact_score": 0.6111111111111112,
+   "latency_s": 4.099200541997561,
+   "first_verdict_s": 0.814057249983307,
    "atoms": [
     {
      "text": "Brazil has won the FIFA World Cup five times.",
@@ -2483,8 +2485,8 @@
     {
      "text": "Earth's atmosphere is about 21 percent nitrogen.",
      "gold": false,
-     "verdict": "unverified",
-     "confidence": 0.0,
+     "verdict": "refuted",
+     "confidence": 0.8185,
      "error": null,
      "pages": 4
     },
@@ -2532,7 +2534,7 @@
      "text": "Toronto is the capital of Canada.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.8572,
+     "confidence": 0.9186,
      "error": null,
      "pages": 4
     },
@@ -2580,7 +2582,7 @@
      "text": "Johann Sebastian Bach was born in 1785.",
      "gold": false,
      "verdict": "refuted",
-     "confidence": 0.9412,
+     "confidence": 0.9422,
      "error": null,
      "pages": 0
     },
