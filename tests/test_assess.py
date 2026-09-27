@@ -1,7 +1,20 @@
 import asyncio
 import threading
 
-from factassessor import Atom, CheckResult, kg, ClaimFound, ClaimVerified, Done, Evidence, FactAssessor, Filter, FlatMap, Map, Step
+from factassessor import (
+    Atom,
+    CheckResult,
+    ClaimFound,
+    ClaimVerified,
+    Done,
+    Evidence,
+    FactAssessor,
+    Filter,
+    FlatMap,
+    Map,
+    Step,
+    kg,
+)
 
 TEXT = "NASA was founded in 1958. I love pizza. The Moon is made of cheese."
 
