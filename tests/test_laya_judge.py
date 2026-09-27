@@ -63,3 +63,17 @@ async def test_missing_titles_become_empty_strings():
         {"url": "u2", "title": None, "text": "Marie Curie won the Nobel Prize in Physics in 1903."},
     ])
     assert [(e.url, e.title) for e in ev] == [("u1", ""), ("u2", "")]
+
+
+async def test_long_snippets_are_cut_to_fit_so_the_claim_is_not_truncated():
+    # evidence goes first, then the claim: an 800-word snippet pushed the claim past Laya's 512 tokens, and a true
+    # and a false claim came back identical (not_enough_info 0.454 both). Long snippets now get cut like pages.
+    laya = FakeLaya(budget=64)
+    filler = " ".join(f"filler{i}" for i in range(2000))
+    ev = await LayaJudge(runner=laya).judge(CLAIM, [
+        {"url": "long", "title": "", "snippet": f"{filler} Curie shared the 1903 Nobel Prize in Physics. {filler}"},
+        {"url": "short", "title": "", "snippet": "Curie shared the 1903 Nobel Prize in Physics."},
+    ])
+    assert [(e.url, e.source, e.label) for e in ev] == [("long", "snippet", "supports"), ("short", "snippet", "supports")]
+    assert len(ev[0].text.split()) <= 64 and "1903" in ev[0].text
+    assert ev[1].text == "Curie shared the 1903 Nobel Prize in Physics."  # short snippets stay whole

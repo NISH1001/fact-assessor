@@ -71,24 +71,41 @@ class LayaJudge(Judge):
         return evidence
 
     async def _passages(self, claim: str, docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        passages = [
-            {"url": d["url"], "title": d.get("title", ""), "text": d["snippet"], "source": "snippet"}
-            for d in docs
-            if "text" not in d and d.get("snippet")
-        ]
+        snippets = [d for d in docs if "text" not in d and d.get("snippet")]
         pages = [d for d in docs if "text" in d]
-        if pages:
-            if self._tok is None:
-                agent = await self._laya().agent(self.model)
-                self._tok = copy.deepcopy(agent.tok)
-                # Laya packs [CLS] question+options (<= head_max_len) [SEP] state [SEP] into max_len; margin covers
-                # the "evidence:"/"claim:" keys and re-tokenization drift.
-                self._room = agent.cfg.get("max_len", 512) - agent.cfg.get("head_max_len", 192) - 16
-            # One worker thread per page: pages finish independently; BM25 runs outside the tokenizer lock.
-            chosen = await asyncio.gather(*(asyncio.to_thread(self._top_chunks, claim, p["text"]) for p in pages))
-            for page, texts in zip(pages, chosen):
-                passages += [{"url": page["url"], "title": page.get("title", ""), "text": t, "source": "page"} for t in texts]
+        if not (snippets or pages):
+            return []
+        await self._load_tokenizer()
+        # Snippets are judged whole when they fit next to the claim. Some (DuckDuckGo) run to 3,000+ tokens, and
+        # since the evidence comes first, Laya's truncation then cut the claim itself: a true and a false claim got
+        # identical answers. Those are cut to their best passage, like pages.
+        fitted = await asyncio.gather(*(asyncio.to_thread(self._fit, claim, d["snippet"]) for d in snippets))
+        passages = [
+            {"url": d["url"], "title": d.get("title") or "", "text": t, "source": "snippet"} for d, t in zip(snippets, fitted)
+        ]
+        # One worker thread per page: pages finish independently; BM25 runs outside the tokenizer lock.
+        chosen = await asyncio.gather(*(asyncio.to_thread(self._top_chunks, claim, p["text"]) for p in pages))
+        for page, texts in zip(pages, chosen):
+            passages += [{"url": page["url"], "title": page.get("title") or "", "text": t, "source": "page"} for t in texts]
         return passages
+
+    async def _load_tokenizer(self) -> None:
+        if self._tok is None:
+            agent = await self._laya().agent(self.model)
+            self._tok = copy.deepcopy(agent.tok)
+            # Laya packs [CLS] question+options (<= head_max_len) [SEP] state [SEP] into max_len; margin covers
+            # the "evidence:"/"claim:" keys and re-tokenization drift.
+            self._room = agent.cfg.get("max_len", 512) - agent.cfg.get("head_max_len", 192) - 16
+
+    def _fit(self, claim: str, snippet: str) -> str:
+        """The snippet itself if it fits next to the claim, else its most relevant passage."""
+        with self._tok_lock:
+            room = self._room - len(self._tok(claim, add_special_tokens=False)["input_ids"])
+            fits = len(self._tok(snippet, add_special_tokens=False)["input_ids"]) <= room
+        if fits:
+            return snippet
+        best = self._top_chunks(claim, snippet)
+        return best[0] if best else snippet
 
     def _top_chunks(self, claim: str, text: str) -> list[str]:
         with self._tok_lock:
