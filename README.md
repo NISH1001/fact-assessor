@@ -374,12 +374,12 @@ two real claims (they're never checked), so Laya stays the default.
 from factassessor import DuckDuckGoSearcher, SearxngSearcher, Take, not_blocked
 
 FactAssessor(searcher=DuckDuckGoSearcher() >> not_blocked() >> Take(5))                   # fact-assessor[ddg]
-FactAssessor(searcher=SearxngSearcher("http://localhost:8888") >> not_blocked() >> Take(5))  # your own SearXNG
+FactAssessor(searcher=SearxngSearcher("http://localhost:8080") >> not_blocked() >> Take(5))  # your own SearXNG
 ```
 
 DuckDuckGo needs no setup but is slower (0.7–3.3s per query vs ~0.8s for Serper) and unofficial, so heavy use can
 get rate-limited. Public SearXNG instances don't work for this (none of 25 healthy ones served JSON in our check);
-run your own with JSON enabled (`docker run -p 8888:8080 searxng/searxng`, then add `json` to `search.formats`).
+run your own with JSON enabled (`docker run -p 8080:8080 searxng/searxng`, then add `json` to `search.formats`).
 
 ## Development
 

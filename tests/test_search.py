@@ -126,11 +126,11 @@ async def test_searxng_maps_results_to_hits_and_sends_json_format():
             {"url": "https://www.nasa.gov/history", "title": "History", "content": ""},
         ]})
 
-    s = SearxngSearcher("http://localhost:8888", num=5)
+    s = SearxngSearcher("http://localhost:8080", num=5)
     s._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     hits = await s.search("NASA founded")
     await s.stop()
-    assert "format=json" in seen["url"] and seen["url"].startswith("http://localhost:8888/search")
+    assert "format=json" in seen["url"] and seen["url"].startswith("http://localhost:8080/search")
     assert hits == [
         {"url": "https://en.wikipedia.org/wiki/NASA", "title": "NASA", "snippet": "Founded in 1958."},
         {"url": "https://www.nasa.gov/history", "title": "History", "snippet": ""},
@@ -138,7 +138,7 @@ async def test_searxng_maps_results_to_hits_and_sends_json_format():
 
 
 async def test_searxng_is_a_searcher_step():
-    s = SearxngSearcher("http://localhost:8888")
+    s = SearxngSearcher("http://localhost:8080")
     s._http = httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"results": [
         {"url": f"https://s{i}.org", "title": str(i), "content": ""} for i in range(8)]})))
     hits = await collect((s >> not_blocked() >> Take(3))(once("q")))

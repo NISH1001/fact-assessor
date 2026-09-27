@@ -47,7 +47,7 @@ def _(mo, os):
         options=["Serper (Google)", "DuckDuckGo (no key)", "SearXNG (self-hosted)"], value="Serper (Google)", label="Searcher"
     )
     serper_key = mo.ui.text(value=os.environ.get("SERPER_API_KEY", ""), kind="password", label="Serper API key (from .env if set)")
-    searxng_url = mo.ui.text(value="http://localhost:8888", label="SearXNG URL")
+    searxng_url = mo.ui.text(value="http://localhost:8080", label="SearXNG URL")
     sources_choice = mo.ui.dropdown(options=["Any site", "Official sites only (.gov .edu .int)"], value="Any site", label="Sources")
     crawler_choice = mo.ui.dropdown(
         options=["Browser (Crawl4AI)", "HTTPX (fast, no JavaScript)", "HTTPX, then browser if needed"],
@@ -94,7 +94,7 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
     _search = {
         "Serper (Google)": ("SerperSearcher", "SerperSearcher(num={num})"),
         "DuckDuckGo (no key)": ("DuckDuckGoSearcher", "DuckDuckGoSearcher(num={num})"),
-        "SearXNG (self-hosted)": ("SearxngSearcher", 'SearxngSearcher("http://localhost:8888", num={num})'),
+        "SearXNG (self-hosted)": ("SearxngSearcher", 'SearxngSearcher("http://localhost:8080", num={num})'),
     }[searcher_choice.value]
     _imports.add(_search[0])
     _keep = "not_blocked()"
@@ -355,7 +355,7 @@ def _(mo):
 
     ```python
     FactAssessor(searcher=DuckDuckGoSearcher() >> not_blocked() >> Take(5))
-    FactAssessor(searcher=SearxngSearcher("http://localhost:8888") >> not_blocked() >> Take(5))
+    FactAssessor(searcher=SearxngSearcher("http://localhost:8080") >> not_blocked() >> Take(5))
     ```
 
     **6. Write your own component.** Subclass the role and implement its one method:

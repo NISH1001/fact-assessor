@@ -464,7 +464,7 @@ async def main() -> None:
     rec = sub.add_parser("record", help="record atoms, hits, and pages once")
     for p in (rec, r := sub.add_parser("run", help="evaluate variants")):
         p.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="ddg", help="for record and run --live")
-        p.add_argument("--searxng-url", default="http://localhost:8888", help="your SearXNG instance (JSON enabled)")
+        p.add_argument("--searxng-url", default="http://localhost:8080", help="your SearXNG instance (JSON enabled)")
         p.add_argument("--llm-model", default=LLM_MODEL, help="LLM for the atomizer (record, --live) and the llm judge")
     r.add_argument("variant", choices=[*VARIANTS, "all"])
     r.add_argument("--timeout", type=float, default=15.0, help="per-claim timeout (FactAssessor default 15s)")

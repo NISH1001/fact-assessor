@@ -88,11 +88,11 @@ class SerperSearcher(Searcher):
 
 
 class SearxngSearcher(Searcher):
-    """Your own SearXNG instance (no API key): `SearxngSearcher("http://localhost:8888")`.
+    """Your own SearXNG instance (no API key): `SearxngSearcher("http://localhost:8080")`.
 
     Public instances don't work for this: in our check, 0 of 25 healthy ones served JSON (rate limits, bot
     blocking, JSON disabled). Run one yourself with JSON enabled (`search.formats: [html, json]` in settings.yml),
-    e.g. `docker run -p 8888:8080 searxng/searxng`.
+    e.g. `docker run -p 8080:8080 searxng/searxng`.
     """
 
     def __init__(self, base_url: str, num: int = 10, timeout: float = 5.0, hedge_after: float | None = 1.2) -> None:
