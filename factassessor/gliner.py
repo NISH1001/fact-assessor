@@ -17,6 +17,7 @@ Judge benchmark (15 cases, M-series Mac, CPU): fp32 12/15 at ~118ms/pair (Laya: 
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -42,13 +43,20 @@ _WORDS = re.compile(
 
 
 class GlinerModel:
-    """One loaded ONNX session + tokenizer, on one thread. Get it with `gliner_model(model, variant)`."""
+    """One loaded ONNX session + tokenizer, called from `workers` threads at once. Get it with `gliner_model()`.
 
-    def __init__(self, repo: str, variant: str = "fp32", threads: int | None = None) -> None:
-        self.repo, self.variant, self.threads = repo, variant, threads
+    The model is CPU-bound (~1.2ms per token, ~250ms per page passage), and one caller at a time left cores idle:
+    2 callers x 7 intra-op threads did 7.4 rows/s vs 5.8 for one caller (M3 Max, 14 cores; 14 x 1 was 7.5 but
+    runs 14 inferences' worth of buffers at once). `threads` defaults to the cores split between the workers.
+    The ONNX session is thread-safe, so the workers share one copy of the weights.
+    """
+
+    def __init__(self, repo: str, variant: str = "fp32", threads: int | None = None, workers: int = 2) -> None:
+        self.repo, self.variant, self.workers = repo, variant, workers
+        self.threads = threads or max(1, (os.cpu_count() or workers) // workers)
         self.session: Any = None
         self.tok: Any = None
-        self.thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gliner")
+        self.thread = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="gliner")
         self._load_lock = threading.Lock()
         self._tok_lock = threading.Lock()  # HF fast tokenizers aren't thread-safe
         self._piece_ids: dict[str, list[int]] = {}
@@ -68,8 +76,7 @@ class GlinerModel:
             model_path = hf_hub_download(self.repo, VARIANTS[self.variant])
             self.tok = Tokenizer.from_file(hf_hub_download(self.repo, "tokenizer.json"))
             options = ort.SessionOptions()
-            if self.threads:
-                options.intra_op_num_threads = self.threads
+            options.intra_op_num_threads = self.threads
             self.session = ort.InferenceSession(model_path, options, providers=["CPUExecutionProvider"])
 
     async def probabilities(self, task: dict[str, Any], texts: list[str], batch_size: int = 16) -> list[dict[str, float]]:

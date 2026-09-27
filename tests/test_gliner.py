@@ -125,3 +125,55 @@ def test_judge_and_filter_share_one_model_per_model_and_variant():
 
     assert GlinerJudge().gliner is GlinerClaimFilter().gliner is gliner_model("2.5-decide", "fp32")
     assert GlinerJudge(variant="int8").gliner is not GlinerJudge().gliner
+
+
+async def test_two_model_calls_run_at_once():
+    # one caller left the CPU underused: 5.8 rows/s vs 7.4 with 2 callers x 7 intra-op threads (M3 Max, 14 cores)
+    import asyncio
+    import threading
+    import time
+
+    class SlowSession(FakeSession):
+        def __init__(self, tok):
+            super().__init__(tok)
+            self.running = self.peak = 0
+            self.lock = threading.Lock()
+
+        def run(self, outputs, feeds):
+            with self.lock:
+                self.running += 1
+                self.peak = max(self.peak, self.running)
+            time.sleep(0.2)
+            with self.lock:
+                self.running -= 1
+            return super().run(outputs, feeds)
+
+    model = GlinerModel("fake/repo", workers=2)
+    model.tok = WordPieces()
+    model.session = SlowSession(model.tok)
+    await asyncio.gather(model.probabilities(STANCE, ["evidence: a claim: b"]), model.probabilities(STANCE, ["evidence: c claim: d"]))
+    assert model.session.peak == 2
+
+
+def test_intra_op_threads_split_the_cores_between_workers(monkeypatch):
+    import factassessor.gliner as g
+
+    monkeypatch.setattr(g.os, "cpu_count", lambda: 14)
+    assert GlinerModel("fake/repo").threads == 7  # default: 2 workers x 7 threads
+    assert GlinerModel("fake/repo", workers=1).threads == 14
+    assert GlinerModel("fake/repo", threads=3).threads == 3
+
+
+async def test_long_snippets_are_cut_to_their_most_relevant_passage_too():
+    # DuckDuckGo snippets can run to 3,000+ tokens; batches pad to the longest row, so one such snippet made a
+    # 5-snippet call take 8.3s instead of 0.9s (and put the row far past what the model was trained on)
+    filler = " ".join(f"filler{i}" for i in range(2000))
+    long_hit = {"url": "ddg", "title": "", "snippet": f"{filler} Curie won the Nobel Prize in Physics in 1903. {filler}"}
+    short_hit = {"url": "short", "title": "", "snippet": "Curie shared the 1903 Nobel Prize."}
+    j = judge(passage_tokens=40)
+    ev = await j.judge(CLAIM, [long_hit, short_hit])
+    assert [(e.url, e.source, e.label) for e in ev] == [("ddg", "snippet", "supports"), ("short", "snippet", "supports")]
+    assert len(ev[0].text.split()) <= 40 and "1903" in ev[0].text
+    assert ev[1].text == short_hit["snippet"]  # short snippets stay whole
+    widest = max(len(b["input_ids"][0]) for b in j._session.batches)
+    assert widest == len(j._model._encode_row(j._prompt_ids, f"evidence: {ev[0].text} claim: {CLAIM}")) < 200

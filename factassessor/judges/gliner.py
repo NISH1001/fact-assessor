@@ -70,8 +70,15 @@ class GlinerJudge(Judge):
         return evidence
 
     def _passages_of(self, claim: str, doc: dict[str, Any]) -> list[dict[str, Any]]:
-        base = {"url": doc["url"], "title": doc.get("title", "")}
+        base = {"url": doc["url"], "title": doc.get("title") or ""}
         if "text" not in doc:
-            return [{**base, "text": doc["snippet"], "source": "snippet"}] if doc.get("snippet") else []
+            snippet = doc.get("snippet")
+            if not snippet:
+                return []
+            # most snippets are ~120 tokens, but some DuckDuckGo ones run to 3,000+: a batch pads every row to its
+            # longest, so one of those made a 5-snippet call 9x slower. Cut those like pages; short ones stay whole.
+            chunks = self.gliner.chunk(snippet, self.passage_tokens)
+            texts = [snippet] if len(chunks) <= 1 else top_passages(claim, chunks, k=1)
+            return [{**base, "text": t, "source": "snippet"} for t in texts]
         chunks = self.gliner.chunk(doc["text"], self.passage_tokens)
         return [{**base, "text": t, "source": "page"} for t in top_passages(claim, chunks, k=self.passages_per_page)]
