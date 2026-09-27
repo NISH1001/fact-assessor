@@ -11,6 +11,8 @@ from typing import Any
 from factassessor.pipeline import Map, Scan, Step, TakeUntil, collect, last, once
 from factassessor.schema import Atom, AtomResult, Evidence, Verdict
 
+_FROM_JUDGE: Any = object()  # "use the judge's concurrency" (so concurrency=None can mean "no limit")
+
 
 class Policy(ABC):
     """Role: turns evidence into a verdict, and decides when there's enough evidence to stop looking."""
@@ -56,17 +58,29 @@ class Verify(Step):
 
     searcher: step, query -> hits      crawler: step, url -> pages
     judge:    a Judge (`judge(claim, docs)`)      policy: a Policy (`settled(ev)`, `verdict(ev)`)
+    concurrency: claims verified at once, like `Map(concurrency=)`. Default: the judge's `concurrency` (none for
+        Laya and LLM judges, so every claim starts at once); None: no limit. A claim's `timeout` starts when it
+        gets its slot, so claims waiting for a slow judge don't time out in the queue.
     """
 
-    def __init__(self, searcher: Step, crawler: Step, judge: Any, policy: Any = None, timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        searcher: Step,
+        crawler: Step,
+        judge: Any,
+        policy: Any = None,
+        timeout: float = 15.0,
+        concurrency: int | None | Any = _FROM_JUDGE,
+    ) -> None:
         self.searcher = searcher
         self.crawler = crawler
         self.judge = judge
         self.policy = policy or WeightedPolicy()
         self.timeout = timeout
+        self.concurrency = getattr(judge, "concurrency", None) if concurrency is _FROM_JUDGE else concurrency
 
     def __call__(self, atoms: AsyncIterator[Atom]) -> AsyncIterator[AtomResult]:
-        return Map(self.verify)(atoms)
+        return Map(self.verify, concurrency=self.concurrency)(atoms)
 
     async def verify(self, atom: Atom) -> AtomResult:
         """Never raises: a failed or slow claim comes back unverified with `error` set."""

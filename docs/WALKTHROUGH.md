@@ -213,6 +213,11 @@ same blocks: `crawler >> judge_page >> Scan(add, evidence) >> TakeUntil(policy.s
 result = await Verify(searcher_chain, crawler, judge, policy).verify(atom)   # one AtomResult
 ```
 
+As a step, `Verify` checks claims concurrently. By default every claim starts at once, which suits Laya and the LLM
+judge. A slow judge sets how many claims it can take at once (`GlinerJudge` takes 3), and claims wait for a free slot;
+a claim's timeout starts when it gets one. Override it with `Verify(..., concurrency=5)` or
+`FactAssessor(max_concurrent_claims=5)`; `None` means no limit.
+
 ## 5. Putting it together
 
 Two ways to give `FactAssessor` a claim filter:

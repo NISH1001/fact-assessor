@@ -103,6 +103,27 @@ runs each on the same texts: Nepal median 5.9s → 6.5s, mixed 6.8s → 5.0s, wi
 verdicts unchanged. Read as: no regression beyond network noise. The latency gain from streaming needs the
 streaming atomizer (claims currently all appear when the LLM call returns, ~2s in).
 
+## GLiNER under the per-claim timeout
+
+The end-to-end eval had GLiNER decide nothing at the normal 15s per-claim timeout. Measured on recorded evidence
+(M3 Max, 14 cores), three causes, each fixed and re-measured:
+
+- **Throughput.** The model is CPU-bound, ~1.2ms per token (~180ms a snippet row, ~250ms a page row), and batching
+  doesn't help on CPU (5 rows cost 5x one). One caller at a time left cores idle: 2 callers x 7 intra-op threads
+  do 7.4 rows/s vs 5.8 (1 x 14: 5.5; 14 x 1: 7.5, but with 14 inferences' buffers at once).
+- **Huge snippets.** Some DuckDuckGo snippets run to 3,000+ tokens (53 of 1,410 over 512) and were scored whole;
+  batches pad to their longest row, so one made a 5-snippet call 8.3s instead of 0.9s. They're now cut to their
+  best passage, like pages. Short text 15.4s -> 6.0s; medium texts' timeouts 5 of 9 and 5 of 8 -> 0.
+- **Every claim at once.** `Verify` started all claims together; a 20-claim text needs ~250 rows (~34s of model
+  time), so claims shared the model evenly and all 20 timed out. `Verify(concurrency=)` (default: the judge's
+  `concurrency`) makes claims wait for a slot, with the timeout starting at the slot. With any limit, 0 of 20 timed
+  out and the text took ~35s; the limit set how soon verdicts arrive: first at 4.8s / 7.0s / 9.6s, half by
+  21.3s / 23.7s / 24.4s for 3 / 5 / 8. `GlinerJudge` takes 3. Laya and LLM judges keep no limit.
+
+Not causes (measured): page splitting (<0.05s a page), the shared tokenizer lock (<0.4s a text), event-loop
+blocking (<0.1s lag), and work left over from timed-out claims (none started after its claim timed out; the ~110s
+text from the first eval run didn't reproduce).
+
 ## Alternative judge: GLiNER2.5-decide (ONNX)
 
 `GlinerJudge` on nishparadox/gliner2.5-decide-onnx, 15-case benchmark (`scripts/compare_judges.py`), M-series

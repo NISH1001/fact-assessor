@@ -51,6 +51,7 @@ class FactAssessor:
         strong_evidence: float = 0.7,  # a passage counts toward a verdict at or above this prob
         crawl_timeout: float = 2.5,
         max_concurrent_crawls: int = 10,
+        max_concurrent_claims: int | None | Any = _DEFAULT,  # default: the judge's `concurrency`; None: no limit
         search_timeout: float = 5.0,
         search_hedge_after: float = 1.2,
         blocked_domains: tuple[str, ...] = BLOCKED_DOMAINS,
@@ -78,7 +79,8 @@ class FactAssessor:
         self.crawler = crawler or Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
         self.judge = judge or LayaJudge(model=laya_model, device=device)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf)
-        self.verify = Verify(self.searcher, self.crawler, self.judge, self.policy, timeout=timeout)
+        claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}
+        self.verify = Verify(self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, **claims)
         self._loop: asyncio.AbstractEventLoop | None = None  # background loop behind assess_sync()
         self._loop_thread: threading.Thread | None = None
 

@@ -177,3 +177,12 @@ async def test_long_snippets_are_cut_to_their_most_relevant_passage_too():
     assert ev[1].text == short_hit["snippet"]  # short snippets stay whole
     widest = max(len(b["input_ids"][0]) for b in j._session.batches)
     assert widest == len(j._model._encode_row(j._prompt_ids, f"evidence: {ev[0].text} claim: {CLAIM}")) < 200
+
+
+def test_gliner_judge_takes_three_claims_at_once_by_default():
+    # 20-claim text on recorded evidence: no limit -> 20 of 20 timed out; limit 3/5/8 -> 0 timed out, ~35s either
+    # way, first verdict at 4.8s / 7.0s / 9.6s
+    from factassessor import Verify
+
+    assert GlinerJudge().concurrency == 3 and GlinerJudge(concurrency=None).concurrency is None
+    assert Verify(searcher=None, crawler=None, judge=GlinerJudge()).concurrency == 3

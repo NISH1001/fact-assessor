@@ -116,3 +116,71 @@ def test_fact_score_is_computed_from_the_atoms_and_serialized():
     result.atoms.append(AtomResult(atom=ATOM, verdict="supported"))
     assert result.fact_score == 2 / 3  # follows the atoms; can't go stale
     assert '"fact_score":0.6666666666666666' in result.model_dump_json()
+
+
+# --- how many claims verify at once ---------------------------------------------------------------------
+
+
+class SlowJudge:
+    """Takes `delay` per call; records the most claims it was ever judging at once."""
+
+    def __init__(self, delay=0.05, concurrency=None):
+        self.delay, self.running, self.peak = delay, 0, 0
+        if concurrency is not None:
+            self.concurrency = concurrency
+
+    async def judge(self, claim, docs):
+        self.running += 1
+        self.peak = max(self.peak, self.running)
+        await asyncio.sleep(self.delay)
+        self.running -= 1
+        return [ev("supports", 0.95), ev("supports", 0.95)]
+
+
+async def _atoms(n):
+    for i in range(n):
+        yield Atom(id=i, text=f"claim {i}", span=(0, 7))
+
+
+async def test_concurrency_caps_the_claims_in_flight():
+    from factassessor import collect
+
+    judge = SlowJudge()
+    results = await collect(Verify(FakeSearcher(), FakeCrawler(), judge, concurrency=2)(_atoms(5)))
+    assert len(results) == 5 and judge.peak == 2
+
+
+async def test_no_concurrency_limit_runs_every_claim_at_once():
+    from factassessor import collect
+
+    judge = SlowJudge()
+    await collect(Verify(FakeSearcher(), FakeCrawler(), judge, concurrency=None)(_atoms(5)))
+    assert judge.peak == 5
+
+
+async def test_waiting_for_a_slot_does_not_count_toward_the_timeout():
+    # a slow judge (GLiNER on CPU) can't take 20 claims at once; queued claims must not time out while they wait
+    from factassessor import collect
+
+    verify = Verify(FakeSearcher(), FakeCrawler(), SlowJudge(delay=0.1), timeout=0.15, concurrency=1)
+    results = await collect(verify(_atoms(3)))  # 0.3s in total, 0.1s each
+    assert [r.verdict for r in results] == ["supported"] * 3
+
+
+def test_verify_takes_the_judges_concurrency_unless_given():
+    assert Verify(FakeSearcher(), FakeCrawler(), SlowJudge(concurrency=3)).concurrency == 3
+    assert Verify(FakeSearcher(), FakeCrawler(), SlowJudge(concurrency=3), concurrency=7).concurrency == 7
+    assert Verify(FakeSearcher(), FakeCrawler(), SlowJudge(concurrency=3), concurrency=None).concurrency is None
+    assert Verify(FakeSearcher(), FakeCrawler(), FakeJudge([], [])).concurrency is None  # no hint: no limit
+
+
+def test_fact_assessor_passes_max_concurrent_claims_to_verify():
+    from factassessor import FactAssessor
+
+    def fa(**kw):
+        return FactAssessor(atomizer=Step(), claim_filter=None, searcher=FakeSearcher(), crawler=FakeCrawler(), **kw)
+
+    assert fa(judge=SlowJudge(concurrency=3)).verify.concurrency == 3
+    assert fa(judge=SlowJudge(concurrency=3), max_concurrent_claims=4).verify.concurrency == 4
+    assert fa(judge=SlowJudge(concurrency=3), max_concurrent_claims=None).verify.concurrency is None
+    assert fa(judge=FakeJudge([], [])).verify.concurrency is None

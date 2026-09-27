@@ -37,8 +37,13 @@ class GlinerJudge(Judge):
         passages_per_page: int = 1,
         passage_tokens: int = 128,
         batch_size: int = 16,
+        # claims at once (Verify's default). GLiNER on CPU does ~7 rows/s, a claim needs ~10: with no limit, the
+        # 20 claims of a long text shared it evenly and all 20 timed out. With a limit none did; 3 gave the first
+        # verdict soonest (4.8s vs 7.0s at 5, 9.6s at 8; ~35s in total either way, recorded evidence).
+        concurrency: int | None = 3,
     ) -> None:
         self.model, self.variant, self.threads = model, variant, threads
+        self.concurrency = concurrency
         self.passages_per_page = passages_per_page
         self.passage_tokens = passage_tokens
         self.batch_size = batch_size

@@ -485,6 +485,11 @@ def _(mo):
     it, crawl every hit at once, judge each page as it lands, and stop (cancelling the remaining crawls) as soon as
     the policy says settled. It's built from the same blocks:
     `crawler >> judge_page >> Scan(add, evidence) >> TakeUntil(policy.settled)`.
+
+    As a step, `Verify` checks claims concurrently. By default every claim starts at once, which suits Laya and the LLM
+    judge. A slow judge sets how many claims it can take at once (`GlinerJudge` takes 3), and claims wait for a free slot;
+    a claim's timeout starts when it gets one. Override it with `Verify(..., concurrency=5)` or
+    `FactAssessor(max_concurrent_claims=5)`; `None` means no limit.
     """)
     return
 
