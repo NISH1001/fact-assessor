@@ -127,14 +127,17 @@ async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODE
     slots = asyncio.Semaphore(3)  # DuckDuckGo rate-limits bursts
 
     async def search(query: str) -> list[dict[str, Any]]:
-        for attempt in range(4):
+        for attempt in range(4):  # errors and empty results both retry: DuckDuckGo throttles by returning nothing
             try:
                 async with slots:
                     hits = await searcher.search(query)
-                return [h for h in hits if not is_blocked(h["url"])][:TOP_K]
+                if hits:
+                    return [h for h in hits if not is_blocked(h["url"])][:TOP_K]
+                reason = "no results"
             except Exception as exc:
-                print(f"  search retry {attempt + 1} ({exc!r:.60})", flush=True)
-                await asyncio.sleep(2 * (attempt + 1))
+                reason = f"{exc!r:.60}"
+            print(f"  search retry {attempt + 1} ({reason})", flush=True)
+            await asyncio.sleep(2 * (attempt + 1))
         return []
 
     for ex in load_texts():
