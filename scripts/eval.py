@@ -42,7 +42,7 @@ from typing import Any
 
 from factassessor import Atom, Crawl4AICrawler, FactAssessor, LayaClaimFilter, LayaJudge, LLMJudge, SerperSearcher
 from factassessor.atomizer import Atomizer, LLMAtomizer
-from factassessor.crawl import Crawler
+from factassessor.crawlers import Crawler
 from factassessor.search import DuckDuckGoSearcher, Searcher, SearxngSearcher, is_blocked, not_blocked
 from factassessor.pipeline import Take
 
@@ -189,7 +189,7 @@ def llm_settings(model: str) -> dict[str, Any]:
 def components(variant: str, llm_model: str = LLM_MODEL) -> tuple[Any, Any]:
     """(claim_filter, judge) for a variant."""
     if variant == "gliner":
-        from factassessor.gliner import GlinerClaimFilter, GlinerJudge  # one shared GLiNER model
+        from factassessor import GlinerClaimFilter, GlinerJudge  # one shared GLiNER model
 
         return GlinerClaimFilter(), GlinerJudge()
     if variant == "llm":

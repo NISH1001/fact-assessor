@@ -193,8 +193,8 @@ seconds on network calls, crawling, and model passes. (A/B vs the pre-refactor c
 | File | What |
 |---|---|
 | `pipeline.py` | `Step`, `Chain`, `Map`, `FlatMap`, `Filter`, `Take`, `Scan`, `TakeUntil`, `Pred`, `as_step`, `_concurrently`, lifecycle walk |
-| `atomizer.py`, `search.py`, `crawl.py`, `evidence_judge.py`, `gliner.py`, `verify.py` | roles and implementations |
-| `claim_filter.py` | `ClaimFilter` (role: `score(atom)`), `LayaClaimFilter` |
+| `atomizer.py`, `search.py`, `crawlers.py`, `judges/`, `gliner.py`, `verify.py` | roles and implementations |
+| `claim_filters/` | `ClaimFilter` (role: `score(atom)`), `LayaClaimFilter`, `GlinerClaimFilter` |
 | `assessor.py` | `FactAssessor`: default chain, `stream` / `assess` / `assess_sync`, lifecycle |
 | `schema.py` | data types; `CheckResult.fact_score` is computed from the atoms |
 | `kg.py` | knowledge graph, built on demand from a result |

@@ -1,4 +1,5 @@
-"""GLiNER2.5-decide via ONNX (onnxruntime + tokenizers + numpy, no torch): `GlinerJudge` and `GlinerClaimFilter`.
+"""GLiNER2.5-decide via ONNX (onnxruntime + tokenizers + numpy, no torch): the shared model, one per
+(model, variant) per process. Used by `GlinerClaimFilter` (claim_filters/gliner.py) and `GlinerJudge` (judges/gliner.py).
 
 GLiNER2.5-decide (fastino, Apache-2.0) is, like Laya, a non-autoregressive decision model: a task with labels in,
 one probability per label out, in a single encoder pass. Weights: the ONNX export at
@@ -23,25 +24,11 @@ from typing import Any
 
 import numpy as np
 
-from factassessor.claim_filter import KINDS, ClaimFilter
-from factassessor.evidence_judge import Judge
-from factassessor.passages import chunk, top_passages
-from factassessor.schema import Atom, Evidence
+from factassessor.passages import chunk
 
 MODELS = {"2.5-decide": "nishparadox/gliner2.5-decide-onnx"}  # short names -> Hugging Face repos
 VARIANTS = {"fp32": "model.onnx", "fp16": "model_fp16.onnx", "int8": "model_int8.onnx"}
 
-STANCE = {  # (task, instruction, labels in logit order)
-    "task": "stance",
-    "instruction": "Does the evidence support or refute the claim?",
-    "labels": {
-        "supports": "the evidence says the same thing as the claim",
-        "refutes": "the evidence contradicts the claim",
-        "not_enough_info": "the evidence does not mention what the claim is about",
-    },
-}
-KIND = {"task": "kind", "instruction": "What kind of statement is this?", "labels": KINDS}
-LABELS = STANCE["labels"]  # kept for callers that list the judge's labels
 
 # gliner2's whitespace word splitter: URLs, emails, @handles, words (with - or _), then any other character
 _WORDS = re.compile(
@@ -156,79 +143,6 @@ def gliner_model(model: str = "2.5-decide", variant: str = "fp32", threads: int 
     repo = MODELS.get(model, model)
     with _models_lock:
         return _models.setdefault((repo, variant), GlinerModel(repo, variant, threads))
-
-
-class GlinerJudge(Judge):
-    """Every (evidence, claim) pair is one GLiNER decision; a call's pairs share padded forward passes."""
-
-    def __init__(
-        self,
-        model: str = "2.5-decide",  # a short name from MODELS or a Hugging Face repo with the same ONNX export
-        variant: str = "fp32",  # int8 is 2x faster but lost ~5/15 on the judge benchmark
-        threads: int | None = None,  # onnxruntime intra-op threads
-        passages_per_page: int = 1,
-        passage_tokens: int = 128,
-        batch_size: int = 16,
-    ) -> None:
-        self.model, self.variant, self.threads = model, variant, threads
-        self.passages_per_page = passages_per_page
-        self.passage_tokens = passage_tokens
-        self.batch_size = batch_size
-        self._model: GlinerModel | None = None  # tests inject a fake
-
-    @property
-    def gliner(self) -> GlinerModel:
-        if self._model is None:
-            self._model = gliner_model(self.model, self.variant, self.threads)
-        return self._model
-
-    async def aload(self) -> None:
-        """Download (first time, ~1.75 GB for fp32) and load the ONNX model."""
-        await self.gliner.aload()
-
-    async def judge(self, claim: str, docs: list[dict[str, Any]]) -> list[Evidence]:
-        if not docs:
-            return []
-        await self.gliner.aload()
-        passages = [p for group in await asyncio.gather(*(asyncio.to_thread(self._passages_of, claim, d) for d in docs)) for p in group]
-        if not passages:
-            return []
-        # evidence first, then claim: 12/15 vs 11/15 claim-first on the judge benchmark
-        texts = [f"evidence: {p['text']} claim: {claim}" for p in passages]
-        evidence = []
-        for passage, dist in zip(passages, await self.gliner.probabilities(STANCE, texts, self.batch_size)):
-            label = max(dist, key=dist.get)
-            evidence.append(Evidence(**passage, label=label, prob=dist[label]))
-        return evidence
-
-    def _passages_of(self, claim: str, doc: dict[str, Any]) -> list[dict[str, Any]]:
-        base = {"url": doc["url"], "title": doc.get("title", "")}
-        if "text" not in doc:
-            return [{**base, "text": doc["snippet"], "source": "snippet"}] if doc.get("snippet") else []
-        chunks = self.gliner.chunk(doc["text"], self.passage_tokens)
-        return [{**base, "text": t, "source": "page"} for t in top_passages(claim, chunks, k=self.passages_per_page)]
-
-
-class GlinerClaimFilter(ClaimFilter):
-    """GLiNER decides the kind of statement (factual claim / opinion / question or request / social)."""
-
-    def __init__(self, threshold: float = 0.4, model: str = "2.5-decide", variant: str = "fp32", threads: int | None = None) -> None:
-        super().__init__(threshold)
-        self.model, self.variant, self.threads = model, variant, threads
-        self._model: GlinerModel | None = None  # tests inject a fake
-
-    @property
-    def gliner(self) -> GlinerModel:
-        if self._model is None:
-            self._model = gliner_model(self.model, self.variant, self.threads)
-        return self._model
-
-    async def score(self, atom: Atom) -> float:
-        [dist] = await self.gliner.probabilities(KIND, [atom.text])
-        return dist["factual_claim"]
-
-    async def start(self) -> None:
-        await self.gliner.aload()
 
 
 class _Offsets:

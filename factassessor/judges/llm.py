@@ -1,6 +1,6 @@
 """LLMJudge: the evidence judge as an LLM call with structured output (pydantic-ai).
 
-Measured on benchmarks/judge_cases.py (4 runs each): gpt-6-luna 15/15 in 3 of 4 runs (Laya 13/15, GLiNER 12/15),
+Measured on data/judge_cases.json (4 runs each): gpt-6-luna 15/15 in 3 of 4 runs (Laya 13/15, GLiNER 12/15),
 ~2.1s for 15 pairs, so ~10x slower than Laya: the pick when accuracy matters more than speed.
 
 Batching: with `window_ms > 0`, judge requests arriving within that window (from any claims, snippets or pages) go
@@ -20,7 +20,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
-from factassessor.evidence_judge import Judge
+from factassessor.judges._base import Judge
 from factassessor.passages import chunk, top_passages
 from factassessor.schema import Evidence
 

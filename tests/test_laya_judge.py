@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from factassessor.evidence_judge import LayaJudge
+from factassessor.judges import LayaJudge
 from tests.test_passages import WordTokenizer
 
 CLAIM = "Marie Curie won the Nobel Prize in Physics in 1903."

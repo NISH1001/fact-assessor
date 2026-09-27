@@ -6,11 +6,9 @@ load_dotenv(find_dotenv(usecwd=True))
 from factassessor import kg  # noqa: E402
 from factassessor.assessor import FactAssessor
 from factassessor.atomizer import Atomizer, LLMAtomizer
-from factassessor.claim_filter import ClaimFilter, LayaClaimFilter
-from factassessor.crawl import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler
-from factassessor.evidence_judge import Judge, LayaJudge
-from factassessor.gliner import GlinerClaimFilter, GlinerJudge
-from factassessor.llm_judge import LLMJudge
+from factassessor.claim_filters import ClaimFilter, GlinerClaimFilter, LayaClaimFilter
+from factassessor.crawlers import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler
+from factassessor.judges import GlinerJudge, Judge, LayaJudge, LLMJudge
 from factassessor.pipeline import Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.schema import Atom, AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event, Evidence, fact_score
 from factassessor.search import (

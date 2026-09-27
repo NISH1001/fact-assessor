@@ -19,11 +19,11 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-from factassessor.claim_filter import ClaimFilter, LayaClaimFilter
+from factassessor.claim_filters import ClaimFilter, LayaClaimFilter
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
 from factassessor.atomizer import LLMAtomizer
-from factassessor.crawl import Crawl4AICrawler
-from factassessor.evidence_judge import Judge, LayaJudge
+from factassessor.crawlers import Crawl4AICrawler
+from factassessor.judges import Judge, LayaJudge
 from factassessor.pipeline import Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked

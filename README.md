@@ -337,7 +337,7 @@ another Jev/Laya-style decision model, as ONNX from
 [nishparadox/gliner2.5-decide-onnx](https://huggingface.co/nishparadox/gliner2.5-decide-onnx); CPU, no torch):
 
 ```python
-from factassessor.gliner import GlinerJudge     # needs fact-assessor[gliner]; downloads ~1.75 GB on first use
+from factassessor.judges import GlinerJudge     # needs fact-assessor[gliner]; downloads ~1.75 GB on first use
 
 fa = FactAssessor(judge=GlinerJudge())            # variant="int8" is 2x faster but much less accurate
 ```
@@ -394,15 +394,21 @@ factassessor/
   assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
   pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Pred: the streaming runner
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
-  claim_filter.py    ClaimFilter (role), LayaClaimFilter: atoms -> the factual claims
+  claim_filters/     atoms -> the factual claims
+    _base.py         ClaimFilter (role)
+    laya.py          LayaClaimFilter (default, local)
+    gliner.py        GlinerClaimFilter (optional extra)
   search.py          Searcher (role), SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, hedging
-  crawl.py           Crawler (role), Crawl4AICrawler, HTTPXCrawler, FallbackCrawler: url -> clean pages
+  crawlers.py        Crawler (role), Crawl4AICrawler, HTTPXCrawler, FallbackCrawler: url -> clean pages
   verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
-  evidence_judge.py  Judge (role), LayaJudge
-  gliner.py          GlinerJudge, GlinerClaimFilter: GLiNER2.5-decide via ONNX (optional extra), one shared model
+  judges/            evidence -> stance per passage
+    _base.py         Judge (role)
+    laya.py          LayaJudge (default, local)
+    gliner.py        GlinerJudge (optional extra)
+    llm.py           LLMJudge: the judge as a pydantic-ai structured call (optionally batched)
+  gliner.py          the GLiNER2.5-decide runtime (internal, optional extra): one ONNX model per process
   kg.py              knowledge graph (kg.build, kg.to_mermaid), built on demand from a result
   laya.py            the Laya runtime (internal): one model per device per process, micro-batching, batch cap
-  llm_judge.py       LLMJudge: the judge as a pydantic-ai structured call (optionally batched)
   passages.py        page cleaning, token-exact chunking, BM25
   schema.py          Atom, Evidence, AtomResult, CheckResult (fact_score computed from its atoms), stream events
 ```

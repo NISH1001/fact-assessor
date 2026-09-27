@@ -36,7 +36,7 @@ async def main():
         await score(f"LLMJudge {name} (1 call)", LLMJudge(model, window_ms=20))
         await score(f"LLMJudge {name} (15 calls)", LLMJudge(model, window_ms=0))
     try:
-        from factassessor.gliner import GlinerJudge
+        from factassessor.judges import GlinerJudge
     except ImportError:
         print("GlinerJudge: install the extra first (uv sync --extra gliner)")
         return

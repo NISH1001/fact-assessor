@@ -1,7 +1,9 @@
 import numpy as np
 
 from factassessor import Atom
-from factassessor.gliner import KIND, LABELS, STANCE, GlinerClaimFilter, GlinerJudge, GlinerModel
+from factassessor.claim_filters.gliner import KIND, GlinerClaimFilter
+from factassessor.gliner import GlinerModel
+from factassessor.judges.gliner import LABELS, STANCE, GlinerJudge
 
 CLAIM = "Marie Curie won the Nobel Prize in Physics."  # no year: the fake keys "supports" off "1903" in the evidence
 
