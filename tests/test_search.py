@@ -158,3 +158,39 @@ async def test_duckduckgo_maps_ddgs_results_without_an_api_key():
     hits = await s.search("NASA founded")
     assert calls == [("NASA founded", 7)]
     assert hits == [{"url": "https://en.wikipedia.org/wiki/NASA", "title": "NASA", "snippet": "Founded in 1958."}]
+
+
+def test_duckduckgo_no_results_is_an_empty_list_after_one_retry():
+    # ddgs raises "No results found." instead of returning []; with DuckDuckGo it's usually throttling, so retry once
+    calls = []
+
+    class Throttled:
+        def text(self, query, max_results):
+            calls.append(query)
+            raise Exception("No results found.")
+
+    s = DuckDuckGoSearcher(client_factory=Throttled, retry_after=0)
+    assert asyncio.run(s.search("q")) == [] and len(calls) == 2
+
+
+def test_duckduckgo_recovers_when_the_retry_succeeds():
+    calls = []
+
+    class ThrottledOnce:
+        def text(self, query, max_results):
+            calls.append(query)
+            if len(calls) == 1:
+                raise Exception("No results found.")
+            return [{"href": "https://en.wikipedia.org/wiki/NASA", "title": None, "body": "Founded in 1958."}]
+
+    hits = asyncio.run(DuckDuckGoSearcher(client_factory=ThrottledOnce, retry_after=0).search("q"))
+    assert hits == [{"url": "https://en.wikipedia.org/wiki/NASA", "title": "", "snippet": "Founded in 1958."}]
+
+
+def test_duckduckgo_other_errors_still_raise():
+    class Broken:
+        def text(self, query, max_results):
+            raise RuntimeError("connection reset")
+
+    with pytest.raises(RuntimeError, match="connection reset"):
+        asyncio.run(DuckDuckGoSearcher(client_factory=Broken, retry_after=0).search("q"))

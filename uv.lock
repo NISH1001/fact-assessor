@@ -1053,6 +1053,7 @@ gliner = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "ddgs" },
     { name = "marimo" },
     { name = "matplotlib" },
     { name = "pytest" },
@@ -1076,6 +1077,7 @@ provides-extras = ["gliner", "ddg"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "ddgs", specifier = ">=9.16.0" },
     { name = "marimo", specifier = ">=0.25.0" },
     { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "pytest", specifier = ">=8" },

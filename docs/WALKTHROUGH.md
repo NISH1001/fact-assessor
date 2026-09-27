@@ -13,9 +13,10 @@ works inside (streams, concurrency, cancellation), see [design/functional.md](de
 ## 1. The three-line version
 
 ```python
-from factassessor import FactAssessor
+from factassessor import DuckDuckGoSearcher, FactAssessor, Take, not_blocked
 
-async with FactAssessor() as fa:
+# FactAssessor() alone searches with Serper (needs SERPER_API_KEY); DuckDuckGo needs no key
+async with FactAssessor(searcher=DuckDuckGoSearcher() >> not_blocked() >> Take(5)) as fa:
     result = await fa.assess("It was believed that Nepal's earthquake in 2017 of 7.8 magnitude scale caused "
                              "massive damage. Total lives lost were 1 million people.")
 
@@ -27,7 +28,9 @@ result.fact_score                                     # 0.5
 # refuted    Nepal's earthquake killed 1 million people.
 ```
 
-`FactAssessor()` builds the default pipeline; `assess_sync(text)` is the same for non-async code.
+`FactAssessor()` builds the default pipeline; `assess_sync(text)` is the same for non-async code. The notebook and
+this guide search with DuckDuckGo so they run with only `OPENAI_API_KEY`; swap in `SerperSearcher()` (faster and
+steadier, needs `SERPER_API_KEY`) wherever you see `DuckDuckGoSearcher()`.
 
 ## 2. Building blocks
 
@@ -86,7 +89,7 @@ Each component has a **role** (a base type) and implementations; to make your ow
 |---|---|---|
 | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
 | `ClaimFilter` | `score(atom)` → P(factual claim) | `LayaClaimFilter`, `GlinerClaimFilter` |
-| `Searcher` | `search(query)` | `SerperSearcher`, `DuckDuckGoSearcher`, `SearxngSearcher` |
+| `Searcher` | `search(query)` | `SerperSearcher` (default), `DuckDuckGoSearcher` (no key, used here), `SearxngSearcher` |
 | `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `FallbackCrawler` |
 | `Judge` | `judge(claim, docs)` | `LayaJudge`, `GlinerJudge`, `LLMJudge` |
 | `Policy` | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` |
@@ -131,15 +134,17 @@ await claim_filter.score(atom)     # 0.92 for "Nepal's earthquake occurred in 20
 On the 19-statement benchmark both get 17/19, but Laya's misses keep opinions (one wasted search) while GLiNER's drop
 real claims (never checked), and GLiNER is slower, so Laya is the default.
 
-### 3c. `SerperSearcher`: query → search hits
+### 3c. `DuckDuckGoSearcher`: query → search hits
 
-Google results as `{"url", "title", "snippet"}`, in rank order:
+Web results as `{"url", "title", "snippet"}`, in rank order, with no API key:
 
 ```python
-hits = await SerperSearcher(num=10).search("Nepal's earthquake occurred in 2017.")
+searcher = DuckDuckGoSearcher(num=10)
+hits = await searcher.search("Nepal's earthquake occurred in 2017.")
 ```
 
-No API key? `DuckDuckGoSearcher()` works without one (slower), or `SearxngSearcher(url)` with your own SearXNG.
+`SerperSearcher()` (Google via Serper, needs `SERPER_API_KEY`) is faster and steadier: about 0.8s per query vs
+0.7-3.3s, and DuckDuckGo can throttle heavy use. `SearxngSearcher(url)` works with your own SearXNG.
 
 ### 3d. `Crawl4AICrawler`: url → page
 
@@ -194,7 +199,7 @@ long_enough = Pred(lambda atom: len(atom.text) > 15)
 atomizer_chain = LLMAtomizer() >> LayaClaimFilter(threshold=0.4) >> long_enough >> Take(8)
 await collect(atomizer_chain(once(text)))                # the atoms worth checking
 
-searcher_chain = SerperSearcher() >> not_blocked() >> Take(5)   # drop social/video sites, keep the top 5
+searcher_chain = searcher >> not_blocked() >> Take(5)   # drop social/video sites, keep the top 5
 await collect(searcher_chain(once(claim)))
 
 await collect(crawler(urls))                             # every page crawled at once, yielded as each finishes
@@ -217,7 +222,7 @@ Two ways to give `FactAssessor` a claim filter:
 fa = FactAssessor(
     atomizer=LLMAtomizer(),
     claim_filter=LayaClaimFilter(threshold=0.4),     # or GlinerClaimFilter(), or None for no filter
-    searcher=SerperSearcher() >> not_blocked() >> Take(5),
+    searcher=DuckDuckGoSearcher() >> not_blocked() >> Take(5),   # or SerperSearcher()
     crawler=Crawl4AICrawler(),
     judge=LayaJudge(),                               # or LLMJudge(), GlinerJudge()
 )
@@ -297,5 +302,5 @@ class OnePerSite(Step):
                 seen.add(site)
                 yield hit
 
-FactAssessor(searcher=SerperSearcher() >> not_blocked() >> OnePerSite() >> Take(5))
+FactAssessor(searcher=searcher >> not_blocked() >> OnePerSite() >> Take(5))
 ```

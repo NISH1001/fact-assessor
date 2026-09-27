@@ -28,7 +28,8 @@ def _(mo):
     5. **Putting it together**: a custom `FactAssessor`, streamed live
     6. **Writing your own step**
 
-    Needs `SERPER_API_KEY` and `OPENAI_API_KEY` in a `.env` (or the environment).
+    Needs `OPENAI_API_KEY` in a `.env` (or the environment). Search uses DuckDuckGo, which needs no key; swap in
+    `SerperSearcher()` (faster and steadier, needs `SERPER_API_KEY`) anywhere you see `DuckDuckGoSearcher()`.
     """)
     return
 
@@ -48,16 +49,18 @@ def _(mo):
     ## 1. The three-line version
 
     `FactAssessor()` builds the default pipeline. `assess` returns everything once all claims are checked.
-    (`assess_sync` is the same for non-async code.)
+    (`assess_sync` is the same for non-async code.) The default searcher is Serper, which needs `SERPER_API_KEY`;
+    here we pass DuckDuckGo instead, which needs no key.
     """)
     return
 
 
 @app.cell
-async def _(mo, text):
-    from factassessor import FactAssessor
+async def _(Take, mo, text):
+    from factassessor import DuckDuckGoSearcher, FactAssessor, not_blocked
 
-    async with FactAssessor() as _fa:
+    # FactAssessor() alone searches with Serper; this is the same pipeline with DuckDuckGo (no API key)
+    async with FactAssessor(searcher=DuckDuckGoSearcher() >> not_blocked() >> Take(5)) as _fa:
         quick = await _fa.assess(text)
 
     mo.vstack(
@@ -69,7 +72,7 @@ async def _(mo, text):
             ),
         ]
     )
-    return (FactAssessor,)
+    return DuckDuckGoSearcher, FactAssessor, not_blocked
 
 
 @app.cell
@@ -178,7 +181,7 @@ def _(mo):
     |---|---|---|
     | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
     | `ClaimFilter` | `score(atom)` → P(factual claim) | `LayaClaimFilter` (also `GlinerClaimFilter`) |
-    | `Searcher` | `search(query)` | `SerperSearcher` (also `DuckDuckGoSearcher`, `SearxngSearcher`) |
+    | `Searcher` | `search(query)` | `SerperSearcher` (default), `DuckDuckGoSearcher` (no key, used here), `SearxngSearcher` |
     | `Crawler` | `crawl(url)` | `Crawl4AICrawler` (also `HTTPXCrawler`, `FallbackCrawler`) |
     | `Judge` | `judge(claim, docs)` | `LayaJudge` (also `GlinerJudge`, `LLMJudge`) |
     | `Policy` | `settled`, `verdict` | `WeightedPolicy` |
@@ -288,25 +291,24 @@ async def _(LayaClaimFilter, asyncio, atoms, compare_gliner_filter, mo, time):
 @app.cell
 def _(mo):
     mo.md("""
-    ### 3c. `SerperSearcher`: query → search hits
+    ### 3c. `DuckDuckGoSearcher`: query → search hits
 
-    Google results as `{"url", "title", "snippet"}`, in rank order. On its own it returns everything Google gives;
-    chaining a `Filter` and `Take` shapes it (section 4).
+    Web results as `{"url", "title", "snippet"}`, in rank order, with no API key. On its own it returns everything
+    the search gives; chaining a `Filter` and `Take` shapes it (section 4). `SerperSearcher()` (Google via Serper)
+    is the faster, steadier choice when you have a key, and `SearxngSearcher(url)` works with your own SearXNG.
     """)
     return
 
 
 @app.cell
-async def _(atoms, mo):
-    from factassessor import SerperSearcher
-
-    serper = SerperSearcher(num=10)
-    raw_hits = await serper.search(atoms[0].text)
+async def _(DuckDuckGoSearcher, atoms, mo):
+    searcher = DuckDuckGoSearcher(num=10)
+    raw_hits = await searcher.search(atoms[0].text)
     mo.ui.table(
         [{"rank": i + 1, "title": h["title"], "url": h["url"], "snippet": h["snippet"]} for i, h in enumerate(raw_hits)],
         selection=None,
     )
-    return raw_hits, serper
+    return raw_hits, searcher
 
 
 @app.cell
@@ -454,13 +456,11 @@ async def _(LLMAtomizer, LayaClaimFilter, Pred, Take, collect, mo, once, text):
 
 
 @app.cell
-async def _(Take, atoms, collect, mo, once, serper):
-    from factassessor import not_blocked
-
-    searcher_chain = serper >> not_blocked() >> Take(5)  # drop social/video sites, keep the top 5
+async def _(Take, atoms, collect, mo, not_blocked, once, searcher):
+    searcher_chain = searcher >> not_blocked() >> Take(5)  # drop social/video sites, keep the top 5
     hits = await collect(searcher_chain(once(atoms[0].text)))
     mo.ui.table([{"rank": i + 1, "title": h["title"], "url": h["url"]} for i, h in enumerate(hits)], selection=None)
-    return hits, not_blocked, searcher_chain
+    return hits, searcher_chain
 
 
 @app.cell
@@ -615,7 +615,7 @@ def _(mo):
 
 
 @app.cell
-async def _(Take, atoms, collect, mo, not_blocked, once, serper):
+async def _(Take, atoms, collect, mo, not_blocked, once, searcher):
     from urllib.parse import urlparse
 
     from factassessor import Step
@@ -631,7 +631,7 @@ async def _(Take, atoms, collect, mo, not_blocked, once, serper):
                     seen.add(site)
                     yield hit
 
-    _diverse = serper >> not_blocked() >> OnePerSite() >> Take(5)
+    _diverse = searcher >> not_blocked() >> OnePerSite() >> Take(5)
     _hits = await collect(_diverse(once(atoms[0].text)))
     mo.ui.table([{"site": urlparse(h["url"]).netloc, "title": h["title"]} for h in _hits], selection=None)
     return
@@ -640,7 +640,7 @@ async def _(Take, atoms, collect, mo, not_blocked, once, serper):
 @app.cell
 def _(mo):
     mo.md("""
-    Pass it in like any other searcher: `FactAssessor(searcher=serper >> not_blocked() >> OnePerSite() >> Take(5))`.
+    Pass it in like any other searcher: `FactAssessor(searcher=searcher >> not_blocked() >> OnePerSite() >> Take(5))`.
 
     **Cleanup**: components that hold resources (browser, HTTP pool) close with `await custom.aclose()`, or use
     `async with FactAssessor(...) as fa:`. In a notebook, stopping the kernel does it too.
