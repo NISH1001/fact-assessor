@@ -184,3 +184,29 @@ def test_fact_assessor_passes_max_concurrent_claims_to_verify():
     assert fa(judge=SlowJudge(concurrency=3), max_concurrent_claims=4).verify.concurrency == 4
     assert fa(judge=SlowJudge(concurrency=3), max_concurrent_claims=None).verify.concurrency is None
     assert fa(judge=FakeJudge([], [])).verify.concurrency is None
+
+
+async def test_snippets_still_decide_when_every_crawl_returns_an_error_page():
+    # searcher -> snippets are judged first; crawling only adds pages on top. Error pages (404, 503) are dropped by
+    # the crawler, so the claim is decided from its snippets instead of failing or judging junk.
+    from tests.test_crawl import crawler_with, result
+
+    async def error_page(url):
+        r = result(markdown="PubChem is temporarily unavailable (HTTP 503)")
+        r.status_code = 503 if url.endswith("0.org") else 404
+        return r
+
+    crawler = crawler_with(error_page)
+    judged_pages = []
+
+    class Judge:
+        async def judge(self, claim, docs):
+            if docs and "text" in docs[0]:
+                judged_pages.extend(docs)
+                return [ev("refutes", 0.95, source="page")]  # would flip the verdict if an error page got through
+            return [ev("supports", 0.8, url=d["url"]) for d in docs]  # strong, but not sure enough to stop early
+
+    result_ = await Verify(FakeSearcher(n=3), crawler, Judge()).verify(ATOM)
+    assert judged_pages == []  # no error page was judged
+    assert result_.verdict == "supported" and result_.error is None
+    assert [e.source for e in result_.evidence] == ["snippet"] * 3

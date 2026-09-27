@@ -45,6 +45,7 @@ dev = [
     "marimo>=0.25.0",
     "matplotlib>=3.11.2",
     "ddgs>=9.16.0",
+    "pytest-xdist>=3.8.0",
 ]
 
 [build-system]
@@ -56,6 +57,7 @@ packages = ["factassessor"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+addopts = ["-n", "auto", "--dist=loadfile"]  # pytest-xdist: one file per worker, like akd-core
 
 [tool.ruff]
 line-length = 120
