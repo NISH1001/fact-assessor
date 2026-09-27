@@ -63,6 +63,11 @@ class Crawl4AICrawler(Crawler):
                 result = await asyncio.wait_for(browser.arun(url, config=config), self.timeout)
         except Exception:  # timeouts, dead hosts, browser hiccups
             return None
+        # crawl4ai reports success for pages that loaded with an error status (403 blocks, 404s, "HTTP 503
+        # temporarily unavailable"): drop them like HTTPXCrawler does, so that hit's (already judged) snippet stands
+        status = getattr(result, "status_code", None)
+        if status is not None and not 200 <= status < 300:
+            return None
         text = clean_text(result.markdown.raw_markdown) if result.success and result.markdown else ""
         if not text:
             return None

@@ -83,3 +83,28 @@ async def test_crawler_step_drops_failures_and_yields_pages_as_they_finish():
 
     pages = await collect(crawler_with(behaviour)(urls()))
     assert [p["url"] for p in pages] == ["https://fast.org", "https://slow.org"]
+
+
+async def test_error_status_pages_are_dropped_so_the_snippet_stands():
+    # crawl4ai reports success for pages that loaded with an error status: a recorded PubChem page was
+    # "temporarily unavailable (HTTP 503)" and got judged as evidence. Verify has already judged every hit's
+    # snippet, so dropping the page leaves the snippet as that hit's evidence.
+    async def unavailable(url):
+        r = result(markdown="PubChem is temporarily unavailable (HTTP 503)")
+        r.status_code = 503
+        return r
+
+    async def forbidden(url):
+        r = result(markdown="Access denied")
+        r.status_code = 403
+        return r
+
+    async def ok(url):
+        r = result()
+        r.status_code = 200
+        return r
+
+    assert await crawler_with(unavailable).crawl("https://pubchem.ncbi.nlm.nih.gov/x") is None
+    assert await crawler_with(forbidden).crawl("https://example.com/x") is None
+    assert (await crawler_with(ok).crawl("https://en.wikipedia.org/wiki/Marie_Curie"))["title"] == "Marie Curie - Wikipedia"
+    assert await crawler_with(lambda url: asyncio.sleep(0, result())).crawl("https://a.org") is not None  # no status: kept
