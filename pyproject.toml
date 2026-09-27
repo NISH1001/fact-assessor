@@ -37,6 +37,9 @@ gliner = [
 ddg = [
     "ddgs>=9.16.0",
 ]
+pdf = [
+    "pypdf>=6.19.0",
+]
 
 [dependency-groups]
 dev = [

@@ -358,6 +358,19 @@ FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))      # 
 | `HTTPXCrawler` | 11/20 | 1.0s | 0.15s |
 | `FallbackCrawler(HTTPX, browser)` | 16/20 | 2.9s | 1.15s |
 
+**Scientific papers behind bot protection.** Publishers like Wiley and IOP block headless browsers (0 of 15 paper
+pages crawled on the FactReasoner eval set, even with a 10s timeout). `OpenAccessCrawler` reads a paper's free copy
+instead: for a URL with a DOI it asks [OpenAlex](https://openalex.org) (free, no key) for open-access locations and
+reads the PDF or HTML copy, under the original URL. Use it last in a fallback (`fact-assessor[pdf]` for PDFs):
+
+```python
+from factassessor import Crawl4AICrawler, FallbackCrawler, OpenAccessCrawler
+
+FactAssessor(crawler=FallbackCrawler(Crawl4AICrawler(), OpenAccessCrawler()))
+```
+
+On that set it recovered 87 of 162 failed pages that had a DOI; the rest have no free copy.
+
 End to end the gain is smaller, since many claims settle on search snippets without crawling (Nepal example:
 6.1s → 5.2s median; mixed example: about the same). `HTTPXCrawler` has a 1s connect timeout plus a hard 2.5s total
 deadline (httpx's own timeouts are per phase), reads only HTML, and stops at 3 MB.

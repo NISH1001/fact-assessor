@@ -55,7 +55,7 @@ from typing import Any
 
 from factassessor import Atom, Crawl4AICrawler, FactAssessor, LayaClaimFilter, LayaJudge, LLMJudge, SerperSearcher
 from factassessor.atomizer import Atomizer, LLMAtomizer
-from factassessor.crawlers import Crawler
+from factassessor.crawlers import Crawler, OpenAccessCrawler, doi_in
 from factassessor.pipeline import Take
 from factassessor.search import DuckDuckGoSearcher, Searcher, SearxngSearcher, is_blocked, not_blocked
 
@@ -76,7 +76,8 @@ def use_dataset(name: str) -> None:
     if name == "factreasoner":  # another team's data: never committed (tmp/ is gitignored)
         base = ROOT / "tmp" / "factreasoner"
         TEXTS, EVIDENCE, RESULTS, KINDS = base / "texts.jsonl", base / "evidence.json.gz", base / "results", ("original", "corrupted")
-VARIANTS = {"laya": "LayaClaimFilter + LayaJudge", "gliner": "GlinerClaimFilter + GlinerJudge", "llm": "LLMJudge, no claim filter"}
+VARIANTS = {"laya": "LayaClaimFilter + LayaJudge", "laya-nofilter": "LayaJudge, no claim filter",
+            "gliner": "GlinerClaimFilter + GlinerJudge", "llm": "LLMJudge, no claim filter"}
 LLM_MODEL = "openai:gpt-5-nano"  # the cheapest OpenAI model ($0.05 in / $0.40 out per 1M tokens, Sept 2026)
 TOP_K = 5
 WARM_TEXT = "The Moon orbits the Earth. Mount Fuji is the highest mountain in Japan."  # not in the eval set
@@ -236,6 +237,28 @@ async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODE
     await crawler.stop()
 
 
+async def recrawl_open_access() -> None:
+    """Pages that failed to crawl but have a DOI: fetch the paper's open-access copy (OpenAccessCrawler), as
+    `FallbackCrawler(Crawl4AICrawler(), OpenAccessCrawler())` would have while recording. Keeps a backup."""
+    import shutil
+
+    evidence = load_evidence()
+    backup = EVIDENCE.with_name(EVIDENCE.name.replace(".json.gz", ".before-open-access.json.gz"))
+    if not backup.exists():
+        shutil.copy(EVIDENCE, backup)
+    todo = [u for u, page in evidence["pages"].items() if page is None and doi_in(u)]
+    crawler = OpenAccessCrawler()
+    start = time.perf_counter()
+    pages = await asyncio.gather(*(crawler.crawl(u) for u in todo))
+    await crawler.stop()
+    recovered = {u: p for u, p in zip(todo, pages) if p}
+    evidence["pages"].update(recovered)
+    evidence["crawler"] = "crawl4ai, then open access (OpenAlex) for failed pages with a DOI"
+    save_evidence(evidence)
+    print(f"{len(todo)} failed pages with a DOI -> {len(recovered)} recovered from open access in "
+          f"{time.perf_counter() - start:.1f}s (backup: {backup.name})")
+
+
 class RecordedAtomizer(Atomizer):
     def __init__(self, evidence: dict[str, Any]) -> None:
         by_id = {ex["id"]: ex["text"] for ex in load_texts()}
@@ -276,6 +299,8 @@ def components(variant: str, llm_model: str = LLM_MODEL) -> tuple[Any, Any]:
         return GlinerClaimFilter(), GlinerJudge()
     if variant == "llm":
         return None, LLMJudge(llm_model, model_settings=llm_settings(llm_model))
+    if variant == "laya-nofilter":  # like FactReasoner, which checks every atom
+        return None, LayaJudge()
     return LayaClaimFilter(), LayaJudge()
 
 
@@ -306,10 +331,10 @@ async def warm_up(fa: FactAssessor, claim_filter: Any, judge: Any, text: str) ->
     return t
 
 
-async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "ddg", searxng_url: str = "",
-              llm_model: str = LLM_MODEL) -> dict[str, Any]:
+async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "searxng", searxng_url: str = "",
+              llm_model: str = LLM_MODEL, limit: int | None = None) -> dict[str, Any]:
     claim_filter, judge = components(variant, llm_model)
-    texts = load_texts()
+    texts = load_texts()[:limit]
     if live:
         search = make_searcher(searcher, searxng_url) >> not_blocked() >> Take(TOP_K)  # as FactAssessor wires Serper
         fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, searcher=search,
@@ -322,7 +347,7 @@ async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "
             raise SystemExit(f"no recorded evidence for {len(missing)} texts (run `eval.py record` first): {missing[:3]}...")
         fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, atomizer=RecordedAtomizer(evidence),
                           searcher=RecordedSearcher(evidence), crawler=RecordedCrawler(evidence))
-        warm_text, source = texts[0]["text"], f"recorded ({evidence['searcher']} search, crawl4ai)"
+        warm_text, source = texts[0]["text"], f"recorded ({evidence['searcher']} search, {evidence.get('crawler', 'crawl4ai')})"
     warm = await warm_up(fa, claim_filter, judge, warm_text)
     print(f"[{variant}] warm-up: " + ", ".join(f"{k} {v:.2f}s" if isinstance(v, float) else f"{k} {[round(x, 1) for x in v]}s"
                                              for k, v in warm.items()), flush=True)
@@ -605,8 +630,10 @@ async def main() -> None:
         p.add_argument("--llm-model", default=LLM_MODEL, help="LLM for the atomizer (record, --live) and the llm judge")
     r.add_argument("variant", choices=[*VARIANTS, "all"])
     r.add_argument("--timeout", type=float, default=15.0, help="per-claim timeout (FactAssessor default 15s)")
+    r.add_argument("--limit", type=int, help="only the first N texts (e.g. a quick live timing run)")
     r.add_argument("--live", action="store_true", help="live atomizer, search (--searcher), and crawling instead of recorded evidence")
     sub.add_parser("report", parents=[common], help="rebuild data/results/eval-comparison.md and the plots")
+    sub.add_parser("recrawl", parents=[common], help="fill failed pages that have a DOI from open access (needs --extra pdf)")
     args = parser.parse_args()
     use_dataset(args.dataset)
 
@@ -625,10 +652,12 @@ async def main() -> None:
         print(f"{len(texts)} texts, {sum(len(t['sentences']) for t in texts)} sentences -> {TEXTS}")
     elif args.cmd == "record":
         await record(args.searcher, args.searxng_url, args.llm_model)
+    elif args.cmd == "recrawl":
+        await recrawl_open_access()
     elif args.cmd == "run":
         RESULTS.mkdir(parents=True, exist_ok=True)
         for variant in VARIANTS if args.variant == "all" else [args.variant]:
-            res = await run(variant, args.live, args.timeout, args.searcher, args.searxng_url, args.llm_model)
+            res = await run(variant, args.live, args.timeout, args.searcher, args.searxng_url, args.llm_model, args.limit)
             name = f"eval-{variant}{'-live' if args.live else ''}"
             (RESULTS / f"{name}.json").write_text(json.dumps(res, indent=1))
             text = fr_report(res) if DATASET == "factreasoner" else report(res)

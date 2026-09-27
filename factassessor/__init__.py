@@ -7,7 +7,7 @@ from factassessor import kg  # noqa: E402
 from factassessor.assessor import FactAssessor
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, GlinerClaimFilter, LayaClaimFilter
-from factassessor.crawlers import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler
+from factassessor.crawlers import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler, OpenAccessCrawler
 from factassessor.judges import GlinerJudge, Judge, LayaJudge, LLMJudge
 from factassessor.pipeline import Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.schema import (
@@ -39,7 +39,7 @@ __all__ = [
     "Atomizer", "LLMAtomizer",
     "ClaimFilter", "LayaClaimFilter", "GlinerClaimFilter",
     "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher",
-    "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "FallbackCrawler",
+    "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "FallbackCrawler", "OpenAccessCrawler",
     "Judge", "LayaJudge", "GlinerJudge", "LLMJudge",
     "Policy", "WeightedPolicy",
     "Verify",
