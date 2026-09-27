@@ -2,17 +2,17 @@
  "variant": "gliner",
  "live": false,
  "source": "recorded (ddg search, crawl4ai)",
- "timeout": 600.0,
+ "timeout": 15.0,
  "llm_model": null,
  "warmup": {
-  "load": 2.380623834003927,
-  "claim_filter_first": 0.12629504199139774,
-  "claim_filter_warm": 0.11905570898670703,
-  "judge_first": 0.10053012499702163,
-  "judge_warm": 0.09968158300034702,
+  "load": 1.8549458329798654,
+  "claim_filter_first": 0.12551829201402143,
+  "claim_filter_warm": 0.12023679199046455,
+  "judge_first": 0.10145358298905194,
+  "judge_warm": 0.10017624997999519,
   "assess": [
-   17.196414916979847,
-   16.974868165998487
+   5.912479416991118,
+   5.87486933398759
   ]
  },
  "texts": [
@@ -23,8 +23,8 @@
    "sentences": 3,
    "true_share": 1.0,
    "fact_score": 1.0,
-   "latency_s": 16.929805249994388,
-   "first_verdict_s": 14.76216499999282,
+   "latency_s": 5.878322250006022,
+   "first_verdict_s": 4.0933667499921285,
    "atoms": [
     {
      "text": "The chemical symbol for gold is Au.",
@@ -59,8 +59,8 @@
    "sentences": 2,
    "true_share": 1.0,
    "fact_score": null,
-   "latency_s": 4.580225624988088,
-   "first_verdict_s": 3.5866494580113795,
+   "latency_s": 3.373316916025942,
+   "first_verdict_s": 2.829063125012908,
    "atoms": [
     {
      "text": "Neil Armstrong was the first person to walk on the Moon.",
@@ -87,8 +87,8 @@
    "sentences": 4,
    "true_share": 1.0,
    "fact_score": 0.5,
-   "latency_s": 13.388414082990494,
-   "first_verdict_s": 8.30033270799322,
+   "latency_s": 9.840354291984113,
+   "first_verdict_s": 4.115135583997471,
    "atoms": [
     {
      "text": "Marie Curie won the Nobel Prize in Physics.",
@@ -139,8 +139,8 @@
    "sentences": 4,
    "true_share": 0.0,
    "fact_score": 1.0,
-   "latency_s": 16.424266542016994,
-   "first_verdict_s": 13.832005792006385,
+   "latency_s": 7.1306130420125555,
+   "first_verdict_s": 4.00115383398952,
    "atoms": [
     {
      "text": "The Titanic sank in 1915.",
@@ -183,14 +183,14 @@
    "sentences": 3,
    "true_share": 0.0,
    "fact_score": 1.0,
-   "latency_s": 9.436406000022544,
-   "first_verdict_s": 6.86415800001123,
+   "latency_s": 8.37218337500235,
+   "first_verdict_s": 5.600029499997618,
    "atoms": [
     {
      "text": "Buzz Aldrin was the first person to walk on the Moon.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7691645622253418,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -219,8 +219,8 @@
    "sentences": 4,
    "true_share": 0.0,
    "fact_score": 0.0,
-   "latency_s": 27.596851334004896,
-   "first_verdict_s": 24.116812209016643,
+   "latency_s": 7.472813291999046,
+   "first_verdict_s": 4.622995791985886,
    "atoms": [
     {
      "text": "Albert Einstein was born in Vienna.",
@@ -263,8 +263,8 @@
    "sentences": 2,
    "true_share": 0.5,
    "fact_score": 0.5,
-   "latency_s": 4.321707875002176,
-   "first_verdict_s": 3.050294083019253,
+   "latency_s": 3.4617244169930927,
+   "first_verdict_s": 2.551966041995911,
    "atoms": [
     {
      "text": "The Berlin Wall fell in 1979.",
@@ -291,8 +291,8 @@
    "sentences": 4,
    "true_share": 0.5,
    "fact_score": 0.6666666666666666,
-   "latency_s": 23.54281162499683,
-   "first_verdict_s": 20.264108957984718,
+   "latency_s": 7.976257959002396,
+   "first_verdict_s": 4.657270042021992,
    "atoms": [
     {
      "text": "The Mariana Trench is the deepest known part of the ocean.",
@@ -335,8 +335,8 @@
    "sentences": 3,
    "true_share": 0.6666666666666666,
    "fact_score": 1.0,
-   "latency_s": 14.601297416986199,
-   "first_verdict_s": 12.410161792009603,
+   "latency_s": 5.916596499999287,
+   "first_verdict_s": 4.082316040992737,
    "atoms": [
     {
      "text": "Oxygen has the atomic number 12.",
@@ -371,8 +371,8 @@
    "sentences": 9,
    "true_share": 1.0,
    "fact_score": 0.6666666666666666,
-   "latency_s": 20.7583593330055,
-   "first_verdict_s": 11.592181999993045,
+   "latency_s": 15.935438332991907,
+   "first_verdict_s": 3.8564264999877196,
    "atoms": [
     {
      "text": "Google was founded in 1998.",
@@ -455,8 +455,8 @@
    "sentences": 5,
    "true_share": 1.0,
    "fact_score": 0.0,
-   "latency_s": 12.938224500016076,
-   "first_verdict_s": 8.335029750014655,
+   "latency_s": 9.414386707998347,
+   "first_verdict_s": 4.363445374998264,
    "atoms": [
     {
      "text": "Venus is the hottest planet in the Solar System.",
@@ -507,8 +507,8 @@
    "sentences": 9,
    "true_share": 1.0,
    "fact_score": 0.6666666666666666,
-   "latency_s": 58.17759254100383,
-   "first_verdict_s": 48.851174457988236,
+   "latency_s": 16.851317791995825,
+   "first_verdict_s": 4.059220666997135,
    "atoms": [
     {
      "text": "The Titanic sank in 1912.",
@@ -591,8 +591,8 @@
    "sentences": 8,
    "true_share": 0.0,
    "fact_score": 0.5,
-   "latency_s": 19.396291540993843,
-   "first_verdict_s": 11.683029040985275,
+   "latency_s": 14.308884833997581,
+   "first_verdict_s": 4.195027834008215,
    "atoms": [
     {
      "text": "Mars has five moons.",
@@ -667,8 +667,8 @@
    "sentences": 5,
    "true_share": 0.0,
    "fact_score": 0.5,
-   "latency_s": 174.70675850001862,
-   "first_verdict_s": 171.07387258301605,
+   "latency_s": 8.545821250008885,
+   "first_verdict_s": 3.555829666001955,
    "atoms": [
     {
      "text": "Africa is the coldest continent.",
@@ -719,14 +719,14 @@
    "sentences": 7,
    "true_share": 0.0,
    "fact_score": 1.0,
-   "latency_s": 31.16113975000917,
-   "first_verdict_s": 0.25473683400196023,
+   "latency_s": 11.456284541985951,
+   "first_verdict_s": 0.20233491700491868,
    "atoms": [
     {
      "text": "The Panama Canal connects the Atlantic Ocean to the Indian Ocean.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7129302620887756,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -757,16 +757,16 @@
     {
      "text": "Buzz Aldrin was the first person to walk on the Moon.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7691645622253418,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "Sydney is the capital of Australia.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7503511309623718,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -787,8 +787,8 @@
    "sentences": 8,
    "true_share": 0.5,
    "fact_score": 0.0,
-   "latency_s": 22.14470825000899,
-   "first_verdict_s": 16.766997958999127,
+   "latency_s": 12.037973250000505,
+   "first_verdict_s": 4.300639958004467,
    "atoms": [
     {
      "text": "The human heart has four chambers.",
@@ -863,8 +863,8 @@
    "sentences": 9,
    "true_share": 0.4444444444444444,
    "fact_score": 0.6666666666666666,
-   "latency_s": 38.71217266700114,
-   "first_verdict_s": 30.36126170901116,
+   "latency_s": 16.034165874996688,
+   "first_verdict_s": 4.1188356669736095,
    "atoms": [
     {
      "text": "An adult human skeleton has 306 bones.",
@@ -946,9 +946,9 @@
    "length": "medium",
    "sentences": 10,
    "true_share": 0.5,
-   "fact_score": 0.5,
-   "latency_s": 73.97888291699928,
-   "first_verdict_s": 63.82934454199858,
+   "fact_score": 0.25,
+   "latency_s": 18.709398541977862,
+   "first_verdict_s": 4.582669750001514,
    "atoms": [
     {
      "text": "The Kalahari is the largest hot desert in the world.",
@@ -977,8 +977,8 @@
     {
      "text": "The Louvre Museum is in Paris.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.7710362672805786,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -1001,8 +1001,8 @@
     {
      "text": "Sydney is the capital of Australia.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7503511309623718,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -1038,9 +1038,9 @@
    "length": "long",
    "sentences": 21,
    "true_share": 1.0,
-   "fact_score": 0.7,
-   "latency_s": 279.11173499998404,
-   "first_verdict_s": 259.0262621669972,
+   "fact_score": 0.625,
+   "latency_s": 37.88584800000535,
+   "first_verdict_s": 6.0199640420032665,
    "atoms": [
     {
      "text": "Venus is the hottest planet in the Solar System.",
@@ -1093,8 +1093,8 @@
     {
      "text": "The Louvre Museum is in Paris.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.7710362672805786,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -1189,8 +1189,8 @@
     {
      "text": "The Panama Canal connects the Atlantic and Pacific Oceans.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.7845250368118286,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 4
     },
@@ -1219,8 +1219,8 @@
    "sentences": 22,
    "true_share": 1.0,
    "fact_score": 0.4444444444444444,
-   "latency_s": 82.38542695899378,
-   "first_verdict_s": 60.09464416699484,
+   "latency_s": 39.55901537500904,
+   "first_verdict_s": 5.709018291003304,
    "atoms": [
     {
      "text": "The kilogram is the SI base unit of mass.",
@@ -1406,9 +1406,9 @@
    "length": "long",
    "sentences": 21,
    "true_share": 1.0,
-   "fact_score": 0.5454545454545454,
-   "latency_s": 107.63198554099654,
-   "first_verdict_s": 85.78906729098526,
+   "fact_score": 0.5,
+   "latency_s": 38.09530766698299,
+   "first_verdict_s": 6.322833207988879,
    "atoms": [
     {
      "text": "Isaac Newton published the Principia in 1687.",
@@ -1421,8 +1421,8 @@
     {
      "text": "The Louvre Museum is in Paris.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.7710362672805786,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -1586,9 +1586,9 @@
    "length": "long",
    "sentences": 16,
    "true_share": 0.0,
-   "fact_score": 0.5,
-   "latency_s": 51.994751749996794,
-   "first_verdict_s": 35.431303124991246,
+   "fact_score": 0.2,
+   "latency_s": 28.82822908399976,
+   "first_verdict_s": 4.544234375003725,
    "atoms": [
     {
      "text": "Mars has five moons.",
@@ -1617,16 +1617,16 @@
     {
      "text": "Buzz Aldrin was the first person to walk on the Moon.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7691645622253418,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
     {
      "text": "The Great Barrier Reef is off the coast of Brazil.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7674680352210999,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -1713,8 +1713,8 @@
     {
      "text": "Sydney is the capital of Australia.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7503511309623718,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     }
@@ -1726,9 +1726,9 @@
    "length": "long",
    "sentences": 16,
    "true_share": 0.0,
-   "fact_score": 0.7142857142857143,
-   "latency_s": 201.81515845799004,
-   "first_verdict_s": 0.12216787500074133,
+   "fact_score": 0.6666666666666666,
+   "latency_s": 25.581945000012638,
+   "first_verdict_s": 0.18867162498645484,
    "atoms": [
     {
      "text": "Penguins live mainly in the Northern Hemisphere.",
@@ -1798,7 +1798,7 @@
      "text": "Marie Curie won the Nobel Prize in Physics in 1925.",
      "gold": false,
      "verdict": "supported",
-     "confidence": 0.8969405889511108,
+     "confidence": 0.7709133625030518,
      "error": null,
      "pages": 5
     },
@@ -1829,8 +1829,8 @@
     {
      "text": "The Great Barrier Reef is off the coast of Brazil.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7674680352210999,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -1866,9 +1866,9 @@
    "length": "long",
    "sentences": 23,
    "true_share": 0.0,
-   "fact_score": 0.4,
-   "latency_s": 234.1894826250209,
-   "first_verdict_s": 1.7312338750052731,
+   "fact_score": 0.3333333333333333,
+   "latency_s": 38.87438341599773,
+   "first_verdict_s": 5.807571250014007,
    "atoms": [
     {
      "text": "The Eiffel Tower was completed in 1925.",
@@ -1921,8 +1921,8 @@
     {
      "text": "The United States Declaration of Independence was adopted in 1812.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7792773842811584,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -2063,8 +2063,8 @@
    "sentences": 20,
    "true_share": 0.5,
    "fact_score": 0.7142857142857143,
-   "latency_s": 233.63068562501576,
-   "first_verdict_s": 213.40826954200747,
+   "latency_s": 35.15546700000414,
+   "first_verdict_s": 4.772166250011651,
    "atoms": [
     {
      "text": "The Hubble Space Telescope was launched in 1990.",
@@ -2234,9 +2234,9 @@
    "length": "long",
    "sentences": 25,
    "true_share": 0.48,
-   "fact_score": 0.6666666666666666,
-   "latency_s": 107.18340983398957,
-   "first_verdict_s": 79.30059425000218,
+   "fact_score": 0.625,
+   "latency_s": 46.14877091598464,
+   "first_verdict_s": 6.073752458003582,
    "atoms": [
     {
      "text": "Apollo 11 landed on the Moon.",
@@ -2273,8 +2273,8 @@
     {
      "text": "Sydney is the capital of Australia.",
      "gold": false,
-     "verdict": "supported",
-     "confidence": 0.7503511309623718,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },
@@ -2417,8 +2417,8 @@
     {
      "text": "Toronto is the capital of Canada.",
      "gold": false,
-     "verdict": "contested",
-     "confidence": 0.512745855570288,
+     "verdict": "refuted",
+     "confidence": 0.8384355306625366,
      "error": null,
      "pages": 4
     },
@@ -2462,9 +2462,9 @@
    "length": "long",
    "sentences": 19,
    "true_share": 0.5263157894736842,
-   "fact_score": 0.4444444444444444,
-   "latency_s": 282.56586216698634,
-   "first_verdict_s": 263.26263566699345,
+   "fact_score": 0.375,
+   "latency_s": 35.61193091599853,
+   "first_verdict_s": 5.788931499992032,
    "atoms": [
     {
      "text": "Brazil has won the FIFA World Cup five times.",
@@ -2533,8 +2533,8 @@
     {
      "text": "Toronto is the capital of Canada.",
      "gold": false,
-     "verdict": "contested",
-     "confidence": 0.512745855570288,
+     "verdict": "refuted",
+     "confidence": 0.8384355306625366,
      "error": null,
      "pages": 4
     },
@@ -2605,8 +2605,8 @@
     {
      "text": "The Louvre Museum is in Paris.",
      "gold": true,
-     "verdict": "supported",
-     "confidence": 0.7710362672805786,
+     "verdict": "unverified",
+     "confidence": 0.0,
      "error": null,
      "pages": 5
     },

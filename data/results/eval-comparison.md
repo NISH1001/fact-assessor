@@ -10,7 +10,7 @@ Evidence: recorded (ddg search, crawl4ai).
 
 | variant | claims | coverage | accuracy (decided) | accuracy (all) | false → supported | true → refuted | fact-score error | latency (median) | first verdict (median) |
 |---|---|---|---|---|---|---|---|---|---|
-| gliner (GlinerClaimFilter + GlinerJudge) | 285 | 42% | 55% | 23% | 24% | 14% | 0.42 | 31.2s | 16.8s |
+| gliner (GlinerClaimFilter + GlinerJudge) | 285 | 37% | 59% | 22% | 16% | 14% | 0.41 | 14.3s | 4.3s |
 | laya (LayaClaimFilter + LayaJudge) | 285 | 94% | 97% | 91% | 7% | 0% | 0.04 | 1.8s | 1.3s |
 | llm-gpt5nano (LLMJudge, no claim filter, openai:gpt-5-nano) | 285 | 94% | 96% | 91% | 5% | 2% | 0.05 | 3.9s | 1.3s |
 | llm-gpt6luna (LLMJudge, no claim filter, openai:gpt-6-luna) | 285 | 99% | 98% | 97% | 4% | 0% | 0.02 | 2.9s | 1.2s |
@@ -19,7 +19,7 @@ Evidence: recorded (ddg search, crawl4ai).
 
 | variant | claims | coverage | accuracy (decided) | accuracy (all) | false → supported | true → refuted | fact-score error | latency (median) | first verdict (median) |
 |---|---|---|---|---|---|---|---|---|---|
-| gliner (GlinerClaimFilter + GlinerJudge) | 30 | 50% | 60% | 30% | 33% | 7% | 0.38 | 14.6s | 12.4s |
+| gliner (GlinerClaimFilter + GlinerJudge) | 30 | 47% | 64% | 30% | 27% | 7% | 0.38 | 7.1s | 4.1s |
 | laya (LayaClaimFilter + LayaJudge) | 30 | 100% | 100% | 100% | 0% | 0% | 0.00 | 1.3s | 1.0s |
 | llm-gpt5nano (LLMJudge, no claim filter, openai:gpt-5-nano) | 30 | 93% | 96% | 90% | 0% | 7% | 0.04 | 3.3s | 1.4s |
 | llm-gpt6luna (LLMJudge, no claim filter, openai:gpt-6-luna) | 30 | 100% | 100% | 100% | 0% | 0% | 0.00 | 2.5s | 1.3s |
@@ -28,7 +28,7 @@ Evidence: recorded (ddg search, crawl4ai).
 
 | variant | claims | coverage | accuracy (decided) | accuracy (all) | false → supported | true → refuted | fact-score error | latency (median) | first verdict (median) |
 |---|---|---|---|---|---|---|---|---|---|
-| gliner (GlinerClaimFilter + GlinerJudge) | 70 | 40% | 43% | 17% | 32% | 14% | 0.49 | 31.2s | 16.8s |
+| gliner (GlinerClaimFilter + GlinerJudge) | 70 | 33% | 48% | 16% | 21% | 14% | 0.52 | 14.3s | 4.1s |
 | laya (LayaClaimFilter + LayaJudge) | 70 | 94% | 97% | 91% | 6% | 0% | 0.05 | 1.8s | 1.4s |
 | llm-gpt5nano (LLMJudge, no claim filter, openai:gpt-5-nano) | 70 | 94% | 97% | 91% | 6% | 0% | 0.05 | 3.6s | 1.3s |
 | llm-gpt6luna (LLMJudge, no claim filter, openai:gpt-6-luna) | 70 | 99% | 97% | 96% | 6% | 0% | 0.04 | 2.7s | 1.3s |
@@ -37,7 +37,7 @@ Evidence: recorded (ddg search, crawl4ai).
 
 | variant | claims | coverage | accuracy (decided) | accuracy (all) | false → supported | true → refuted | fact-score error | latency (median) | first verdict (median) |
 |---|---|---|---|---|---|---|---|---|---|
-| gliner (GlinerClaimFilter + GlinerJudge) | 185 | 41% | 58% | 24% | 19% | 15% | 0.38 | 201.8s | 79.3s |
+| gliner (GlinerClaimFilter + GlinerJudge) | 185 | 37% | 62% | 23% | 12% | 15% | 0.35 | 37.9s | 5.8s |
 | laya (LayaClaimFilter + LayaJudge) | 185 | 93% | 96% | 89% | 8% | 0% | 0.06 | 4.3s | 2.9s |
 | llm-gpt5nano (LLMJudge, no claim filter, openai:gpt-5-nano) | 185 | 94% | 96% | 90% | 6% | 2% | 0.05 | 4.8s | 1.3s |
 | llm-gpt6luna (LLMJudge, no claim filter, openai:gpt-6-luna) | 185 | 99% | 98% | 97% | 3% | 0% | 0.02 | 3.0s | 1.2s |
@@ -46,7 +46,7 @@ Evidence: recorded (ddg search, crawl4ai).
 
 | variant | claims | coverage | accuracy (decided) | accuracy (all) | false → supported | true → refuted | fact-score error | latency (median) | first verdict (median) |
 |---|---|---|---|---|---|---|---|---|---|
-| gliner (GlinerClaimFilter + GlinerJudge) | 97 | 40% | 59% | 24% | – | 16% | 0.43 | 20.8s | 14.8s |
+| gliner (GlinerClaimFilter + GlinerJudge) | 97 | 37% | 56% | 21% | – | 16% | 0.45 | 15.9s | 4.1s |
 | laya (LayaClaimFilter + LayaJudge) | 97 | 100% | 100% | 100% | – | 0% | 0.00 | 1.6s | 1.4s |
 | llm-gpt5nano (LLMJudge, no claim filter, openai:gpt-5-nano) | 97 | 93% | 97% | 90% | – | 3% | 0.09 | 3.9s | 1.3s |
 | llm-gpt6luna (LLMJudge, no claim filter, openai:gpt-6-luna) | 97 | 100% | 100% | 100% | – | 0% | 0.00 | 2.6s | 1.2s |
@@ -55,7 +55,7 @@ Evidence: recorded (ddg search, crawl4ai).
 
 | variant | claims | coverage | accuracy (decided) | accuracy (all) | false → supported | true → refuted | fact-score error | latency (median) | first verdict (median) |
 |---|---|---|---|---|---|---|---|---|---|
-| gliner (GlinerClaimFilter + GlinerJudge) | 86 | 49% | 40% | 20% | 29% | – | 0.62 | 31.2s | 11.7s |
+| gliner (GlinerClaimFilter + GlinerJudge) | 86 | 38% | 52% | 20% | 19% | – | 0.58 | 11.5s | 4.2s |
 | laya (LayaClaimFilter + LayaJudge) | 86 | 92% | 91% | 84% | 8% | – | 0.07 | 2.0s | 1.2s |
 | llm-gpt5nano (LLMJudge, no claim filter, openai:gpt-5-nano) | 86 | 92% | 99% | 91% | 1% | – | 0.01 | 3.7s | 1.3s |
 | llm-gpt6luna (LLMJudge, no claim filter, openai:gpt-6-luna) | 86 | 97% | 95% | 92% | 5% | – | 0.05 | 2.9s | 1.2s |
@@ -64,14 +64,14 @@ Evidence: recorded (ddg search, crawl4ai).
 
 | variant | claims | coverage | accuracy (decided) | accuracy (all) | false → supported | true → refuted | fact-score error | latency (median) | first verdict (median) |
 |---|---|---|---|---|---|---|---|---|---|
-| gliner (GlinerClaimFilter + GlinerJudge) | 102 | 37% | 66% | 25% | 16% | 10% | 0.19 | 38.7s | 30.4s |
+| gliner (GlinerClaimFilter + GlinerJudge) | 102 | 35% | 69% | 25% | 12% | 10% | 0.22 | 16.0s | 4.6s |
 | laya (LayaClaimFilter + LayaJudge) | 102 | 90% | 98% | 88% | 4% | 0% | 0.04 | 2.0s | 1.5s |
 | llm-gpt5nano (LLMJudge, no claim filter, openai:gpt-5-nano) | 102 | 97% | 94% | 91% | 12% | 0% | 0.05 | 4.2s | 1.3s |
 | llm-gpt6luna (LLMJudge, no claim filter, openai:gpt-6-luna) | 102 | 100% | 99% | 99% | 2% | 0% | 0.00 | 2.9s | 1.3s |
 
 ### Warm-up (not counted above)
 
-- gliner: load 2.4s, claim filter 0.13s then 0.12s, judge 0.10s then 0.10s, full checks 17.2s, 17.0s
+- gliner: load 1.9s, claim filter 0.13s then 0.12s, judge 0.10s then 0.10s, full checks 5.9s, 5.9s
 - laya: load 4.7s, claim filter 0.14s then 0.03s, judge 0.04s then 0.03s, full checks 1.9s, 1.2s
 - llm-gpt5nano: load 0.0s, judge 1.32s then 1.51s, full checks 2.7s, 4.6s, 2.6s
 - llm-gpt6luna: load 0.0s, judge 2.24s then 1.42s, full checks 2.9s, 1.6s
@@ -80,8 +80,8 @@ Evidence: recorded (ddg search, crawl4ai).
 
 | gold | supported | refuted | contested | unverified | skipped |
 |---|---|---|---|---|---|
-| true | 39 | 21 | 1 | 87 | 0 |
-| false | 33 | 26 | 3 | 72 | 3 |
+| true | 34 | 21 | 1 | 92 | 0 |
+| false | 22 | 28 | 1 | 83 | 3 |
 
 ### Verdicts by ground truth: laya
 
