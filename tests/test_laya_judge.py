@@ -54,3 +54,12 @@ async def test_pages_are_cut_to_top_passages_within_the_token_budget():
 
 async def test_no_docs_gives_no_evidence():
     assert await LayaJudge(runner=FakeLaya()).judge(CLAIM, []) == []
+
+
+async def test_missing_titles_become_empty_strings():
+    # crawl4ai and search APIs can return the key with None (a page with no <title>), not just omit it
+    ev = await LayaJudge(runner=FakeLaya()).judge(CLAIM, [
+        {"url": "u1", "title": None, "snippet": "Curie shared the 1903 Nobel Prize in Physics."},
+        {"url": "u2", "title": None, "text": "Marie Curie won the Nobel Prize in Physics in 1903."},
+    ])
+    assert [(e.url, e.title) for e in ev] == [("u1", ""), ("u2", "")]

@@ -66,7 +66,7 @@ class Crawl4AICrawler(Crawler):
         text = clean_text(result.markdown.raw_markdown) if result.success and result.markdown else ""
         if not text:
             return None
-        return {"url": url, "title": (result.metadata or {}).get("title", ""), "text": text}
+        return {"url": url, "title": (result.metadata or {}).get("title") or "", "text": text}
 
     async def start(self) -> None:
         await self._start_browser()

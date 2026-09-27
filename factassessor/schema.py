@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 Label = Literal["supports", "refutes", "not_enough_info"]
 Verdict = Literal["supported", "refuted", "contested", "unverified"]
@@ -22,6 +22,11 @@ class Evidence(BaseModel):
     source: Literal["snippet", "page"]
     label: Label
     prob: float
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def _no_title(cls, title: str | None) -> str:
+        return title or ""  # pages without a <title> come back as None from crawl4ai and search APIs
 
 
 class AtomResult(BaseModel):
