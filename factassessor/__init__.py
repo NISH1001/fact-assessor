@@ -26,6 +26,7 @@ from factassessor.search import (
     DocumentSearcher,
     DuckDuckGoSearcher,
     Searcher,
+    SearchType,
     SearxngSearcher,
     SerperSearcher,
     is_blocked,
@@ -39,7 +40,7 @@ __all__ = [
     # roles (base types) and their implementations
     "Atomizer", "LLMAtomizer",
     "ClaimFilter", "LayaClaimFilter", "GlinerClaimFilter",
-    "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher", "DocumentSearcher",
+    "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher", "DocumentSearcher", "SearchType",
     "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "FallbackCrawler", "OpenAccessCrawler", "NoCrawler",
     "Judge", "LayaJudge", "GlinerJudge", "LLMJudge",
     "Policy", "WeightedPolicy",

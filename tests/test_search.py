@@ -214,3 +214,66 @@ async def test_searxng_can_search_scholarly_categories_and_engines():
     await s.stop(); await plain.stop()
     assert seen[0]["categories"] == "science" and seen[0]["engines"] == "google scholar,arxiv"
     assert "categories" not in seen[1] and "engines" not in seen[1]  # default: SearXNG's own (general)
+
+
+SCHOLAR_RESPONSE = {
+    "organic": [
+        {"title": "Biomass resilience of Neotropical secondary forests", "link": "https://www.nature.com/articles/nature16512",
+         "pdfUrl": "https://repositorio.usp.br/paper.pdf", "snippet": "Land-use change occurs nowhere more rapidly than in the tropics...",
+         "publicationInfo": "L Poorter, F Bongers - Nature, 2016", "year": 2016},
+        {"title": "Data from: Biomass resilience", "link": "https://edepot.wur.nl/385178", "snippet": "Data set."},
+    ],
+    "credits": 1,
+}
+
+
+async def test_serper_science_searches_google_scholar_and_prefers_the_free_pdf():
+    from factassessor import SearchType
+
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json=SCHOLAR_RESPONSE)
+
+    s = serper(handler, search_type=SearchType.SCIENCE)
+    hits = await s.search("secondary forest biomass recovery")
+    await s.stop()
+    assert seen["url"] == "https://google.serper.dev/scholar"
+    assert hits == [  # Google Scholar's free PDF when it has one, so the crawler reads the paper, not a paywall
+        {"url": "https://repositorio.usp.br/paper.pdf", "title": "Biomass resilience of Neotropical secondary forests",
+         "snippet": "Land-use change occurs nowhere more rapidly than in the tropics..."},
+        {"url": "https://edepot.wur.nl/385178", "title": "Data from: Biomass resilience", "snippet": "Data set."},
+    ]
+
+
+async def test_serper_general_is_the_default_web_search():
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json=SERPER_RESPONSE)
+
+    s = serper(handler)
+    await s.search("q")
+    await s.stop()
+    assert seen["url"] == "https://google.serper.dev/search"
+
+
+async def test_searxng_science_type_maps_to_its_science_category():
+    from factassessor import SearchType
+
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"results": []})
+
+    for kwargs in ({"search_type": "science"}, {"search_type": SearchType.SCIENCE, "categories": ["it"]}, {}):
+        s = SearxngSearcher("http://localhost:8080", **kwargs)
+        s._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        await s.search("q")
+        await s.stop()
+    assert seen[0]["categories"] == "science"
+    assert seen[1]["categories"] == "it"  # explicit categories win
+    assert "categories" not in seen[2]  # GENERAL: SearXNG's own default

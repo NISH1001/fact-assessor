@@ -9,6 +9,7 @@ import asyncio
 import os
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
 
@@ -18,6 +19,18 @@ from factassessor.passages import BM25Index
 from factassessor.pipeline import FlatMap, Pred, Step
 
 SERPER_URL = "https://google.serper.dev/search"
+SERPER_SCHOLAR_URL = "https://google.serper.dev/scholar"
+
+
+class SearchType(str, Enum):
+    """What to search, for any searcher that supports both: the web, or scholarly literature.
+
+    SCIENCE: Serper -> Google Scholar; SearXNG -> its "science" engines (Google Scholar, arXiv, Semantic Scholar...).
+    On scientific claims, scholarly search found the claim's source paper far more often than web search.
+    """
+
+    GENERAL = "general"
+    SCIENCE = "science"
 
 # Removed after search, before crawling: social media and forums are mostly reposts, opinions, and comments (and
 # often crawl badly); video pages have no usable text. LinkedIn is kept as a primary source for people and orgs.
@@ -55,8 +68,10 @@ class SerperSearcher(Searcher):
         num: int = 10,
         timeout: float = 5.0,
         hedge_after: float | None = 1.2,
+        search_type: SearchType | str = SearchType.GENERAL,
     ) -> None:
         self.api_key = api_key or os.environ.get("SERPER_API_KEY")
+        self.search_type = SearchType(search_type)  # SCIENCE: Google Scholar, 1 credit per query like web search
         self.num = num
         self.timeout = timeout
         self.hedge_after = hedge_after
@@ -80,10 +95,12 @@ class SerperSearcher(Searcher):
 
     async def _request(self, query: str) -> list[dict[str, Any]]:
         await self.start()
-        response = await self._http.post(SERPER_URL, headers={"X-API-KEY": self.api_key}, json={"q": query, "num": self.num})
+        url = SERPER_SCHOLAR_URL if self.search_type is SearchType.SCIENCE else SERPER_URL
+        response = await self._http.post(url, headers={"X-API-KEY": self.api_key}, json={"q": query, "num": self.num})
         response.raise_for_status()
         return [
-            {"url": r["link"], "title": r.get("title") or "", "snippet": r.get("snippet") or ""}
+            # Scholar results may carry a free PDF (pdfUrl): point the hit there, so crawling reads the paper
+            {"url": r.get("pdfUrl") or r["link"], "title": r.get("title") or "", "snippet": r.get("snippet") or ""}
             for r in response.json().get("organic", [])
         ]
 
@@ -108,9 +125,13 @@ class SearxngSearcher(Searcher):
         hedge_after: float | None = 1.2,
         categories: list[str] | None = None,
         engines: list[str] | None = None,
+        search_type: SearchType | str = SearchType.GENERAL,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.num = num
+        self.search_type = SearchType(search_type)
+        if categories is None and self.search_type is SearchType.SCIENCE:
+            categories = ["science"]  # explicit categories win
         self.categories, self.engines = categories, engines
         self.timeout = timeout
         self.hedge_after = hedge_after

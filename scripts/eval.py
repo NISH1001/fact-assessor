@@ -198,23 +198,27 @@ def save_evidence(evidence: dict[str, Any]) -> None:
     EVIDENCE.write_bytes(gzip.compress(json.dumps(evidence, ensure_ascii=False).encode()))
 
 
-def make_searcher(name: str, searxng_url: str) -> Searcher:
-    """ddg (no key, default), searxng (self-hosted, no key), or serper (API key and credits)."""
+def make_searcher(name: str, searxng_url: str, search_type: str = "general") -> Searcher:
+    """`name`: ddg (no key), searxng (self-hosted, no key), or serper (API key and credits).
+    `search_type`: general (the web) or science (Serper -> Google Scholar; SearXNG -> its scholarly engines);
+    DuckDuckGo only does general."""
+    science = search_type == "science"
     if name == "searxng":
-        return SearxngSearcher(searxng_url, num=2 * TOP_K)
-    if name == "searxng-science":  # SearXNG's scholarly engines (Google Scholar, arXiv, Semantic Scholar, ...)
-        return SearxngSearcher(searxng_url, num=2 * TOP_K, timeout=20.0, hedge_after=None, categories=["science"])
+        return SearxngSearcher(searxng_url, num=2 * TOP_K, search_type=search_type,
+                               timeout=20.0 if science else 5.0, hedge_after=None if science else 1.2)
     if name == "serper":  # no hedging: a duplicate request would cost a second credit
-        return SerperSearcher(num=2 * TOP_K, hedge_after=None)
+        return SerperSearcher(num=2 * TOP_K, hedge_after=None, search_type=search_type, timeout=15.0 if science else 5.0)
+    if science:
+        raise SystemExit("--search-type science needs --searcher serper or searxng")
     return DuckDuckGoSearcher(num=2 * TOP_K)
 
 
-async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODEL) -> None:
-    searcher = make_searcher(searcher_name, searxng_url)
+async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODEL, search_type: str = "general") -> None:
+    searcher = make_searcher(searcher_name, searxng_url, search_type)
     atomizer, crawler = LLMAtomizer(llm_model, model_settings=llm_settings(llm_model)), Crawl4AICrawler()
     await crawler.start()
     evidence = load_evidence()
-    evidence["searcher"] = searcher_name
+    evidence["searcher"] = searcher_name if search_type == "general" else f"{searcher_name} {search_type}"
     evidence["atomizer"] = llm_model
     slots = asyncio.Semaphore(3)  # DuckDuckGo rate-limits bursts
 
@@ -344,7 +348,7 @@ QUERY: "Quantum computers can break RSA encryption easily" fact check cryptograp
 
 
 async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str = LLM_MODEL,
-                  queries: str = "llm", pairs: int | None = None) -> None:
+                  queries: str = "llm", pairs: int | None = None, search_type: str = "general") -> None:
     """Search the recorded atoms again: with another engine and/or LLM-written queries (FactReasoner's approach,
     `queries="llm"`) instead of the claim text (`queries="claim"`). Results are cached by query in the evidence
     file, so a query is only ever paid for once (reruns and bigger runs reuse it). New pages are crawled (browser,
@@ -361,11 +365,11 @@ async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str
     use_evidence(tag)
     evidence = load_evidence() if EVIDENCE.exists() else {"texts": {}, "pages": dict(base["pages"])}
     evidence.setdefault("search_cache", {})
-    evidence.update(searcher=searcher_name, atomizer=base.get("atomizer"), queries_by=llm_model if queries == "llm" else "claim text",
+    evidence.update(searcher=searcher_name if search_type == "general" else f"{searcher_name} {search_type}", atomizer=base.get("atomizer"), queries_by=llm_model if queries == "llm" else "claim text",
                     crawler="crawl4ai, then open access (OpenAlex)")
     paid = 0
     agent = Agent(llm_model, output_type=Query, instructions=QUERY_INSTRUCTIONS, model_settings=llm_settings(llm_model))
-    searcher = make_searcher(searcher_name, searxng_url)
+    searcher = make_searcher(searcher_name, searxng_url, search_type)
     crawler = FallbackCrawler(Crawl4AICrawler(), OpenAccessCrawler())
     slots = asyncio.Semaphore(3)
 
@@ -494,7 +498,7 @@ async def warm_up(fa: FactAssessor, claim_filter: Any, judge: Any, text: str) ->
 
 async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "searxng", searxng_url: str = "",
               llm_model: str = LLM_MODEL, limit: int | None = None, strong: float = 0.7,
-              in_domain: bool = False) -> dict[str, Any]:
+              in_domain: bool = False, search_type: str = "general") -> dict[str, Any]:
     claim_filter, judge = components(variant, llm_model)
     texts = load_texts()[:limit]
     if in_domain:  # search the fetched source papers instead of the web (FactReasoner's uploaded-document mode)
@@ -510,7 +514,7 @@ async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "
         warm_text, source = texts[0]["text"], f"in-domain ({len(docs)} source papers, DocumentSearcher top 5 passages)"
         live = False
     elif live:
-        search = make_searcher(searcher, searxng_url) >> not_blocked() >> Take(TOP_K)  # as FactAssessor wires Serper
+        search = make_searcher(searcher, searxng_url, search_type) >> not_blocked() >> Take(TOP_K)  # as FactAssessor wires Serper
         fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, searcher=search,
                           atomizer=LLMAtomizer(llm_model, model_settings=llm_settings(llm_model)))
         warm_text, source = WARM_TEXT, f"live (LLMAtomizer, {searcher} search, crawl4ai)"
@@ -801,7 +805,8 @@ async def main() -> None:
     b.add_argument("--xlsx", help="factreasoner: the evaluation workbook")
     rec = sub.add_parser("record", parents=[common], help="record atoms, hits, and pages once")
     for p in (rec, r := sub.add_parser("run", parents=[common], help="evaluate variants")):
-        p.add_argument("--searcher", choices=["ddg", "searxng", "searxng-science", "serper"], default="searxng", help="for record and run --live")
+        p.add_argument("--search-type", choices=["general", "science"], default="general", help="the web, or scholarly literature")
+        p.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="searxng", help="for record and run --live")
         p.add_argument("--searxng-url", default="http://localhost:8080", help="your SearXNG instance (JSON enabled)")
         p.add_argument("--llm-model", default=LLM_MODEL, help="LLM for the atomizer (record, --live) and the llm judge")
     r.add_argument("variant", choices=[*VARIANTS, "all"])
@@ -817,7 +822,8 @@ async def main() -> None:
     fp.add_argument("--xlsx", required=True, help="the FactReasoner evaluation workbook")
     rq = sub.add_parser("requery", parents=[common], help="search the recorded atoms again with LLM-written queries")
     rq.add_argument("--tag", default="llmq", help="evidence-<tag>.json.gz (default llmq)")
-    rq.add_argument("--searcher", choices=["ddg", "searxng", "searxng-science", "serper"], default="searxng")
+    rq.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="searxng")
+    rq.add_argument("--search-type", choices=["general", "science"], default="general", help="the web, or scholarly literature")
     rq.add_argument("--searxng-url", default="http://localhost:8080")
     rq.add_argument("--llm-model", default=LLM_MODEL)
     rq.add_argument("--queries", choices=["llm", "claim"], default="llm", help="LLM-written queries or the claim text")
@@ -839,18 +845,18 @@ async def main() -> None:
         TEXTS.write_text("".join(json.dumps(t, ensure_ascii=False) + "\n" for t in texts))
         print(f"{len(texts)} texts, {sum(len(t['sentences']) for t in texts)} sentences -> {TEXTS}")
     elif args.cmd == "record":
-        await record(args.searcher, args.searxng_url, args.llm_model)
+        await record(args.searcher, args.searxng_url, args.llm_model, args.search_type)
     elif args.cmd == "recrawl":
         await recrawl_open_access()
     elif args.cmd == "fetch-papers":
         await fetch_papers(args.xlsx)
     elif args.cmd == "requery":
-        await requery(args.tag, args.searcher, args.searxng_url, args.llm_model, args.queries, args.pairs)
+        await requery(args.tag, args.searcher, args.searxng_url, args.llm_model, args.queries, args.pairs, args.search_type)
     elif args.cmd == "run":
         use_evidence(args.evidence)
         RESULTS.mkdir(parents=True, exist_ok=True)
         for variant in VARIANTS if args.variant == "all" else [args.variant]:
-            res = await run(variant, args.live, args.timeout, args.searcher, args.searxng_url, args.llm_model, args.limit, args.strong, args.in_domain)
+            res = await run(variant, args.live, args.timeout, args.searcher, args.searxng_url, args.llm_model, args.limit, args.strong, args.in_domain, args.search_type)
             name = f"eval-{variant}{'-live' if args.live else ''}{'-' + args.evidence if args.evidence else ''}"
             name += "-in-domain" if args.in_domain else ""
             name += f"-strong{args.strong:g}" if args.strong != 0.7 else ""
