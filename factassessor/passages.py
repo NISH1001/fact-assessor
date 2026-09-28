@@ -66,21 +66,39 @@ def top_passages(claim: str, chunks: list[str], k: int, k1: float = 1.5, b: floa
     """The `k` chunks with the highest BM25 score against `claim`, best first."""
     if len(chunks) <= k:
         return chunks
-    docs = [Counter(_words(c)) for c in chunks]
-    avg_len = sum(sum(d.values()) for d in docs) / len(docs)
-    n_containing = Counter(w for d in docs for w in d)
+    return [chunks[i] for i in BM25Index(chunks, k1, b).top(claim, k)]
 
-    def score(doc: Counter[str]) -> float:
-        length = sum(doc.values())
-        total = 0.0
-        for w in set(_words(claim)):
-            if tf := doc.get(w):
-                idf = math.log(1 + (len(docs) - n_containing[w] + 0.5) / (n_containing[w] + 0.5))
-                total += idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * length / avg_len))
+
+class BM25Index:
+    """BM25 over a fixed list of passages, built once and queried many times (e.g. every claim against a paper).
+    `top(query, k)`: indices of the k best passages, best first (ties keep passage order)."""
+
+    def __init__(self, chunks: list[str], k1: float = 1.5, b: float = 0.75) -> None:
+        self.k1, self.b = k1, b
+        self.docs = [Counter(_words(c)) for c in chunks]
+        self.lengths = [sum(d.values()) for d in self.docs]
+        self.avg_len = sum(self.lengths) / len(self.docs) if self.docs else 0.0
+        self.postings: dict[str, list[int]] = {}  # word -> passages containing it: only those get scored
+        for i, doc in enumerate(self.docs):
+            for w in doc:
+                self.postings.setdefault(w, []).append(i)
+
+    def scores(self, query: str) -> dict[int, float]:
+        n, total = len(self.docs), {}
+        for w in set(_words(query)):
+            ids = self.postings.get(w, [])
+            idf = math.log(1 + (n - len(ids) + 0.5) / (len(ids) + 0.5))
+            for i in ids:
+                tf = self.docs[i][w]
+                norm = tf + self.k1 * (1 - self.b + self.b * self.lengths[i] / self.avg_len)
+                total[i] = total.get(i, 0.0) + idf * tf * (self.k1 + 1) / norm
         return total
 
-    ranked = sorted(range(len(chunks)), key=lambda i: score(docs[i]), reverse=True)
-    return [chunks[i] for i in ranked[:k]]
+    def top(self, query: str, k: int, matching_only: bool = False) -> list[int]:
+        """`matching_only`: leave out passages sharing no word with the query (instead of ranking them last)."""
+        scores = self.scores(query)
+        pool = scores if matching_only else range(len(self.docs))
+        return sorted(pool, key=lambda i: scores.get(i, 0.0), reverse=True)[:k]
 
 
 def _words(text: str) -> list[str]:

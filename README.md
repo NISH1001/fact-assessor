@@ -417,6 +417,21 @@ Reproduce with `uv run --extra gliner python scripts/compare_judges.py`.
 `GlinerClaimFilter` 17/19 in 2.3s. Laya's misses keep two opinions (harmless: one extra search each); GLiNER's drop
 two real claims (they're never checked), so Laya stays the default.
 
+**Check against your own documents (in-domain).** `DocumentSearcher` searches given documents instead of the web:
+the papers or reports a text was written from, the way FactReasoner checks against uploaded papers. It splits each
+document into passages once (BM25 index) and returns the best ones as ordinary hits, so any judge takes them;
+`NoCrawler` because there are no pages to fetch:
+
+```python
+from factassessor import DocumentSearcher, FactAssessor, NoCrawler
+
+docs = [{"url": "poorter-2016", "title": "Biomass resilience of Neotropical secondary forests", "text": paper_text}]
+fa = FactAssessor(searcher=DocumentSearcher(docs), crawler=NoCrawler())
+```
+
+On FactReasoner's eval set (16 pairs whose source papers we could get as full text), FactAssessor in-domain scored
+F1 0.84 on the original passages vs FactReasoner's 0.86 (in-domain), at ~2s per passage for the models vs 3-4 min.
+
 **Search without an API key:**
 
 ```python

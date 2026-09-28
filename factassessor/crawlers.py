@@ -152,6 +152,14 @@ class HTTPXCrawler(Crawler):
         return {"url": url, "title": title, "text": text} if text else None
 
 
+class NoCrawler(Crawler):
+    """Crawls nothing: for searchers whose hits already carry the evidence (`DocumentSearcher` passages), or to
+    judge search snippets only."""
+
+    async def crawl(self, url: str) -> dict[str, Any] | None:
+        return None
+
+
 class FallbackCrawler(Crawler):
     """Try each crawler in turn; the first page with text wins. `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())`
     fetches most pages the fast way and only opens a browser for the ones that need JavaScript (or failed)."""

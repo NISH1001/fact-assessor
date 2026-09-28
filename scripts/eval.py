@@ -53,9 +53,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from factassessor import Atom, Crawl4AICrawler, FactAssessor, LayaClaimFilter, LayaJudge, LLMJudge, SerperSearcher
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.crawlers import Crawler, OpenAccessCrawler, doi_in
+from factassessor.passages import clean_text
 from factassessor.pipeline import Take
 from factassessor.search import DuckDuckGoSearcher, Searcher, SearxngSearcher, is_blocked, not_blocked
 
@@ -199,8 +202,8 @@ def make_searcher(name: str, searxng_url: str) -> Searcher:
     """ddg (no key, default), searxng (self-hosted, no key), or serper (API key and credits)."""
     if name == "searxng":
         return SearxngSearcher(searxng_url, num=2 * TOP_K)
-    if name == "serper":
-        return SerperSearcher(num=2 * TOP_K)
+    if name == "serper":  # no hedging: a duplicate request would cost a second credit
+        return SerperSearcher(num=2 * TOP_K, hedge_after=None)
     return DuckDuckGoSearcher(num=2 * TOP_K)
 
 
@@ -244,6 +247,65 @@ async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODE
     await crawler.stop()
 
 
+async def fetch_papers(xlsx: str, min_chars: int = 3000) -> None:
+    """factreasoner: each pair's source paper (full text), for in-domain checks like FactReasoner's uploaded papers.
+    Tries the workbook's open-access link (plain download: PDF or HTML, then the browser), then OpenAlex's
+    open-access copies via the DOI. Writes papers.json next to the texts (gitignored)."""
+    import re
+
+    import pandas as pd
+
+    from factassessor.crawlers import _html_to_text, _pdf_text
+
+    norm = lambda v: " ".join(str(v).split())  # noqa: E731
+    new = pd.read_excel(xlsx, sheet_name="FactReasoner_New_IncludingClose")
+    links = {norm(r.iloc[2]): str(r.iloc[3]).strip() for _, r in new.iterrows() if pd.notna(r.iloc[3])}
+    sources = list(dict.fromkeys(t["source"] for t in load_texts()))
+    out_path = TEXTS.parent / "papers.json"
+    papers = json.loads(out_path.read_text()) if out_path.exists() else {}
+    browser, open_access = Crawl4AICrawler(timeout=20), OpenAccessCrawler(timeout=30, min_chars=min_chars)
+    http = httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (fact-assessor eval)"})
+
+    async def download(url: str) -> str:
+        try:
+            r = await http.get(url)
+            if not 200 <= r.status_code < 300:
+                return ""
+            if "pdf" in r.headers.get("content-type", "") or r.content.startswith(b"%PDF"):
+                return clean_text(await asyncio.to_thread(_pdf_text, r.content))
+            return clean_text((await asyncio.to_thread(_html_to_text, r.text))[1])
+        except Exception:
+            return ""
+
+    for source in sources:
+        if len(papers.get(source, {}).get("text", "")) >= min_chars:
+            continue
+        link = links.get(norm(source), "")
+        doi = re.search(r"10\.\d{4,9}/[^\s)\]]+", source + " " + link)
+        tried = []
+        text, via = "", ""
+        if link.startswith("http"):
+            for name, get in (("download", download), ("browser", lambda u: browser.crawl(u))):
+                got = await get(link)
+                got = got["text"] if isinstance(got, dict) else (got or "")
+                tried.append(f"{name}:{len(got)}")
+                if len(got) >= min_chars:
+                    text, via = got, f"{name} {link}"
+                    break
+        if not text and doi:
+            page = await open_access.crawl(f"https://doi.org/{doi.group(0).rstrip('.')}")
+            tried.append(f"open access:{len(page['text']) if page else 0}")
+            if page:
+                text, via = page["text"], f"open access {doi.group(0)}"
+        papers[source] = {"text": text, "via": via}
+        out_path.write_text(json.dumps(papers, ensure_ascii=False))
+        print(f"{'OK  ' if text else 'none'} {len(text):7d} chars  {source[:70]}  [{', '.join(tried)}]", flush=True)
+    await browser.stop(); await open_access.stop(); await http.aclose()
+    have = sum(len(p["text"]) >= min_chars for p in papers.values())
+    pairs = {t["pair"] for t in load_texts() if len(papers.get(t["source"], {}).get("text", "")) >= min_chars}
+    print(f"\nfull text for {have} of {len(sources)} papers -> {len(pairs)} of 50 pairs usable in-domain")
+
+
 async def recrawl_open_access() -> None:
     """Pages that failed to crawl but have a DOI: fetch the paper's open-access copy (OpenAccessCrawler), as
     `FallbackCrawler(Crawl4AICrawler(), OpenAccessCrawler())` would have while recording. Keeps a backup."""
@@ -279,10 +341,12 @@ STATEMENT: Quantum computers can break RSA encryption easily
 QUERY: "Quantum computers can break RSA encryption easily" fact check cryptography experts"""
 
 
-async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str = LLM_MODEL) -> None:
-    """Same atoms as the recorded evidence, but each claim is searched with an LLM-written query (FactReasoner's
-    approach) instead of its own text. New pages are crawled (browser, then open access); known pages are reused.
-    Writes evidence-<tag>.json.gz; the original evidence is untouched."""
+async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str = LLM_MODEL,
+                  queries: str = "llm", pairs: int | None = None) -> None:
+    """Search the recorded atoms again: with another engine and/or LLM-written queries (FactReasoner's approach,
+    `queries="llm"`) instead of the claim text (`queries="claim"`). Results are cached by query in the evidence
+    file, so a query is only ever paid for once (reruns and bigger runs reuse it). New pages are crawled (browser,
+    then open access); known pages are reused. Writes evidence-<tag>.json.gz; the original evidence is untouched."""
     from pydantic import BaseModel
     from pydantic_ai import Agent
 
@@ -294,14 +358,18 @@ async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str
     base = load_evidence()
     use_evidence(tag)
     evidence = load_evidence() if EVIDENCE.exists() else {"texts": {}, "pages": dict(base["pages"])}
-    evidence.update(searcher=searcher_name, atomizer=base.get("atomizer"), queries_by=llm_model,
+    evidence.setdefault("search_cache", {})
+    evidence.update(searcher=searcher_name, atomizer=base.get("atomizer"), queries_by=llm_model if queries == "llm" else "claim text",
                     crawler="crawl4ai, then open access (OpenAlex)")
+    paid = 0
     agent = Agent(llm_model, output_type=Query, instructions=QUERY_INSTRUCTIONS, model_settings=llm_settings(llm_model))
     searcher = make_searcher(searcher_name, searxng_url)
     crawler = FallbackCrawler(Crawl4AICrawler(), OpenAccessCrawler())
     slots = asyncio.Semaphore(3)
 
     async def query_for(claim: str) -> str:
+        if queries == "claim":
+            return claim
         try:
             return (await agent.run(f"STATEMENT: {claim}")).output.query.strip() or claim
         except Exception as exc:
@@ -309,31 +377,43 @@ async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str
             return claim
 
     async def search(query: str) -> list[dict[str, Any]]:
-        for attempt in range(4):
+        nonlocal paid
+        if query in evidence["search_cache"]:  # already paid for
+            return evidence["search_cache"][query]
+        attempts = 2 if searcher_name == "serper" else 4  # Serper bills every request
+        hits: list[dict[str, Any]] = []
+        for attempt in range(attempts):
             try:
                 async with slots:
-                    hits = await searcher.search(query)
-                if hits:
-                    return [h for h in hits if not is_blocked(h["url"])][:TOP_K]
-            except Exception:
-                pass
+                    paid += 1
+                    found = await searcher.search(query)
+                if found:
+                    hits = [h for h in found if not is_blocked(h["url"])][:TOP_K]
+                    break
+            except Exception as exc:
+                print(f"  search failed ({exc!r:.60})", flush=True)
             await asyncio.sleep(2 * (attempt + 1))
-        return []
+        evidence["search_cache"][query] = hits
+        return hits
 
-    for tid, rec in base["texts"].items():
-        if tid in evidence["texts"]:
+    order = [t["id"] for t in load_texts()]
+    wanted = {t["id"] for t in load_texts() if pairs is None or t.get("pair", 0) <= pairs}
+    for tid in order:
+        rec = base["texts"].get(tid)
+        if rec is None or tid not in wanted or tid in evidence["texts"]:
             continue
         start = time.perf_counter()
         claims = [a["text"] for a in rec["atoms"]]
-        queries = await asyncio.gather(*(query_for(c) for c in claims))
-        hits = await asyncio.gather(*(search(q) for q in queries))
+        qs = await asyncio.gather(*(query_for(c) for c in claims))
+        hits = [await search(q) for q in qs]  # one at a time: identical queries in a text hit the cache
         urls = list({h["url"] for hs in hits for h in hs} - evidence["pages"].keys())
         pages = await asyncio.gather(*(crawler.crawl(u) for u in urls))
         evidence["pages"].update(zip(urls, pages))
-        evidence["texts"][tid] = {"atoms": rec["atoms"], "hits": dict(zip(claims, hits)), "queries": dict(zip(claims, queries))}
+        evidence["texts"][tid] = {"atoms": rec["atoms"], "hits": dict(zip(claims, hits)), "queries": dict(zip(claims, qs))}
         save_evidence(evidence)
         print(f"{tid:16s} {len(claims):2d} queries, {sum(map(len, hits)):3d} hits, {sum(p is not None for p in pages)}/{len(urls)} new pages, "
-              f"{time.perf_counter() - start:.1f}s | e.g. {queries[0][:70]!r}", flush=True)
+              f"{time.perf_counter() - start:.1f}s | e.g. {qs[0][:70]!r}", flush=True)
+    print(f"searches paid this run: {paid} (cached queries: {len(evidence['search_cache'])})")
     await crawler.crawlers[0].stop()
     await crawler.crawlers[1].stop()
 
@@ -411,10 +491,23 @@ async def warm_up(fa: FactAssessor, claim_filter: Any, judge: Any, text: str) ->
 
 
 async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "searxng", searxng_url: str = "",
-              llm_model: str = LLM_MODEL, limit: int | None = None) -> dict[str, Any]:
+              llm_model: str = LLM_MODEL, limit: int | None = None, strong: float = 0.7,
+              in_domain: bool = False) -> dict[str, Any]:
     claim_filter, judge = components(variant, llm_model)
     texts = load_texts()[:limit]
-    if live:
+    if in_domain:  # search the fetched source papers instead of the web (FactReasoner's uploaded-document mode)
+        from factassessor import DocumentSearcher, NoCrawler
+
+        papers = json.loads((TEXTS.parent / "papers.json").read_text())
+        docs = [{"url": src, "title": src[:100], "text": p["text"]} for src, p in papers.items() if len(p["text"]) >= 3000]
+        have = {d["url"] for d in docs}
+        texts = [t for t in texts if t["source"] in have]
+        evidence = load_evidence()
+        fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, strong_evidence=strong,
+                          atomizer=RecordedAtomizer(evidence), searcher=DocumentSearcher(docs), crawler=NoCrawler())
+        warm_text, source = texts[0]["text"], f"in-domain ({len(docs)} source papers, DocumentSearcher top 5 passages)"
+        live = False
+    elif live:
         search = make_searcher(searcher, searxng_url) >> not_blocked() >> Take(TOP_K)  # as FactAssessor wires Serper
         fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, searcher=search,
                           atomizer=LLMAtomizer(llm_model, model_settings=llm_settings(llm_model)))
@@ -424,8 +517,8 @@ async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "
         missing = [ex["id"] for ex in texts if ex["id"] not in evidence["texts"]]
         if missing:
             raise SystemExit(f"no recorded evidence for {len(missing)} texts (run `eval.py record` first): {missing[:3]}...")
-        fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, atomizer=RecordedAtomizer(evidence),
-                          searcher=RecordedSearcher(evidence), crawler=RecordedCrawler(evidence))
+        fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, strong_evidence=strong,
+                          atomizer=RecordedAtomizer(evidence), searcher=RecordedSearcher(evidence), crawler=RecordedCrawler(evidence))
         warm_text, source = texts[0]["text"], f"recorded ({evidence['searcher']} search, {evidence.get('crawler', 'crawl4ai')})"
     warm = await warm_up(fa, claim_filter, judge, warm_text)
     print(f"[{variant}] warm-up: " + ", ".join(f"{k} {v:.2f}s" if isinstance(v, float) else f"{k} {[round(x, 1) for x in v]}s"
@@ -514,7 +607,9 @@ def fr_report(res: dict[str, Any]) -> str:
     for name, key in (("FactReasoner, open web (AKD, Serper)", "akd_serper_f1"), ("FactReasoner, in-domain (source paper)", "in_domain_f1")):
         lines.append(f"| {name} | {fmt(mean([r['reference'][key] for r in by_kind['original']]), 'f')} | "
                      f"{fmt(mean([r['reference'][key] for r in by_kind['corrupted']]), 'f')} |")
-    lines.append(f"| **FactAssessor, open web** | **{fmt(mean([m['f1'] for m in fa['original']]), 'f')}** | "
+    mode = "in-domain" if res["source"].startswith("in-domain") else "open web"
+    ref_key = "in_domain_f1" if mode == "in-domain" else "akd_serper_f1"
+    lines.append(f"| **FactAssessor, {mode}** | **{fmt(mean([m['f1'] for m in fa['original']]), 'f')}** | "
                  f"**{fmt(mean([m['f1'] for m in fa['corrupted']]), 'f')}** |")
     lines += ["", "## FactAssessor in detail", "", "| | accuracy | precision | recall | NPV | F1 | atoms / passage | false atoms | latency (median) |",
               "|---|---|---|---|---|---|---|---|---|"]
@@ -527,13 +622,13 @@ def fr_report(res: dict[str, Any]) -> str:
     wins = {"better": 0, "tied": 0, "worse": 0}
     for k in fa:
         for r, m in zip(by_kind[k], fa[k]):
-            ref = r["reference"]["akd_serper_f1"]
+            ref = r["reference"][ref_key]
             if ref is not None:
                 wins["better" if m["f1"] > ref + 1e-9 else "worse" if m["f1"] < ref - 1e-9 else "tied"] += 1
     pairs = {r["pair"]: r for r in by_kind["original"]}
     drops = [(pairs[r["pair"]]["fact_score"], r["fact_score"]) for r in by_kind["corrupted"] if r["pair"] in pairs]
     drops = [(o, c) for o, c in drops if o is not None and c is not None]
-    lines += ["", f"Per passage vs FactReasoner open web: FactAssessor F1 higher on {wins['better']}, tied on {wins['tied']}, "
+    lines += ["", f"Per passage vs FactReasoner {mode}: FactAssessor F1 higher on {wins['better']}, tied on {wins['tied']}, "
               f"lower on {wins['worse']} (of {sum(wins.values())}). Corrupted copy scored below its original: "
               f"{sum(c < o for o, c in drops)} of {len(drops)} pairs.", ""]
     return "\n".join(lines)
@@ -710,15 +805,21 @@ async def main() -> None:
     r.add_argument("variant", choices=[*VARIANTS, "all"])
     r.add_argument("--timeout", type=float, default=15.0, help="per-claim timeout (FactAssessor default 15s)")
     r.add_argument("--limit", type=int, help="only the first N texts (e.g. a quick live timing run)")
+    r.add_argument("--strong", type=float, default=0.7, help="FactAssessor(strong_evidence=): min prob for a passage to count")
+    r.add_argument("--in-domain", action="store_true", help="factreasoner: check against the fetched source papers (fetch-papers)")
     r.add_argument("--evidence", help="replay evidence-<tag>.json.gz instead of the default (e.g. llmq from requery)")
     r.add_argument("--live", action="store_true", help="live atomizer, search (--searcher), and crawling instead of recorded evidence")
     sub.add_parser("report", parents=[common], help="rebuild data/results/eval-comparison.md and the plots")
     sub.add_parser("recrawl", parents=[common], help="fill failed pages that have a DOI from open access (needs --extra pdf)")
+    fp = sub.add_parser("fetch-papers", parents=[common], help="factreasoner: each pair's source paper, for in-domain checks")
+    fp.add_argument("--xlsx", required=True, help="the FactReasoner evaluation workbook")
     rq = sub.add_parser("requery", parents=[common], help="search the recorded atoms again with LLM-written queries")
     rq.add_argument("--tag", default="llmq", help="evidence-<tag>.json.gz (default llmq)")
     rq.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="searxng")
     rq.add_argument("--searxng-url", default="http://localhost:8080")
     rq.add_argument("--llm-model", default=LLM_MODEL)
+    rq.add_argument("--queries", choices=["llm", "claim"], default="llm", help="LLM-written queries or the claim text")
+    rq.add_argument("--pairs", type=int, help="factreasoner: only the first N pairs")
     args = parser.parse_args()
     use_dataset(args.dataset)
 
@@ -739,14 +840,18 @@ async def main() -> None:
         await record(args.searcher, args.searxng_url, args.llm_model)
     elif args.cmd == "recrawl":
         await recrawl_open_access()
+    elif args.cmd == "fetch-papers":
+        await fetch_papers(args.xlsx)
     elif args.cmd == "requery":
-        await requery(args.tag, args.searcher, args.searxng_url, args.llm_model)
+        await requery(args.tag, args.searcher, args.searxng_url, args.llm_model, args.queries, args.pairs)
     elif args.cmd == "run":
         use_evidence(args.evidence)
         RESULTS.mkdir(parents=True, exist_ok=True)
         for variant in VARIANTS if args.variant == "all" else [args.variant]:
-            res = await run(variant, args.live, args.timeout, args.searcher, args.searxng_url, args.llm_model, args.limit)
+            res = await run(variant, args.live, args.timeout, args.searcher, args.searxng_url, args.llm_model, args.limit, args.strong, args.in_domain)
             name = f"eval-{variant}{'-live' if args.live else ''}{'-' + args.evidence if args.evidence else ''}"
+            name += "-in-domain" if args.in_domain else ""
+            name += f"-strong{args.strong:g}" if args.strong != 0.7 else ""
             (RESULTS / f"{name}.json").write_text(json.dumps(res, indent=1))
             text = fr_report(res) if DATASET == "factreasoner" else report(res)
             (RESULTS / f"{name}.md").write_text(text)
