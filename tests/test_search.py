@@ -194,3 +194,23 @@ def test_duckduckgo_other_errors_still_raise():
 
     with pytest.raises(RuntimeError, match="connection reset"):
         asyncio.run(DuckDuckGoSearcher(client_factory=Broken, retry_after=0).search("q"))
+
+
+async def test_searxng_can_search_scholarly_categories_and_engines():
+    # SearXNG's scholarly engines (Google Scholar, arXiv, Semantic Scholar...) sit in the "science" category, which the
+    # default "general" search never uses; on scientific claims they nearly doubled finding the source paper (20% -> 38%)
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"results": [{"url": "https://arxiv.org/abs/1", "title": "t", "content": "c"}]})
+
+    s = SearxngSearcher("http://localhost:8080", categories=["science"], engines=["google scholar", "arxiv"])
+    s._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    await s.search("secondary forest biomass recovery")
+    plain = SearxngSearcher("http://localhost:8080")
+    plain._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    await plain.search("q")
+    await s.stop(); await plain.stop()
+    assert seen[0]["categories"] == "science" and seen[0]["engines"] == "google scholar,arxiv"
+    assert "categories" not in seen[1] and "engines" not in seen[1]  # default: SearXNG's own (general)

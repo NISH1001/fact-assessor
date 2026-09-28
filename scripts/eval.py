@@ -202,6 +202,8 @@ def make_searcher(name: str, searxng_url: str) -> Searcher:
     """ddg (no key, default), searxng (self-hosted, no key), or serper (API key and credits)."""
     if name == "searxng":
         return SearxngSearcher(searxng_url, num=2 * TOP_K)
+    if name == "searxng-science":  # SearXNG's scholarly engines (Google Scholar, arXiv, Semantic Scholar, ...)
+        return SearxngSearcher(searxng_url, num=2 * TOP_K, timeout=20.0, hedge_after=None, categories=["science"])
     if name == "serper":  # no hedging: a duplicate request would cost a second credit
         return SerperSearcher(num=2 * TOP_K, hedge_after=None)
     return DuckDuckGoSearcher(num=2 * TOP_K)
@@ -799,7 +801,7 @@ async def main() -> None:
     b.add_argument("--xlsx", help="factreasoner: the evaluation workbook")
     rec = sub.add_parser("record", parents=[common], help="record atoms, hits, and pages once")
     for p in (rec, r := sub.add_parser("run", parents=[common], help="evaluate variants")):
-        p.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="searxng", help="for record and run --live")
+        p.add_argument("--searcher", choices=["ddg", "searxng", "searxng-science", "serper"], default="searxng", help="for record and run --live")
         p.add_argument("--searxng-url", default="http://localhost:8080", help="your SearXNG instance (JSON enabled)")
         p.add_argument("--llm-model", default=LLM_MODEL, help="LLM for the atomizer (record, --live) and the llm judge")
     r.add_argument("variant", choices=[*VARIANTS, "all"])
@@ -815,7 +817,7 @@ async def main() -> None:
     fp.add_argument("--xlsx", required=True, help="the FactReasoner evaluation workbook")
     rq = sub.add_parser("requery", parents=[common], help="search the recorded atoms again with LLM-written queries")
     rq.add_argument("--tag", default="llmq", help="evidence-<tag>.json.gz (default llmq)")
-    rq.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="searxng")
+    rq.add_argument("--searcher", choices=["ddg", "searxng", "searxng-science", "serper"], default="searxng")
     rq.add_argument("--searxng-url", default="http://localhost:8080")
     rq.add_argument("--llm-model", default=LLM_MODEL)
     rq.add_argument("--queries", choices=["llm", "claim"], default="llm", help="LLM-written queries or the claim text")
