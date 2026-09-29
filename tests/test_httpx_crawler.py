@@ -15,6 +15,7 @@ PAGE = """<html><head><title>Nepal earthquake - Wikipedia</title><script>var x =
 
 
 def crawler(handler, **kwargs):
+    kwargs.setdefault("min_words", 0)  # the sample pages are short; test_short_pages_are_not_documents sets it
     c = HTTPXCrawler(**kwargs)
     c._http = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True)
     return c
@@ -108,3 +109,10 @@ async def test_fallback_uses_the_next_crawler_only_when_the_first_fails():
     assert (await both.crawl("https://spa.org"))["text"] == "rendered"
     assert await both.crawl("https://dead.org") is None
     assert browser.calls == ["https://spa.org", "https://dead.org"]  # only for what the fast path couldn't read
+
+
+async def test_short_pages_are_not_documents():
+    # login walls, "Loading..." shells, browser checks: on 2,748 crawled pages, those under 100 words were junk
+    shell = "<html><body><p>Checking your browser before accessing pubmed.ncbi.nlm.nih.gov...</p></body></html>"
+    assert await crawler(html(body=shell), min_words=100).crawl("https://pubmed.ncbi.nlm.nih.gov/1/") is None
+    assert HTTPXCrawler().min_words == 100

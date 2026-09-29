@@ -57,7 +57,8 @@ import httpx
 from factassessor import Atom, Crawl4AICrawler, FactAssessor, LayaClaimFilter, LayaJudge, LLMJudge, SerperSearcher
 from factassessor._llm import reasoning_off
 from factassessor.atomizer import Atomizer, LLMAtomizer
-from factassessor.crawlers import Crawler, OpenAccessCrawler
+from factassessor.crawlers import Crawler, HTTPXCrawler
+from factassessor.resolvers import ArxivResolver, OpenAlexResolver
 from factassessor.pipeline import Take
 from factassessor.search import DuckDuckGoSearcher, Searcher, SearxngSearcher, is_blocked, not_blocked
 
@@ -268,7 +269,8 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_words: int = 500) -> Non
     sources = list(dict.fromkeys(t["source"] for t in load_texts()))
     out_path = TEXTS.parent / "papers.json"
     papers = json.loads(out_path.read_text()) if out_path.exists() else {}
-    browser, open_access = Crawl4AICrawler(timeout=20), OpenAccessCrawler(timeout=30, min_words=min_words)
+    browser = Crawl4AICrawler(timeout=20)
+    open_access = paper_crawler(timeout=30, paper_timeout=30, min_words=min_words, min_paper_words=min_words)
     http = httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (fact-assessor eval)"})
 
     async def download(url: str) -> str:
@@ -311,8 +313,8 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_words: int = 500) -> Non
 
 
 async def recrawl_open_access() -> None:
-    """Pages that failed to crawl: read the ones OpenAccessCrawler handles (arXiv, direct PDFs, DOIs via their
-    open-access copy), as `FallbackCrawler(OpenAccessCrawler(), Crawl4AICrawler())` would have while recording.
+    """Pages that failed to crawl: read them over plain HTTP, papers from their free copies first (arXiv, DOIs via
+    OpenAlex; PDFs too), as `FallbackCrawler(Crawl4AICrawler(), paper_crawler())` would have while recording.
     Keeps a backup."""
     import shutil
 
@@ -321,13 +323,13 @@ async def recrawl_open_access() -> None:
     if not backup.exists():
         shutil.copy(EVIDENCE, backup)
     todo = [u for u, page in evidence["pages"].items() if page is None]  # the crawler skips what it can't read
-    crawler = OpenAccessCrawler()
+    crawler = paper_crawler()
     start = time.perf_counter()
     pages = await asyncio.gather(*(crawler.crawl(u) for u in todo))
     await crawler.stop()
     recovered = {u: p for u, p in zip(todo, pages) if p}
     evidence["pages"].update(recovered)
-    evidence["crawler"] = "crawl4ai, then OpenAccessCrawler (arXiv, PDFs, open access) for failed pages"
+    evidence["crawler"] = "crawl4ai, then plain HTTP with resolvers (arXiv, OpenAlex; PDFs) for failed pages"
     save_evidence(evidence)
     print(f"{len(todo)} failed pages -> {len(recovered)} recovered (arXiv, PDFs, open access) in "
           f"{time.perf_counter() - start:.1f}s (backup: {backup.name})")
@@ -362,11 +364,11 @@ async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str
     evidence = load_evidence() if EVIDENCE.exists() else {"texts": {}, "pages": dict(base["pages"])}
     evidence.setdefault("search_cache", {})
     evidence.update(searcher=searcher_name if search_type == "general" else f"{searcher_name} {search_type}", atomizer=base.get("atomizer"), queries_by=llm_model if queries == "llm" else "claim text",
-                    crawler="crawl4ai, then open access (OpenAlex)")
+                    crawler="crawl4ai, then plain HTTP with resolvers (arXiv, OpenAlex)")
     paid = 0
     agent = Agent(llm_model, output_type=Query, instructions=QUERY_INSTRUCTIONS, model_settings=llm_settings(llm_model))
     searcher = make_searcher(searcher_name, searxng_url, search_type)
-    crawler = FallbackCrawler(Crawl4AICrawler(), OpenAccessCrawler())
+    crawler = FallbackCrawler(Crawl4AICrawler(), paper_crawler())  # browser first, like the recorded evidence
     slots = asyncio.Semaphore(3)
 
     async def query_for(claim: str) -> str:
@@ -446,6 +448,11 @@ class RecordedCrawler(Crawler):
 
 
 # --- runs ------------------------------------------------------------------------------------------------------
+
+def paper_crawler(**kwargs: Any) -> HTTPXCrawler:
+    """Plain HTTP that reads papers in full: their free copies (arXiv HTML or PDF, OpenAlex) first, then the page."""
+    return HTTPXCrawler(resolvers=[ArxivResolver(), OpenAlexResolver()], **kwargs)
+
 
 def llm_settings(model: str) -> dict[str, Any]:
     """Reasoning as low as the model allows (the library's own default for LLM steps)."""
@@ -814,7 +821,7 @@ async def main() -> None:
     r.add_argument("--evidence", help="replay evidence-<tag>.json.gz instead of the default (e.g. llmq from requery)")
     r.add_argument("--live", action="store_true", help="live atomizer, search (--searcher), and crawling instead of recorded evidence")
     sub.add_parser("report", parents=[common], help="rebuild data/results/eval-comparison.md and the plots")
-    rc = sub.add_parser("recrawl", parents=[common], help="re-read failed pages with OpenAccessCrawler (needs --extra pdf)")
+    rc = sub.add_parser("recrawl", parents=[common], help="re-read failed pages over plain HTTP, papers via arXiv / OpenAlex (needs --extra pdf)")
     rc.add_argument("--evidence", help="evidence-<tag>.json.gz instead of the default")
     fp = sub.add_parser("fetch-papers", parents=[common], help="paired: each pair's source paper, for in-domain checks")
     fp.add_argument("--xlsx", required=True, help="the workbook")
