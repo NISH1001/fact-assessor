@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from collections import Counter
 from typing import Any
 
@@ -17,6 +18,17 @@ _TABLE_RULE = re.compile(r"^\|?[\s:|-]+\|?$")  # |---|:---:|
 _BULLET = re.compile(r"^[*+-]\s+")
 _TAG = re.compile(r"</?[a-zA-Z][^>]*>")
 _JSON_LINE = re.compile(r'^\s*[\[{].*["\]}]\s*$')  # a line that's a JSON object/array, e.g. JSON-LD metadata
+
+
+_MINUS = str.maketrans({"\u2212": "-", "\u2010": "-", "\u2011": "-"})  # minus sign, hyphen, non-breaking hyphen
+
+
+def normalize_text(text: str) -> str:
+    """One way to write the same characters (Unicode NFKC, minus signs as "-"), for comparing a claim with evidence:
+    "247 Mg ha⁻¹" and a paper's "247 Mg ha−1" both become "247 Mg ha-1". Laya judged exactly that pair a
+    refutation (0.84): different tokens looked like a different number. Also ligatures (ﬁ -> fi), subscripts
+    (CO₂ -> CO2). Superscripts lose their raise (10⁵ -> 105), as they already do in text extracted from PDFs."""
+    return unicodedata.normalize("NFKC", text).translate(_MINUS)
 
 
 def clean_text(markdown: str) -> str:

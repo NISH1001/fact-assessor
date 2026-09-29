@@ -77,3 +77,14 @@ async def test_long_snippets_are_cut_to_fit_so_the_claim_is_not_truncated():
     assert [(e.url, e.source, e.label) for e in ev] == [("long", "snippet", "supports"), ("short", "snippet", "supports")]
     assert len(ev[0].text.split()) <= 64 and "1903" in ev[0].text
     assert ev[1].text == "Curie shared the 1903 Nobel Prize in Physics."  # short snippets stay whole
+
+
+async def test_claim_and_evidence_are_normalized_before_judging():
+    # a live run: "saturation point at 247 Mg ha⁻¹" vs a source's "247 Mg ha−1" was judged a refutation (0.84)
+    laya = FakeLaya()
+    await LayaJudge(runner=laya).judge("WorldView-3 saturates at 247 Mg ha⁻¹.", [
+        {"url": "u1", "title": "t", "snippet": "WV3 had a saturation point of 247 Mg ha−1."},
+    ])
+    state = laya.batches[0][0]["state"]
+    assert state["claim"] == "WorldView-3 saturates at 247 Mg ha-1."
+    assert state["evidence"] == "WV3 had a saturation point of 247 Mg ha-1."

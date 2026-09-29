@@ -9,7 +9,7 @@ from typing import Any
 
 from factassessor.judges._base import Judge
 from factassessor.laya import laya_runner
-from factassessor.passages import chunk, top_passages
+from factassessor.passages import chunk, normalize_text, top_passages
 from factassessor.schema import Evidence
 
 # Evidence-first state + this wording: 13/15 on our judge benchmark; claim-first variants topped out at 9/15.
@@ -59,6 +59,9 @@ class LayaJudge(Judge):
     async def judge(self, claim: str, docs: list[dict[str, Any]]) -> list[Evidence]:
         """docs: Serper hits {"url", "title", "snippet"} or crawled pages {"url", "title", "text"}.
         Snippets are judged as-is; pages are chunked with Laya's tokenizer to its exact budget first."""
+        # one notation for units and symbols on both sides: "ha⁻¹" vs "ha−1" must not look like different numbers
+        claim = normalize_text(claim)
+        docs = [{**d, **{k: normalize_text(d[k]) for k in ("snippet", "text") if d.get(k)}} for d in docs]
         passages = await self._passages(claim, docs)
         results = await self._laya().predict_batch(
             [{"state": {"evidence": p["text"], "claim": claim}, "questions": QUESTION, "model": self.model} for p in passages]
