@@ -93,8 +93,8 @@ Caching (single-flight + LRU) was prototyped and **removed**: it belongs to comp
 
 ## Naming
 
-`FactReasoner` is IBM's project; renamed to **fact-assessor** / `FactAssessor` (unused on PyPI and GitHub) to
-avoid confusion.
+Renamed to **fact-assessor** / `FactAssessor` (unused on PyPI and GitHub) to avoid clashing with an existing
+project's name.
 
 ## Streaming pipeline refactor
 

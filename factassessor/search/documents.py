@@ -11,7 +11,7 @@ from factassessor.search._base import Searcher
 
 class DocumentSearcher(Searcher):
     """Search given documents instead of the web: in-domain checks against the papers or reports a text was
-    written from (like FactReasoner's uploaded-document mode). Documents `{"url", "title", "text"}` are split once
+    written from. Documents `{"url", "title", "text"}` are split once
     into overlapping `passage_words`-word passages; `search(claim)` returns the `num` best (BM25) as ordinary hits
     `{"url": "<doc url>#p<n>", "title", "snippet"}`, so any judge takes them. Nothing to crawl: pair it with
     `NoCrawler()`: `FactAssessor(searcher=DocumentSearcher(docs), crawler=NoCrawler())`.

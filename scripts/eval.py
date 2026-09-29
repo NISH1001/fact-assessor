@@ -6,10 +6,10 @@
     uv run --extra ddg python scripts/eval.py run laya --live    # live atomizer/search/crawl (web results drift)
     uv run python scripts/eval.py report                         # rebuild the comparison + plots from data/results/
 
-    # FactReasoner comparison (another team's data: kept in tmp/factreasoner/, gitignored)
-    uv run --with openpyxl --with pandas python scripts/eval.py build --dataset factreasoner --xlsx "tmp/<workbook>.xlsx"
-    uv run python scripts/eval.py record --dataset factreasoner --searcher searxng
-    uv run python scripts/eval.py run laya --dataset factreasoner
+    # paired original/corrupted passages from a workbook (external data: kept in tmp/paired/, gitignored)
+    uv run --with openpyxl --with pandas python scripts/eval.py build --dataset paired --xlsx "tmp/<workbook>.xlsx" --sheet <name>
+    uv run python scripts/eval.py record --dataset paired --searcher searxng
+    uv run python scripts/eval.py run laya --dataset paired
 
 Texts: each pair in data/fact_pairs.json is a true sentence and a false variant with one detail changed (date,
 number, place, person). `build` samples them into 27 texts = {true, false, mixed ~50/50} x {short 2-4, medium 5-10,
@@ -26,13 +26,12 @@ Variants (only the models differ):
     gliner  GlinerClaimFilter + GlinerJudge
     llm     no claim filter + LLMJudge (gpt-6-luna): everything after the atomizer is the LLM
 
-FactReasoner dataset (`--dataset factreasoner`): the 50 pairs of the workbook's FactReasoner_AKD sheet, an original
-passage (every sentence true: FactReasoner's precision on originals is 1.0 in every row) and a corrupted copy. Corrupted
-sentences are found by diffing the pair: sentences changed from the original are false, unchanged ones true. The
-sheet's per-row F1s (In-Domain: FactReasoner retrieving from the source paper; AKD: open web search via Serper) are kept
-with each text, and the report scores FactAssessor the way FactReasoner was scored: supported vs not supported
-per claim, accuracy / precision / recall / NPV / F1 per passage, averaged over passages. FactReasoner's labels are human
-annotations of its own atoms; ours come from the sentence diff, so the numbers are comparable, not identical in method.
+Paired dataset (`--dataset paired`): pairs of an original passage (every sentence true) and a corrupted copy, read from
+a workbook sheet (`--sheet`). Corrupted sentences are found by diffing the pair: sentences changed from the original
+are false, unchanged ones true. A reference system's per-row F1s from the sheet (checked against the source paper, and
+on the open web) are kept with each text, and the report scores FactAssessor the same way: supported vs not supported
+per claim, accuracy / precision / recall / NPV / F1 per passage, averaged over passages. The reference's labels are
+human annotations of its own atoms; ours come from the sentence diff, so the numbers are comparable, not identical.
 
 Warm-up before every run, timed and reported separately. Texts run one at a time. On recorded evidence the atomizer,
 search, and crawl return instantly, so latency is the claim filter + judge + policy (the models' cost); `--live`
@@ -83,8 +82,8 @@ def use_dataset(name: str) -> None:
     """Point the harness at a dataset's texts, evidence, and results."""
     global TEXTS, EVIDENCE, RESULTS, KINDS, DATASET
     DATASET = name
-    if name == "factreasoner":  # another team's data: never committed (tmp/ is gitignored)
-        base = ROOT / "tmp" / "factreasoner"
+    if name == "paired":  # external data: never committed (tmp/ is gitignored)
+        base = ROOT / "tmp" / "paired"
         TEXTS, EVIDENCE, RESULTS, KINDS = base / "texts.jsonl", base / "evidence.json.gz", base / "results", ("original", "corrupted")
 VARIANTS = {"laya": "LayaClaimFilter + LayaJudge", "laya-nofilter": "LayaJudge, no claim filter",
             "gliner": "GlinerClaimFilter + GlinerJudge", "llm": "LLMJudge, no claim filter"}
@@ -141,13 +140,13 @@ def _length(n: int) -> str:
     return "short" if n <= LENGTHS["short"][1] else "medium" if n <= LENGTHS["medium"][1] else "long"
 
 
-def build_factreasoner(xlsx: str) -> list[dict[str, Any]]:
-    """Original + corrupted text per FactReasoner_AKD pair, sentence labels from the diff, FactReasoner's F1s."""
+def build_paired(xlsx: str, sheet_name: str) -> list[dict[str, Any]]:
+    """Original + corrupted text per workbook pair, sentence labels from the diff, the reference system's F1s."""
     import difflib
 
     import pandas as pd
 
-    sheet = pd.read_excel(xlsx, sheet_name="FactReasoner_AKD")
+    sheet = pd.read_excel(xlsx, sheet_name=sheet_name)
     sheet = sheet[pd.to_numeric(sheet.iloc[:, 0], errors="coerce").notna()]
     num = lambda v: None if pd.isna(pd.to_numeric(v, errors="coerce")) else float(pd.to_numeric(v, errors="coerce"))  # noqa: E731
     texts = []
@@ -168,7 +167,7 @@ def build_factreasoner(xlsx: str) -> list[dict[str, Any]]:
             texts.append({
                 "id": f"fr{pair:02d}-{kind}", "kind": kind, "length": _length(len(sents)), "pair": pair,
                 "text": " ".join(sents), "sentences": spans, "source": str(row.iloc[2]),
-                "reference": {"in_domain_f1": num(row.iloc[cols[0]]), "akd_serper_f1": num(row.iloc[cols[1]])},
+                "reference": {"in_domain_f1": num(row.iloc[cols[0]]), "web_f1": num(row.iloc[cols[1]])},
             })
     return texts
 
@@ -253,8 +252,8 @@ async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODE
     await crawler.stop()
 
 
-async def fetch_papers(xlsx: str, min_chars: int = 3000) -> None:
-    """factreasoner: each pair's source paper (full text), for in-domain checks like FactReasoner's uploaded papers.
+async def fetch_papers(xlsx: str, links_sheet: str, min_chars: int = 3000) -> None:
+    """paired: each pair's source paper (full text), for in-domain checks against the paper itself.
     Tries the workbook's open-access link (plain download: PDF or HTML, then the browser), then OpenAlex's
     open-access copies via the DOI. Writes papers.json next to the texts (gitignored)."""
     import re
@@ -265,7 +264,7 @@ async def fetch_papers(xlsx: str, min_chars: int = 3000) -> None:
     from factassessor.crawlers.plain_http import _html_to_text
 
     norm = lambda v: " ".join(str(v).split())  # noqa: E731
-    new = pd.read_excel(xlsx, sheet_name="FactReasoner_New_IncludingClose")
+    new = pd.read_excel(xlsx, sheet_name=links_sheet)  # a sheet with the source's open-access link per row
     links = {norm(r.iloc[2]): str(r.iloc[3]).strip() for _, r in new.iterrows() if pd.notna(r.iloc[3])}
     sources = list(dict.fromkeys(t["source"] for t in load_texts()))
     out_path = TEXTS.parent / "papers.json"
@@ -336,23 +335,20 @@ async def recrawl_open_access() -> None:
           f"{time.perf_counter() - start:.1f}s (backup: {backup.name})")
 
 
-# FactReasoner's QueryBuilder instructions (NASA-IMPACT/FactReasoner, src/fact_reasoner/core/query_builder.py),
-# shortened; the output is structured instead of a fenced code block.
-QUERY_INSTRUCTIONS = """Generate a Google Search query about the given STATEMENT: the query most likely to retrieve
-information to verify whether the STATEMENT is factually accurate. Balance specificity (targeted results) with breadth
-(don't miss critical information). Prefer a natural-language query a typical user might enter; use special operators
-(quotation marks, site:, Boolean operators, intitle:) only when they clearly help.
+# LLM-written search queries (requery --queries llm)
+QUERY_INSTRUCTIONS = """Write one web search query for checking whether the CLAIM is true. Keep its distinctive terms:
+names, numbers, dates, places, and technical terms; drop filler words. Put an exact phrase in quotes only when the exact
+wording matters. Return only the query.
 Examples:
-STATEMENT: The Great Wall of China is visible from space
-QUERY: "The Great Wall of China is visible from space" fact check myth
-STATEMENT: Quantum computers can break RSA encryption easily
-QUERY: "Quantum computers can break RSA encryption easily" fact check cryptography experts"""
+CLAIM: The Hubble Space Telescope was launched in 1990.
+QUERY: Hubble Space Telescope launch year 1990
+CLAIM: Secondary forests in the Neotropics regain 122 Mg/ha of aboveground biomass within 20 years.
+QUERY: Neotropical secondary forest aboveground biomass recovery 20 years 122 Mg ha"""
 
 
 async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str = LLM_MODEL,
                   queries: str = "llm", pairs: int | None = None, search_type: str = "general") -> None:
-    """Search the recorded atoms again: with another engine and/or LLM-written queries (FactReasoner's approach,
-    `queries="llm"`) instead of the claim text (`queries="claim"`). Results are cached by query in the evidence
+    """Search the recorded atoms again: with another engine and/or LLM-written queries (`queries="llm"`) instead of the claim text (`queries="claim"`). Results are cached by query in the evidence
     file, so a query is only ever paid for once (reruns and bigger runs reuse it). New pages are crawled (browser,
     then open access); known pages are reused. Writes evidence-<tag>.json.gz; the original evidence is untouched."""
     from pydantic import BaseModel
@@ -379,7 +375,7 @@ async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str
         if queries == "claim":
             return claim
         try:
-            return (await agent.run(f"STATEMENT: {claim}")).output.query.strip() or claim
+            return (await agent.run(f"CLAIM: {claim}")).output.query.strip() or claim
         except Exception as exc:
             print(f"  query builder failed ({exc!r:.60}); using the claim", flush=True)
             return claim
@@ -466,7 +462,7 @@ def components(variant: str, llm_model: str = LLM_MODEL) -> tuple[Any, Any]:
         return GlinerClaimFilter(), GlinerJudge()
     if variant == "llm":
         return None, LLMJudge(llm_model, model_settings=llm_settings(llm_model))
-    if variant == "laya-nofilter":  # like FactReasoner, which checks every atom
+    if variant == "laya-nofilter":  # check every atom
         return None, LayaJudge()
     return LayaClaimFilter(), LayaJudge()
 
@@ -503,7 +499,7 @@ async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "
               in_domain: bool = False, search_type: str = "general") -> dict[str, Any]:
     claim_filter, judge = components(variant, llm_model)
     texts = load_texts()[:limit]
-    if in_domain:  # search the fetched source papers instead of the web (FactReasoner's uploaded-document mode)
+    if in_domain:  # search the fetched source papers instead of the web
         from factassessor import DocumentSearcher, NoCrawler
 
         papers = json.loads((TEXTS.parent / "papers.json").read_text())
@@ -586,8 +582,8 @@ def claim_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def fr_metrics(atoms: list[dict[str, Any]]) -> dict[str, float | None]:
-    """One passage, scored like FactReasoner: positive = supported. Zero when undefined, as in its sheet ("no true
+def passage_metrics(atoms: list[dict[str, Any]]) -> dict[str, float | None]:
+    """One passage, scored like the reference sheet: positive = supported. Zero when undefined, as in the sheet ("no true
     statements in the corrupted passage, so P, R, F1 = 0"); NPV None when nothing was marked not supported."""
     labelled = [a for a in atoms if a["gold"] is not None]
     tp = sum(a["gold"] and a["verdict"] == "supported" for a in labelled)
@@ -597,26 +593,26 @@ def fr_metrics(atoms: list[dict[str, Any]]) -> dict[str, float | None]:
     p = tp / (tp + fp) if tp + fp else 0.0
     r = tp / (tp + fn) if tp + fn else 0.0
     return {"accuracy": (tp + tn) / len(labelled) if labelled else None, "precision": p, "recall": r,
-            # NPV only means something when the passage has false claims (FactReasoner leaves it blank for originals)
+            # NPV only means something when the passage has false claims (the sheet leaves it blank for originals)
             "npv": tn / (tn + fn) if tn + fn and tn + fp else None, "f1": 2 * p * r / (p + r) if p + r else 0.0,
             "atoms": len(labelled), "false_atoms": sum(not a["gold"] for a in labelled)}
 
 
-def fr_report(res: dict[str, Any]) -> str:
+def paired_report(res: dict[str, Any]) -> str:
     rows = res["texts"]
     mean = lambda vals: statistics.mean(v for v in vals if v is not None) if any(v is not None for v in vals) else None  # noqa: E731
-    lines = [f"# FactAssessor vs FactReasoner: {len(rows) // 2} pairs (FactReasoner_AKD sheet)", "",
+    lines = [f"# FactAssessor vs the reference system: {len(rows) // 2} pairs", "",
              f"FactAssessor: {VARIANTS[res['variant']]}; evidence {res['source']}; atomizer {res.get('atomizer') or '?'}. "
-             "Claim-level scoring as in the FactReasoner sheet (positive = supported; per passage, then averaged). "
-             "FactReasoner's labels are human annotations of its atoms; ours come from diffing each pair.", ""]
+             "Claim-level scoring as in the reference sheet (positive = supported; per passage, then averaged). "
+             "The reference's labels are human annotations of its atoms; ours come from diffing each pair.", ""]
     lines += ["| | F1 original | F1 corrupted |", "|---|---|---|"]
     by_kind = {k: [r for r in rows if r["kind"] == k] for k in ("original", "corrupted")}
-    fa = {k: [fr_metrics(r["atoms"]) for r in rs] for k, rs in by_kind.items()}
-    for name, key in (("FactReasoner, open web (AKD, Serper)", "akd_serper_f1"), ("FactReasoner, in-domain (source paper)", "in_domain_f1")):
+    fa = {k: [passage_metrics(r["atoms"]) for r in rs] for k, rs in by_kind.items()}
+    for name, key in (("reference system, open web", "web_f1"), ("reference system, in-domain (source paper)", "in_domain_f1")):
         lines.append(f"| {name} | {fmt(mean([r['reference'][key] for r in by_kind['original']]), 'f')} | "
                      f"{fmt(mean([r['reference'][key] for r in by_kind['corrupted']]), 'f')} |")
     mode = "in-domain" if res["source"].startswith("in-domain") else "open web"
-    ref_key = "in_domain_f1" if mode == "in-domain" else "akd_serper_f1"
+    ref_key = "in_domain_f1" if mode == "in-domain" else "web_f1"
     lines.append(f"| **FactAssessor, {mode}** | **{fmt(mean([m['f1'] for m in fa['original']]), 'f')}** | "
                  f"**{fmt(mean([m['f1'] for m in fa['corrupted']]), 'f')}** |")
     lines += ["", "## FactAssessor in detail", "", "| | accuracy | precision | recall | NPV | F1 | atoms / passage | false atoms | latency (median) |",
@@ -636,7 +632,7 @@ def fr_report(res: dict[str, Any]) -> str:
     pairs = {r["pair"]: r for r in by_kind["original"]}
     drops = [(pairs[r["pair"]]["fact_score"], r["fact_score"]) for r in by_kind["corrupted"] if r["pair"] in pairs]
     drops = [(o, c) for o, c in drops if o is not None and c is not None]
-    lines += ["", f"Per passage vs FactReasoner {mode}: FactAssessor F1 higher on {wins['better']}, tied on {wins['tied']}, "
+    lines += ["", f"Per passage vs the reference system ({mode}): FactAssessor F1 higher on {wins['better']}, tied on {wins['tied']}, "
               f"lower on {wins['worse']} (of {sum(wins.values())}). Corrupted copy scored below its original: "
               f"{sum(c < o for o, c in drops)} of {len(drops)} pairs.", ""]
     return "\n".join(lines)
@@ -802,9 +798,10 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="cmd", required=True)
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--dataset", choices=["synthetic", "factreasoner"], default="synthetic")
+    common.add_argument("--dataset", choices=["synthetic", "paired"], default="synthetic")
     b = sub.add_parser("build", parents=[common], help="build the texts (synthetic: from data/fact_pairs.json)")
-    b.add_argument("--xlsx", help="factreasoner: the evaluation workbook")
+    b.add_argument("--xlsx", help="paired: the workbook")
+    b.add_argument("--sheet", help="paired: the sheet with the passage pairs")
     rec = sub.add_parser("record", parents=[common], help="record atoms, hits, and pages once")
     for p in (rec, r := sub.add_parser("run", parents=[common], help="evaluate variants")):
         p.add_argument("--search-type", choices=["general", "science"], default="general", help="the web, or scholarly literature")
@@ -815,14 +812,15 @@ async def main() -> None:
     r.add_argument("--timeout", type=float, default=15.0, help="per-claim timeout (FactAssessor default 15s)")
     r.add_argument("--limit", type=int, help="only the first N texts (e.g. a quick live timing run)")
     r.add_argument("--strong", type=float, default=0.7, help="FactAssessor(strong_evidence=): min prob for a passage to count")
-    r.add_argument("--in-domain", action="store_true", help="factreasoner: check against the fetched source papers (fetch-papers)")
+    r.add_argument("--in-domain", action="store_true", help="paired: check against the fetched source papers (fetch-papers)")
     r.add_argument("--evidence", help="replay evidence-<tag>.json.gz instead of the default (e.g. llmq from requery)")
     r.add_argument("--live", action="store_true", help="live atomizer, search (--searcher), and crawling instead of recorded evidence")
     sub.add_parser("report", parents=[common], help="rebuild data/results/eval-comparison.md and the plots")
     rc = sub.add_parser("recrawl", parents=[common], help="re-read failed pages with OpenAccessCrawler (needs --extra pdf)")
     rc.add_argument("--evidence", help="evidence-<tag>.json.gz instead of the default")
-    fp = sub.add_parser("fetch-papers", parents=[common], help="factreasoner: each pair's source paper, for in-domain checks")
-    fp.add_argument("--xlsx", required=True, help="the FactReasoner evaluation workbook")
+    fp = sub.add_parser("fetch-papers", parents=[common], help="paired: each pair's source paper, for in-domain checks")
+    fp.add_argument("--xlsx", required=True, help="the workbook")
+    fp.add_argument("--links-sheet", required=True, help="the sheet with each source's open-access link")
     rq = sub.add_parser("requery", parents=[common], help="search the recorded atoms again with LLM-written queries")
     rq.add_argument("--tag", default="llmq", help="evidence-<tag>.json.gz (default llmq)")
     rq.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="searxng")
@@ -830,15 +828,15 @@ async def main() -> None:
     rq.add_argument("--searxng-url", default="http://localhost:8080")
     rq.add_argument("--llm-model", default=LLM_MODEL)
     rq.add_argument("--queries", choices=["llm", "claim"], default="llm", help="LLM-written queries or the claim text")
-    rq.add_argument("--pairs", type=int, help="factreasoner: only the first N pairs")
+    rq.add_argument("--pairs", type=int, help="paired: only the first N pairs")
     args = parser.parse_args()
     use_dataset(args.dataset)
 
     if args.cmd == "build":
-        if DATASET == "factreasoner":
-            if not args.xlsx:
-                raise SystemExit("--xlsx: the FactReasoner evaluation workbook")
-            texts = build_factreasoner(args.xlsx)
+        if DATASET == "paired":
+            if not (args.xlsx and args.sheet):
+                raise SystemExit("--xlsx and --sheet: the workbook and its sheet of passage pairs")
+            texts = build_paired(args.xlsx, args.sheet)
             TEXTS.parent.mkdir(parents=True, exist_ok=True)
         else:
             texts = build_texts(json.loads((DATA / "fact_pairs.json").read_text()))
@@ -853,7 +851,7 @@ async def main() -> None:
         use_evidence(args.evidence)
         await recrawl_open_access()
     elif args.cmd == "fetch-papers":
-        await fetch_papers(args.xlsx)
+        await fetch_papers(args.xlsx, args.links_sheet)
     elif args.cmd == "requery":
         await requery(args.tag, args.searcher, args.searxng_url, args.llm_model, args.queries, args.pairs, args.search_type)
     elif args.cmd == "run":
@@ -865,15 +863,15 @@ async def main() -> None:
             name += "-in-domain" if args.in_domain else ""
             name += f"-strong{args.strong:g}" if args.strong != 0.7 else ""
             (RESULTS / f"{name}.json").write_text(json.dumps(res, indent=1))
-            text = fr_report(res) if DATASET == "factreasoner" else report(res)
+            text = paired_report(res) if DATASET == "paired" else report(res)
             (RESULTS / f"{name}.md").write_text(text)
             print("\n" + text)
-    if DATASET == "factreasoner" and args.cmd == "report":
+    if DATASET == "paired" and args.cmd == "report":
         for path in sorted(RESULTS.glob("eval-*.json")):
-            text = fr_report(json.loads(path.read_text()))
+            text = paired_report(json.loads(path.read_text()))
             path.with_suffix(".md").write_text(text)
             print(text)
-    elif DATASET != "factreasoner" and args.cmd in ("run", "report"):
+    elif DATASET != "paired" and args.cmd in ("run", "report"):
         (RESULTS / "eval-comparison.md").write_text(comparison())
         plot()
         print(f"-> {RESULTS / 'eval-comparison.md'}, eval-comparison.png, eval-verdicts.png")

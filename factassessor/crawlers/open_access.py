@@ -72,8 +72,8 @@ class OpenAccessCrawler(Crawler):
     original URL, so it stays that search hit's evidence; less than `min_chars` counts as a bot-check page, not a
     paper. Needs `fact-assessor[pdf]` for PDFs.
 
-    Why: Google Scholar found a claim's source paper 2.5x as often as web search (49% vs 19%, FactReasoner eval
-    set), but 61% of its hits are PDFs, and Wiley and IOP block headless browsers (0 of 15 crawled).
+    Why: on a scientific eval set, Google Scholar found a claim's source paper 2.5x as often as web search (49% vs
+    19%), but 61% of its hits are PDFs, and Wiley and IOP block headless browsers (0 of 15 crawled).
     """
 
     OPENALEX = "https://api.openalex.org/works/doi:"

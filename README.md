@@ -359,7 +359,7 @@ FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))      # 
 | `FallbackCrawler(HTTPX, browser)` | 16/20 | 2.9s | 1.15s |
 
 **Scientific papers behind bot protection.** Publishers like Wiley and IOP block headless browsers (0 of 15 paper
-pages crawled on the FactReasoner eval set, even with a 10s timeout). `OpenAccessCrawler` reads a paper's free copy
+pages crawled on a scientific eval set, even with a 10s timeout). `OpenAccessCrawler` reads a paper's free copy
 instead: for a URL with a DOI it asks [OpenAlex](https://openalex.org) (free, no key) for open-access locations and
 reads the PDF or HTML copy, under the original URL. Use it last in a fallback (`fact-assessor[pdf]` for PDFs):
 
@@ -418,7 +418,7 @@ Reproduce with `uv run --extra gliner python scripts/compare_judges.py`.
 two real claims (they're never checked), so Laya stays the default.
 
 **Check against your own documents (in-domain).** `DocumentSearcher` searches given documents instead of the web:
-the papers or reports a text was written from, the way FactReasoner checks against uploaded papers. It splits each
+the papers or reports a text was written from. It splits each
 document into passages once (BM25 index) and returns the best ones as ordinary hits, so any judge takes them;
 `NoCrawler` because there are no pages to fetch:
 
@@ -429,8 +429,9 @@ docs = [{"url": "poorter-2016", "title": "Biomass resilience of Neotropical seco
 fa = FactAssessor(searcher=DocumentSearcher(docs), crawler=NoCrawler())
 ```
 
-On FactReasoner's eval set (16 pairs whose source papers we could get as full text), FactAssessor in-domain scored
-F1 0.84 on the original passages vs FactReasoner's 0.86 (in-domain), at ~2s per passage for the models vs 3-4 min.
+On a scientific eval set (16 passage pairs whose source papers we could get as full text), FactAssessor in-domain
+scored F1 0.84 on the original passages, at ~2s per passage for the models. The caveat: with evidence from the same
+paper, Laya also let 38% of false claims through (claims wrong in one detail read as supported by an on-topic passage).
 
 **Search without an API key:**
 
@@ -534,9 +535,8 @@ are (benchmarks, trade-offs): [docs/design/decisions.md](docs/design/decisions.m
 
 ## Acknowledgements
 
-Inspired by factuality pipelines such as [FActScore](https://github.com/shmsw25/FActScore), SAFE, and
-[IBM's FactReasoner](https://github.com/IBM/FactReasoner); this project is an independent, latency-focused
-implementation. Built on [Laya](https://github.com/NandhaKishorM/laya), [crawl4ai](https://github.com/unclecode/crawl4ai),
+Inspired by factuality pipelines such as [FActScore](https://github.com/shmsw25/FActScore) and SAFE; this project is an
+independent, latency-focused implementation. Built on [Laya](https://github.com/NandhaKishorM/laya), [crawl4ai](https://github.com/unclecode/crawl4ai),
 [pydantic-ai](https://ai.pydantic.dev), and [Serper](https://serper.dev).
 
 ## License

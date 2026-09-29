@@ -18,7 +18,7 @@ class SearxngSearcher(Searcher):
 
     `categories` / `engines`: which of SearXNG's sources to search, e.g. `categories=["science"]` for its scholarly
     engines (Google Scholar, arXiv, Semantic Scholar, PubMed...). The default ("general") never uses them; on
-    scientific claims, science nearly doubled finding the source paper (20% -> 38% of claims, FactReasoner eval set).
+    scientific claims, science nearly doubled finding the source paper (20% -> 38% of claims on a scientific eval set).
     """
 
     def __init__(
