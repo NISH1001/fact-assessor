@@ -15,8 +15,11 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   claim that needs it, but never a date or figure that has its own claim** (otherwise "in 2017" leaked into every
   atom and one wrong year failed all of them). Bare references ("the study used 67 variables") can't be searched:
   on the scientific eval, 80% of such atoms never found their source paper. The prompt is rules only, no worked
-  examples. gpt-5.6-luna (reasoning none) turns a 75-word, 12-fact answer into 9 self-contained atoms in 3.1s;
-  gpt-5-nano at minimal reasoning returns 3 whole sentences instead (unusable as the atomizer at that setting).
+  examples. On 8 scientific answers, gpt-6-luna and gpt-5.6-luna give the same atoms at reasoning none, low, and
+  medium (15-17 per answer vs FactReasoner's 14.4); reasoning only adds time and cost, and at low/medium both
+  models once split "67 variables from LiDAR, NAIP and Sentinel-2" into three claims each attributing all 67 to one
+  source. gpt-6-luna (none): ~6s per 160-word answer, $0.0003. gpt-5-nano returns whole sentences at minimal
+  reasoning and bare "the researchers" claims at low/medium (33s): unusable as the atomizer.
 - Model: **`gpt-5.6-luna`, reasoning `none`** (~2s). Benchmarked on 3 decontextualization cases:
 
   | Model | Warm latency | Quality |

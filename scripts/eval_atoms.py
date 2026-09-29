@@ -3,7 +3,7 @@
 Each JSONL row is a pair: an `original` and a `corrupted` long-form answer, each with human-labelled atoms
 (`{"text", "label": "S" | "NS"}`). The data is external: keep it in tmp/ (gitignored).
 
-    # live: gpt-5-nano atomizer + Laya filter (timed per answer), then every labelled atom verified live
+    # live: gpt-6-luna atomizer + Laya filter (timed per answer), then every labelled atom verified live
     # (SearXNG, resolvers, HTTPX -> browser, Laya); search hits and pages are cached for replays
     uv run python scripts/eval_atoms.py live --data tmp/scielf_paired.jsonl --tag web
 
@@ -367,7 +367,7 @@ def main() -> None:
     lv.add_argument("--limit", type=int, help="first N pairs")
     lv.add_argument("--searxng", default="http://localhost:8080")
     lv.add_argument("--search-type", default="general", choices=["general", "science"])
-    lv.add_argument("--atomizer", default="openai:gpt-5-nano")
+    lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="gpt-5-nano returns whole sentences, not atoms")
     lv.add_argument("--no-resolver", action="store_true")
     lv.add_argument("--passages", type=int, default=1, help="passages per page for the judge")
     lv.add_argument("--strong", type=float, default=0.7)

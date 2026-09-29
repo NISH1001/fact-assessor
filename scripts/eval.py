@@ -89,7 +89,8 @@ def use_dataset(name: str) -> None:
         TEXTS, EVIDENCE, RESULTS, KINDS = base / "texts.jsonl", base / "evidence.json.gz", base / "results", ("original", "corrupted")
 VARIANTS = {"laya": "LayaClaimFilter + LayaJudge", "laya-nofilter": "LayaJudge, no claim filter",
             "gliner": "GlinerClaimFilter + GlinerJudge", "llm": "LLMJudge, no claim filter"}
-LLM_MODEL = "openai:gpt-5-nano"  # the cheapest OpenAI model ($0.05 in / $0.40 out per 1M tokens, Sept 2026)
+LLM_MODEL = "openai:gpt-5-nano"  # the cheapest OpenAI model ($0.05 in / $0.40 out per 1M tokens, Sept 2026): queries, LLM judge
+ATOMIZER_MODEL = "openai:gpt-6-luna"  # $0.10 / $0.50, reasoning off; gpt-5-nano returns whole sentences instead of atoms
 TOP_K = 5
 WARM_TEXT = "The Moon orbits the Earth. Mount Fuji is the highest mountain in Japan."  # not in the eval set
 
@@ -216,7 +217,7 @@ def make_searcher(name: str, searxng_url: str, search_type: str = "general") -> 
 
 async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODEL, search_type: str = "general") -> None:
     searcher = make_searcher(searcher_name, searxng_url, search_type)
-    atomizer, crawler = LLMAtomizer(llm_model, model_settings=llm_settings(llm_model)), Crawl4AICrawler()
+    atomizer, crawler = LLMAtomizer(ATOMIZER_MODEL), Crawl4AICrawler()
     await crawler.start()
     evidence = load_evidence()
     evidence["searcher"] = searcher_name if search_type == "general" else f"{searcher_name} {search_type}"
@@ -536,7 +537,7 @@ async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "
     elif live:
         search = make_searcher(searcher, searxng_url, search_type) >> not_blocked() >> Take(TOP_K)  # as FactAssessor wires Serper
         fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, searcher=search,
-                          atomizer=LLMAtomizer(llm_model, model_settings=llm_settings(llm_model)))
+                          atomizer=LLMAtomizer(ATOMIZER_MODEL))
         warm_text, source = WARM_TEXT, f"live (LLMAtomizer, {searcher} search, crawl4ai)"
     else:
         evidence = load_evidence()
@@ -829,7 +830,7 @@ async def main() -> None:
         p.add_argument("--search-type", choices=["general", "science"], default="general", help="the web, or scholarly literature")
         p.add_argument("--searcher", choices=["ddg", "searxng", "serper"], default="searxng", help="for record and run --live")
         p.add_argument("--searxng-url", default="http://localhost:8080", help="your SearXNG instance (JSON enabled)")
-        p.add_argument("--llm-model", default=LLM_MODEL, help="LLM for the atomizer (record, --live) and the llm judge")
+        p.add_argument("--llm-model", default=LLM_MODEL, help="LLM for search queries and the llm judge (the atomizer is gpt-6-luna)")
     r.add_argument("variant", choices=[*VARIANTS, "all"])
     r.add_argument("--timeout", type=float, default=15.0, help="per-claim timeout (FactAssessor default 15s)")
     r.add_argument("--limit", type=int, help="only the first N texts (e.g. a quick live timing run)")
