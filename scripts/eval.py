@@ -261,7 +261,8 @@ async def fetch_papers(xlsx: str, min_chars: int = 3000) -> None:
 
     import pandas as pd
 
-    from factassessor.crawlers import _html_to_text, _pdf_text
+    from factassessor.crawlers.open_access import _pdf_text
+    from factassessor.crawlers.plain_http import _html_to_text
 
     norm = lambda v: " ".join(str(v).split())  # noqa: E731
     new = pd.read_excel(xlsx, sheet_name="FactReasoner_New_IncludingClose")

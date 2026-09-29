@@ -483,8 +483,17 @@ factassessor/
     _base.py         ClaimFilter (role)
     laya.py          LayaClaimFilter (default, local)
     gliner.py        GlinerClaimFilter (optional extra)
-  search.py          Searcher (role), SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, hedging
-  crawlers.py        Crawler (role), Crawl4AICrawler, HTTPXCrawler, FallbackCrawler: url -> clean pages
+  search/            query -> hits
+    _base.py         Searcher (role), SearchType (general / science), not_blocked, hedging
+    serper.py        SerperSearcher (Google web search, or Google Scholar)
+    searxng.py       SearxngSearcher (self-hosted)
+    duckduckgo.py    DuckDuckGoSearcher (no key)
+    documents.py     DocumentSearcher (given documents: in-domain checks)
+  crawlers/          url -> clean page text
+    _base.py         Crawler (role), FallbackCrawler, NoCrawler
+    browser.py       Crawl4AICrawler (headless browser, JavaScript)
+    plain_http.py    HTTPXCrawler (plain HTTP, fast)
+    open_access.py   OpenAccessCrawler (arXiv, direct PDFs, DOIs via open-access copies)
   verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
   judges/            evidence -> stance per passage
     _base.py         Judge (role)

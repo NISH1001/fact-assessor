@@ -138,7 +138,7 @@ def minimal_pdf(text: str) -> bytes:
 
 
 def test_pdf_text_extracts_a_real_pdf():
-    from factassessor.crawlers import _pdf_text
+    from factassessor.crawlers.open_access import _pdf_text
 
     assert "Secondary forests recover" in _pdf_text(minimal_pdf("Secondary forests recover biomass quickly"))
 
