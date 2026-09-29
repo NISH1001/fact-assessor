@@ -21,11 +21,14 @@ failures and deadlines are handled. For the why behind each choice (benchmarks, 
 text
  │
  ├─ 1. ATOMIZE    Atomizer: text -> atoms (atomic, self-contained claims)        LLMAtomizer: one LLM call
+ │                (source_query=True: the same call also writes one search for the text's source document,
+ │                 carried by every atom of the text)
  ├─ 2. FILTER     ClaimFilter: drop what isn't a factual claim; Take(n_atoms)     LayaClaimFilter
  │
  └─ 3. VERIFY     per claim, every claim at once (Verify)
       │
       ├─ a. SEARCH     Searcher -> not_blocked -> Take(top_k)     hits {url, title, snippet}
+      │                the claim, and the text's source query if it has one, concurrently; hits merged, the claim's first
       ├─ b. SNIPPETS   Judge the snippets; Policy.settled? ──────────────────────────────► g
       │                (not settled: gather more evidence, streamed)
       ├─ c. RESOLVE    Resolver (optional): hit url -> locations [direct PDF, free copies…, the hit's page]
@@ -49,7 +52,7 @@ All passed between steps as plain dicts or pydantic models (`factassessor/schema
 
 | Name | Shape | Made by | Used by |
 |---|---|---|---|
-| atom | `Atom(id, text, span)`: `span` locates the claim in the input text | atomizer | filter, verify |
+| atom | `Atom(id, text, span, source_query)`: `span` locates the claim in the input text; `source_query` (optional) is one search for the document the text came from, the same for every atom of a text | atomizer | filter, verify |
 | hit | `{"url", "title", "snippet"}` | searcher | snippet judge, resolver, crawler |
 | page | `{"url", "title", "text"}`: clean plain text; `url` is always the **hit's** URL, even when the text came from a copy | crawler (via the read stage) | page judge |
 | evidence | `Evidence(url, title, text, source="snippet" \| "page", label, prob)`: one judged passage | judge | policy |
@@ -94,6 +97,7 @@ them. In a chain, a plain function is a `Map` and a `Pred` (a condition) is a `F
 | `Filter(pred)` | keep items where `pred` holds; conditions combine with `&`, `\|`, `~` |
 | `Scan(fn, init)` | running total: emits `state = fn(state, item)` after every item |
 | `Take(n)`, `TakeUntil(pred)` | stop after n items / at the first item where `pred` holds, **cancelling everything upstream** |
+| `Cache(step, ttl, maxsize)` | a TTL cache (cachetools) around any step or sub-chain: the same input is processed once per `ttl`, concurrent duplicates share the one in flight, failures aren't kept; `x >> Cache(y >> z) >> a` |
 | `once(x)`, `collect(stream)`, `last(stream)` | a one-item source; all items; the final item |
 
 Two properties make the whole pipeline fast:
@@ -112,6 +116,11 @@ client, the Laya model. `FactAssessor` exposes them as `aload` / `aclose` and `a
 
 **a. Search.** The claim text is the query. `not_blocked()` drops social media, forums and video sites
 (`BLOCKED_DOMAINS`); the searcher over-fetches (`num = 2 * top_k`) so blocked hits don't leave it short.
+When the atom carries a `source_query` (the atomizer's search for the document the text came from), it is searched
+at the same time and its hits are appended after the claim's own, each URL once. A claim about a detail inside a
+paper rarely finds the paper by itself (about a quarter of claims on scientific passages); the whole text usually
+does. The source query is identical for every claim of a text, so `FactAssessor` wraps the searcher in `Cache`: one
+real search, the other claims wait for it.
 
 **b. Snippets first.** The judge gets the snippets as they are. If `Policy.settled` holds (2+ passages agree at
 ≥ `early_exit` 0.9 and none disagrees at ≥ `strong` 0.7), the claim is done: no resolving, no crawling. General
@@ -158,7 +167,8 @@ The 2x margin means one stray "refutation" (a related but different fact) doesn'
 | Level | How | Limit |
 |---|---|---|
 | claims | `Verify` is a `Map` over atoms | the judge's `concurrency` (none for Laya and LLM judges, 3 for GLiNER); `max_concurrent_claims` overrides. A claim's timeout starts when it gets its slot. |
-| hits of a claim | resolve and read are each a `Map` | all `top_k` at once |
+| hits of a claim | resolve and read are each a `Map` | all hits at once (`top_k`, plus the source query's) |
+| the same query from several claims | `Cache` around the searcher | one real search per query per 10 minutes; the rest share it |
 | resolvers of a hit | `CompositeResolver`: `asyncio.gather` | all at once |
 | locations of a hit | `read_first`: one at a time, in order | deliberate: first that works |
 | Laya | one model and one thread per device per process; every request arriving within 5ms (any claim, page, or component) is merged into one batch | 32 rows per forward pass |
@@ -215,7 +225,7 @@ needs 300. Words, not characters: links and markup leftovers inflate character c
 
 | | Default | Scientific / low-cost eval setup |
 |---|---|---|
-| atomizer | `openai:gpt-5.6-luna` (reasoning as low as the model allows) | `openai:gpt-5-nano` |
+| atomizer | `openai:gpt-5.6-luna` (reasoning as low as the model allows), no source query | `openai:gpt-6-luna` (same atoms, half the price; gpt-5-nano can't atomize), `source_query=True` |
 | search | Serper (web) | self-hosted SearXNG |
 | resolver | none | `CompositeResolver(ArxivResolver(), OpenAlexResolver())` |
 | crawler | `Crawl4AICrawler(timeout=2.5)` | `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())` |
@@ -226,7 +236,8 @@ from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, Fac
                           HTTPXCrawler, OpenAlexResolver, SearxngSearcher, Take, not_blocked)
 
 fa = FactAssessor(
-    atomizer_model="openai:gpt-5-nano",
+    atomizer_model="openai:gpt-6-luna",
+    source_query=True,
     searcher=SearxngSearcher("http://localhost:8080", num=10) >> not_blocked() >> Take(5),
     resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver()),
     crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()),
@@ -243,11 +254,13 @@ fa = FactAssessor(
 - **A judge**: subclass `Judge`, implement `judge(claim, docs)` (snippets have `snippet`, pages have `text`); set
   `concurrency` if it can't take every claim at once.
 - **Caching, retries, hedging**: a wrapper with the same interface around the component, not code in `Verify`.
+  `Cache(step)` is the ready-made one for any step; `hedged` in `search/_base.py` for slow requests.
 
 ## Known limitations
 
 - **Retrieval is the bottleneck on scientific claims.** When search doesn't return the source paper, most claims
-  stay unverified; atoms that lean on their context ("the 2025 study used 67 variables") search poorly on their own.
+  stay unverified. Self-contained claims and the text's source query help (see Search above), but a passage that
+  never names its paper can still fail to find it, and claims about details inside a paper never do on their own.
 - **One passage per page** (BM25 top 1): the matching sentence is often the second or third best.
 - **Same paper, several hits**: copies of one source count as independent evidence (no dedupe yet).
 - **Landing pages** (repository portals) pass the word minimum with only an abstract.
