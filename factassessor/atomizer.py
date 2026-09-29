@@ -26,12 +26,14 @@ Split the text into atomic claims for fact-checking.
 
 - One fact per claim: a single subject with a single detail (a date, number, place, person, cause, or outcome). \
 A sentence stating several details becomes several claims.
-- Self-contained, for a reader who has not seen the text: no pronouns or bare references (it, they, the study, \
-the authors, this model). Name the referent as specifically as the text allows: a study by its venue, authors, \
-or topic; a place, event, object, instrument, dataset, or method by its name. Repeat that identifying context in \
-every claim that needs it. Use only what the text says; never invent authors, years, or names.
-- Identify subjects by names, places, venues, and topics, not by dates or figures that have their own claim: \
-if such a detail is wrong, only its own claim should fail.
+- Self-contained, for a reader who has not seen the text: no pronouns, and no claim that starts with or relies \
+on a bare reference such as the study, the authors, the researchers, the model, the data, or it. Name what is \
+meant as specifically as the text allows: a study by its venue, authors, place, and topic (if the text never \
+names it, describe it by its topic and place); a place, event, object, instrument, dataset, or method by its \
+name. Use only what the text says; never invent authors, years, or names.
+- Repeat that identifying context in every claim, even when it is also stated as a claim of its own. What is \
+never repeated is another claim's checked value: a date, measurement, or figure that has its own claim stays out \
+of the other claims, so that if it is wrong only its own claim fails.
 - Unwrap hedges and attributions (it was believed that, reports say) and state the claim directly.
 - Keep every value exactly as written, even if you think it is wrong: we are checking the text, not correcting it.
 - Also return opinions, greetings, and questions as claims; a later step filters them.
