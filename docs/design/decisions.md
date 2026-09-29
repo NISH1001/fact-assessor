@@ -10,9 +10,13 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   judge passed it as *supported* because 2 of 3 were right. Implicit context was also lost ("Total lives lost were
   1 million" got searched on its own and matched WWII pages).
 - Prompt rules that mattered: one fact per claim; self-contained; unwrap hedges ("It was believed that X" → X);
-  keep values exactly as written (we check, not correct); **keep subjects identifiable ("the Nepal earthquake",
-  never "the earthquake") but don't repeat a detail that has its own claim** (otherwise "in 2017" leaked into every
-  atom and contaminated all of them).
+  keep values exactly as written (we check, not correct); **name the subject as specifically as the text allows
+  (a study by venue, authors, or topic; a place or object by name) and repeat that identifying context in every
+  claim that needs it, but never a date or figure that has its own claim** (otherwise "in 2017" leaked into every
+  atom and one wrong year failed all of them). Bare references ("the study used 67 variables") can't be searched:
+  on the scientific eval, 80% of such atoms never found their source paper. The prompt is rules only, no worked
+  examples. gpt-5.6-luna (reasoning none) turns a 75-word, 12-fact answer into 9 self-contained atoms in 3.1s;
+  gpt-5-nano at minimal reasoning returns 3 whole sentences instead (unusable as the atomizer at that setting).
 - Model: **`gpt-5.6-luna`, reasoning `none`** (~2s). Benchmarked on 3 decontextualization cases:
 
   | Model | Warm latency | Quality |

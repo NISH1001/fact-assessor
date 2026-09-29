@@ -25,13 +25,14 @@ INSTRUCTIONS = """\
 Split the text into atomic claims for fact-checking.
 
 - One fact per claim: a single subject with a single detail (a date, number, place, person, cause, or outcome). \
-"Nepal's 2017 earthquake of magnitude 7.8 caused massive damage" is three claims.
-- Self-contained: replace pronouns and implicit references with the specific names from the text, and include \
-the context needed to check the claim on its own ("Total lives lost were 1 million" -> "The Nepal earthquake killed 1 million people").
-- Name the subject so it is identifiable on its own (keep names and places: "the Nepal earthquake", never just \
-"the earthquake"), but never repeat a detail that has its own claim: "The Nepal earthquake had a magnitude of 7.8", \
-not "Nepal's 2017 earthquake had a magnitude of 7.8" (the year is its own claim).
-- Unwrap hedges and attributions: "It was believed that X" / "Reports say X" -> X.
+A sentence stating several details becomes several claims.
+- Self-contained, for a reader who has not seen the text: no pronouns or bare references (it, they, the study, \
+the authors, this model). Name the referent as specifically as the text allows: a study by its venue, authors, \
+or topic; a place, event, object, instrument, dataset, or method by its name. Repeat that identifying context in \
+every claim that needs it. Use only what the text says; never invent authors, years, or names.
+- Identify subjects by names, places, venues, and topics, not by dates or figures that have their own claim: \
+if such a detail is wrong, only its own claim should fail.
+- Unwrap hedges and attributions (it was believed that, reports say) and state the claim directly.
 - Keep every value exactly as written, even if you think it is wrong: we are checking the text, not correcting it.
 - Also return opinions, greetings, and questions as claims; a later step filters them.
 - source: copy the exact words from the text that the claim comes from."""
