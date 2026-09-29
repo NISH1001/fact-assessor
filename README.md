@@ -35,18 +35,20 @@ text
          └─ search ───── Serper (Google), every claim in parallel; slow requests are hedged
              └─ judge ── Laya, local: does each snippet support / refute the claim?
                  ├─ settled → done (no crawling)
-                 └─ not yet → crawl pages (crawl4ai) in parallel, judge each page as it lands,
+                 └─ not yet → [resolve: where can each hit be read in full? (optional: arXiv, OpenAlex)]
+                              crawl pages (crawl4ai) in parallel, judge each page as it lands,
                               stop as soon as the evidence settles the claim
  └─ aggregate ─────────── verdict per claim → fact score   (knowledge graph: kg.build(result), on demand)
 ```
 
 | Step | What does it | Where it runs |
 |---|---|---|
-| Atomize + decontextualize | `LLMAtomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning off) | API, ~2s |
+| Atomize + decontextualize | `LLMAtomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning as low as the model allows) | API, ~2s |
 | Claim filter | `LayaClaimFilter`: [Laya](https://github.com/NandhaKishorM/laya) `choice` decision: is this a factual claim? | local (MPS / CUDA / CPU) |
 | Search | [Serper](https://serper.dev), social media and video sites filtered out | API, ~1s |
-| Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text | network, ~1s/page |
-| Evidence judge | `LayaJudge`: pages chunked with Laya's own tokenizer, best BM25 passage per page | local |
+| Resolve (optional) | `CompositeResolver(ArxivResolver(), OpenAlexResolver())`: a paper's full text from its free copies | network, ~0.2s/paper |
+| Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text; or `HTTPXCrawler` (HTML and PDF) | network, ~1s/page |
+| Evidence judge | `LayaJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages chunked with Laya's own tokenizer, best BM25 passage per page | local |
 | Verdicts, score, graph | strong evidence weighed per side: `supported` / `refuted` / `contested` / `unverified` | local |
 
 Every box above is a swappable, chainable step (`SerperSearcher() >> not_blocked() >> Take(5)`), and the whole
@@ -238,7 +240,7 @@ All keyword arguments to `FactAssessor`:
 | `crawl_timeout` | 2.5 | seconds per page (a hard limit; a page that takes longer is dropped and the claim goes on without it) |
 | `search_hedge_after` | 1.2 | if a search hasn't answered by then, send the same request again and use whichever reply comes first (fixes Serper's occasional 3s+ outliers; only slow searches cost a second credit; `None` turns it off) |
 | `blocked_domains` | social + video | hosts never used as evidence (subdomains included); `()` to allow all |
-| `timeout` | 15 | per-claim deadline; a claim still running then comes back `unverified` |
+| `timeout` | 15 | per-claim deadline; a claim still running then is decided on the evidence judged so far (`error="timeout"`) |
 | `max_concurrent_claims` | the judge's | claims checked at once; a claim's `timeout` starts when it gets its turn. Laya and LLM judges: no limit; `GlinerJudge`: 3. `None` = no limit |
 | `max_concurrent_crawls` | 10 | pages the browser crawler loads at once (shared by all claims) |
 | `search_timeout` | 5 | seconds per Serper request |
@@ -276,6 +278,7 @@ streaming, concurrency, and chaining come for free.
 | `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer()` |
 | `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `LayaClaimFilter(threshold=0.4)` |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
+| `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | none; `CompositeResolver(ArxivResolver(), OpenAlexResolver())` for papers |
 | `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `FallbackCrawler` |
 | `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge()`; also `GlinerJudge`, `LLMJudge` |
 | `policy=` | `Policy` | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
@@ -392,8 +395,10 @@ On that set, OpenAlex's copies recovered 87 of 162 failed pages that had a DOI; 
 
 End to end the gain is smaller, since many claims settle on search snippets without crawling (Nepal example:
 6.1s → 5.2s median; mixed example: about the same). `HTTPXCrawler` has a 1s connect timeout plus a hard 2.5s total
-deadline per page (8s once the response is a PDF; httpx's own timeouts are per phase), reads HTML and PDFs (`fact-assessor[pdf]`), and stops at 3 MB for
-pages and 20 MB for PDFs.
+deadline per page (8s once the response is a PDF; httpx's own timeouts are per phase), reads HTML and PDFs
+(`fact-assessor[pdf]`), and stops at 3 MB for pages and 20 MB for PDFs. PDFs are parsed in worker processes
+(`extract.PDF_WORKERS`, 2): PDFium is C code parsing documents from the web, and a crash there (seen once in a live
+run) loses only that PDF instead of the whole pipeline.
 
 **GLiNER2.5-decide judge** ([GLiNER2.5-decide](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model),
 another Jev/Laya-style decision model, as ONNX from
@@ -550,7 +555,8 @@ laya / gliner / llm runs on it, with a comparison and plots in `data/results/` (
 - LLMAtomizer: keep opinions marked as opinions. Unwrapping hedges currently also strips "I think", so
   "I think pizza is the best food" becomes a plain claim; the default filter catches it, a custom one may not.
 
-Step-by-step tour with example output: [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md).
+How the pieces fit, in detail (roles, data flow, concurrency, failure handling, timeouts):
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Step-by-step tour with example output: [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md).
 Design notes: [docs/design/streaming-pipeline.md](docs/design/streaming-pipeline.md). Why things are the way they
 are (benchmarks, trade-offs): [docs/design/decisions.md](docs/design/decisions.md).
 
