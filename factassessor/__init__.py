@@ -10,6 +10,7 @@ from factassessor.claim_filters import ClaimFilter, GlinerClaimFilter, LayaClaim
 from factassessor.crawlers import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler, NoCrawler, OpenAccessCrawler
 from factassessor.judges import GlinerJudge, Judge, LayaJudge, LLMJudge
 from factassessor.pipeline import Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
+from factassessor.resolvers import ArxivResolver, OpenAlexResolver, Resolver
 from factassessor.schema import (
     Atom,
     AtomResult,
@@ -42,6 +43,7 @@ __all__ = [
     "ClaimFilter", "LayaClaimFilter", "GlinerClaimFilter",
     "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher", "DocumentSearcher", "SearchType",
     "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "FallbackCrawler", "OpenAccessCrawler", "NoCrawler",
+    "Resolver", "ArxivResolver", "OpenAlexResolver",
     "Judge", "LayaJudge", "GlinerJudge", "LLMJudge",
     "Policy", "WeightedPolicy",
     "Verify",

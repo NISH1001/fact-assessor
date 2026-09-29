@@ -3,7 +3,7 @@ import json
 import httpx
 
 from factassessor import FallbackCrawler
-from factassessor.crawlers import OpenAccessCrawler, doi_in
+from factassessor.crawlers import OpenAccessCrawler
 
 WORK = {
     "title": "Biomass resilience of Neotropical secondary forests",
@@ -26,15 +26,6 @@ def crawler(routes, **kwargs):
     c = OpenAccessCrawler(pdf_text=lambda data: data.decode(), **kwargs)  # tests: the "PDF" is plain text
     c._http = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True)
     return c, seen
-
-
-def test_doi_is_found_in_publisher_urls():
-    assert doi_in("https://zslpublications.onlinelibrary.wiley.com/doi/full/10.1002/rse2.203") == "10.1002/rse2.203"
-    assert doi_in("https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/2021GL095922") == "10.1029/2021gl095922"
-    assert doi_in("https://iopscience.iop.org/article/10.3847/PSJ/ac75c4/pdf") == "10.3847/psj/ac75c4"
-    assert doi_in("https://doi.org/10.1038/nature16512") == "10.1038/nature16512"
-    assert doi_in("https://www.nature.com/articles/s41598-025-15585-6") is None  # no DOI in the URL
-    assert doi_in("https://en.wikipedia.org/wiki/Marie_Curie") is None
 
 
 async def test_blocked_publisher_page_is_read_from_its_open_access_pdf():

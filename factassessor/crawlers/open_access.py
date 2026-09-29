@@ -6,28 +6,14 @@ import asyncio
 import re
 import threading
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 import httpx
 
 from factassessor.crawlers._base import Crawler
 from factassessor.crawlers.plain_http import HTTPXCrawler, _html_to_text
 from factassessor.passages import clean_text
-
-_DOI = re.compile(r"10\.\d{4,9}/[^\s?#&]+", re.IGNORECASE)
-_DOI_SUFFIXES = ("/pdf", "/epdf", "/full", "/fulltext", "/abstract", "/abs", "/meta", "/html")
-
-
-def doi_in(url: str) -> str | None:
-    """The DOI in a publisher or doi.org URL (lowercased), or None: `.../doi/full/10.1002/rse2.203` -> `10.1002/rse2.203`."""
-    match = _DOI.search(unquote(url))
-    if not match:
-        return None
-    doi = match.group(0).rstrip("./")
-    while (suffix := next((x for x in _DOI_SUFFIXES if doi.lower().endswith(x)), None)) is not None:
-        doi = doi[: -len(suffix)]
-    return doi.lower()
-
+from factassessor.resolvers import doi_in
 
 _ARXIV = re.compile(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?/\d{7})(?:v\d+)?", re.IGNORECASE)
 _PDF_PATH = re.compile(r"(?:\.pdf$|/(?:e?pdf|pdfdirect)(?:/|$))", re.IGNORECASE)
