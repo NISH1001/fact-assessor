@@ -54,14 +54,22 @@ REFERENCE = {
 
 # --- data ---------------------------------------------------------------------------------------------------------
 
-def load_answers(path: str, manual_only: bool = True, limit: int | None = None) -> list[dict[str, Any]]:
-    """One entry per answer: {id, pair, kind (original | corrupted), text, atoms [{text, label}]}."""
+def load_answers(path: str, manual_only: bool = True, limit: int | None = None, sample: int | None = None,
+                 seed: int = 0) -> list[dict[str, Any]]:
+    """One entry per answer: {id, pair, kind (original | corrupted), text, atoms [{text, label}]}. Ids come from
+    the pair's position in the file, so a `sample` or `limit` run and a full run name the same answers the same."""
+    import random
+
     rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
     if manual_only:
         rows = [r for r in rows if not r.get("is_synthetic")]
-    rows = rows[:limit] if limit else rows
+    indexed = list(enumerate(rows))
+    if limit:
+        indexed = indexed[:limit]
+    if sample:
+        indexed = sorted(random.Random(seed).sample(indexed, sample))
     answers = []
-    for i, r in enumerate(rows):
+    for i, r in indexed:
         for kind in ("original", "corrupted"):
             a = r[kind]
             answers.append({"id": f"p{i:03d}-{kind}", "pair": i, "kind": kind, "text": a["long_form_answer"],
@@ -119,19 +127,36 @@ class TimedSearch(Step):
 
     def __init__(self, inner: Step, cache: dict[str, list[dict[str, Any]]], slots: int = 4) -> None:
         self.inner, self.cache, self._slots = inner, cache, asyncio.Semaphore(slots)
+        self._inflight: dict[str, asyncio.Task[list[dict[str, Any]]]] = {}  # a text's claims share its source query
 
     async def __call__(self, queries: Any) -> Any:
         async for q in queries:
-            start = time.perf_counter()
-            if q not in self.cache:
-                async with self._slots:
-                    try:
-                        self.cache[q] = await collect(self.inner(once(q)))
-                    except Exception:
-                        self.cache[q] = []
-            _record("search", start, time.perf_counter())
-            for hit in self.cache[q]:
+            if q in self.cache:
+                hits = self.cache[q]
+            else:
+                leader = q not in self._inflight
+                if leader:  # its own task: a claim cancelled at its deadline must not kill a search others share
+                    self._inflight[q] = asyncio.create_task(self._search(q))
+                start = time.perf_counter()
+                hits = await asyncio.shield(self._inflight[q])
+                if not leader:  # the leader's own wait and request are recorded by _search, in its context
+                    _record("search_wait", start, time.perf_counter())
+            for hit in hits:
                 yield hit
+
+    async def _search(self, q: str) -> list[dict[str, Any]]:
+        start = time.perf_counter()
+        async with self._slots:
+            got_slot = time.perf_counter()
+            try:
+                hits = await collect(self.inner(once(q)))
+            except Exception:
+                hits = []
+        _record("search_wait", start, got_slot)  # queueing for a SearXNG slot: not the search itself
+        _record("search", got_slot, time.perf_counter())
+        self.cache[q] = hits
+        self._inflight.pop(q, None)
+        return hits
 
 
 class TimedResolver:
@@ -181,12 +206,15 @@ class TimedJudge:
 # --- replay components --------------------------------------------------------------------------------------------
 
 class CachedSearch(Step):
-    def __init__(self, cache: dict[str, list[dict[str, Any]]]) -> None:
-        self.cache = cache
+    """Hits as the live run got them; `caps` limits how many a query gives back (fewer source-query hits)."""
+
+    def __init__(self, cache: dict[str, list[dict[str, Any]]], caps: dict[str, int] | None = None) -> None:
+        self.cache, self.caps = cache, caps or {}
 
     async def __call__(self, queries: Any) -> Any:
         async for q in queries:
-            for hit in self.cache.get(q, []):
+            hits = self.cache.get(q, [])
+            for hit in hits[: self.caps.get(q, len(hits))]:
                 yield hit
 
 
@@ -255,7 +283,7 @@ async def fill_pages(cache_hits: dict[str, Any], pages: dict[str, Any], resolver
 
 
 async def live(args: argparse.Namespace) -> None:
-    answers = load_answers(args.data, limit=args.limit)
+    answers = load_answers(args.data, limit=args.limit, sample=args.sample, seed=args.seed)
     run_dir = OUT / args.tag
     hits: dict[str, Any] = _load(run_dir / "hits.json.gz", {})
     pages: dict[str, Any] = _load(run_dir / "pages.json.gz", {})
@@ -269,7 +297,8 @@ async def live(args: argparse.Namespace) -> None:
     base_resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
     base_crawler = FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler(timeout=2.5))
     verify = Verify(TimedSearch(searcher, hits), TimedCrawler(base_crawler), TimedJudge(judge, pages),
-                    WeightedPolicy(strong=args.strong), resolver=TimedResolver(base_resolver) if base_resolver else None)
+                    WeightedPolicy(strong=args.strong), timeout=args.timeout,
+                    resolver=TimedResolver(base_resolver) if base_resolver else None)
     await judge.judge("warm-up", [{"url": "u", "title": "", "snippet": "warm-up"}])  # load Laya before timing
 
     for n, answer in enumerate(answers, 1):
@@ -281,11 +310,12 @@ async def live(args: argparse.Namespace) -> None:
         kept = await collect(claim_filter(_stream(ours)))
         t2 = time.perf_counter()
         answer["source_query"] = ours[0].source_query if ours else None  # from the same atomizer call
+        searches_cached = all(a["text"] in hits for a in answer["atoms"])  # an earlier run searched them: not live
         atoms, verify_s = await verify_answer(verify, answer)
         done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind", "source_query")}, "atoms": atoms,
                               "time": {"atomize": t1 - t0, "filter": t2 - t1, "verify": verify_s,
                                        "total": t1 - t0 + t2 - t1 + verify_s},
-                              "our_atoms": len(ours), "our_kept": len(kept)}
+                              "our_atoms": len(ours), "our_kept": len(kept), "searches_cached": searches_cached}
         queries = [a["text"] for a in answer["atoms"]] + ([answer["source_query"]] if answer["source_query"] else [])
         await fill_pages(hits, pages, base_resolver, base_crawler, queries)
         _save(run_dir / "hits.json.gz", hits)
@@ -313,10 +343,14 @@ async def replay(args: argparse.Namespace) -> None:
     hits, pages = _load(run_dir / "hits.json.gz", {}), _load(run_dir / "pages.json.gz", {})
     live_results = _load(run_dir / "results.json.gz", [])
     judge = LayaJudge(passages_per_page=args.passages)
-    verify = Verify(CachedSearch(hits), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120)
+    source_queries = [r["source_query"] for r in live_results if r.get("source_query")]
+    caps = {q: args.source_hits for q in source_queries} if args.source_hits else {}
+    verify = Verify(CachedSearch(hits, caps), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120)
     out = []
     start = time.perf_counter()
     for r in live_results:
+        if args.no_source_query:
+            r = {**r, "source_query": None}
         atoms, verify_s = await verify_answer(verify, r)
         out.append({**{k: r[k] for k in ("id", "pair", "kind")}, "atoms": atoms, "time": {"verify": verify_s}})
     print(f"replayed {len(out)} answers in {time.perf_counter() - start:.0f}s")
@@ -349,17 +383,20 @@ def report(results: list[dict[str, Any]], tag: str) -> None:
     ns = [a for a in atoms if a["label"] == "NS"]
     print(f"verdicts: {verdicts}; false atoms caught (not supported): {sum(a['verdict'] != 'supported' for a in ns)}/{len(ns)}; "
           f"timeouts: {sum(a.get('error') == 'timeout' for a in atoms)}")
-    comps = ["search", "judge_snippets", "resolve", "crawl", "judge_pages", "total"]
+    comps = ["search_wait", "search", "judge_snippets", "resolve", "crawl", "judge_pages", "total"]
     print(f"\nper claim (s)   {'':6s}" + "".join(f"{c:>15s}" for c in comps))
     for q in (50, 90, 95):
         vals = [_pct([a["time"].get(c, 0.0) for a in atoms], q) for c in comps]
         print(f"  p{q:<13d}{'':6s}" + "".join(f"{v:15.2f}" for v in vals))
     print(f"  used (share)  {'':6s}" + "".join(f"{sum(c in a['time'] for a in atoms) / len(atoms):15.0%}" for c in comps))
-    if all("atomize" in r["time"] for r in results):
+    # a corrupted answer shares most atoms with its original, whose searches are then already cached: only the
+    # originals' times are live end to end
+    fresh = [r for r in results if r["kind"] == "original" and "atomize" in r["time"] and not r.get("searches_cached")]
+    if fresh:
         parts = ["atomize", "filter", "verify", "total"]
-        print(f"\nper answer (s)  {'':6s}" + "".join(f"{c:>15s}" for c in parts))
+        print(f"\nper answer (s), {len(fresh)} originals (live searches)\n{'':21s}" + "".join(f"{c:>15s}" for c in parts))
         for q in (50, 90, 95):
-            vals = [_pct([r["time"][c] for r in results], q) for c in parts]
+            vals = [_pct([r["time"][c] for r in fresh], q) for c in parts]
             print(f"  p{q:<13d}{'':6s}" + "".join(f"{v:15.2f}" for v in vals))
 
 
@@ -370,6 +407,8 @@ def main() -> None:
     lv.add_argument("--data", required=True)
     lv.add_argument("--tag", default="web")
     lv.add_argument("--limit", type=int, help="first N pairs")
+    lv.add_argument("--sample", type=int, help="N random pairs (same ids as a full run, which then skips them)")
+    lv.add_argument("--seed", type=int, default=0)
     lv.add_argument("--searxng", default="http://localhost:8080")
     lv.add_argument("--search-type", default="general", choices=["general", "science"])
     lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
@@ -377,11 +416,14 @@ def main() -> None:
     lv.add_argument("--no-source-query", action="store_true", help="claims search on their own only")
     lv.add_argument("--passages", type=int, default=1, help="passages per page for the judge")
     lv.add_argument("--strong", type=float, default=0.7)
+    lv.add_argument("--timeout", type=float, default=15.0, help="per-claim deadline (the library default is 15s)")
     rp = sub.add_parser("replay", help="judge the cached evidence of --tag again, with another setup")
     rp.add_argument("--tag", default="web")
     rp.add_argument("--out", required=True)
     rp.add_argument("--passages", type=int, default=1)
     rp.add_argument("--strong", type=float, default=0.7)
+    rp.add_argument("--source-hits", type=int, help="use only the first N hits of each text's source query")
+    rp.add_argument("--no-source-query", action="store_true", help="claims judged on their own hits only")
     rt = sub.add_parser("report", help="metrics and timings of a run")
     rt.add_argument("--tag", default="web")
     args = ap.parse_args()

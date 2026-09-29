@@ -310,3 +310,25 @@ async def test_cache_forgets_after_ttl_and_does_not_keep_failures():
     await asyncio.sleep(0.06)
     await collect(memo(once("q")))
     assert calls.count("q") == 2  # expired, searched again
+
+
+async def test_cache_keeps_working_for_others_when_one_waiter_is_cancelled():
+    # a claim that hits its deadline mid-search is cancelled; the claims sharing that search must still get it
+    import asyncio
+
+    from factassessor.pipeline import Cache
+
+    calls = []
+
+    async def slow(q):
+        calls.append(q)
+        await asyncio.sleep(0.1)
+        yield q
+
+    cache = Cache(FlatMap(slow))
+    first = asyncio.create_task(collect(cache(once("q"))))
+    await asyncio.sleep(0.01)
+    second = asyncio.create_task(collect(cache(once("q"))))
+    await asyncio.sleep(0.01)
+    first.cancel()
+    assert await second == ["q"] and calls == ["q"]

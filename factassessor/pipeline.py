@@ -167,27 +167,32 @@ class Cache(Step):
         from cachetools import TTLCache
 
         self.step = step
-        self._entries: TTLCache[Any, asyncio.Future[list[Any]]] = TTLCache(maxsize=maxsize, ttl=ttl)
+        self._entries: TTLCache[Any, asyncio.Task[list[Any]]] = TTLCache(maxsize=maxsize, ttl=ttl)
 
     def __call__(self, items: AsyncIterator[Any]) -> AsyncIterator[Any]:
         return FlatMap(self._get)(items)
 
     async def _get(self, item: Any) -> AsyncIterator[Any]:
-        if (future := self._entries.get(item)) is not None:
-            results = await asyncio.shield(future)  # done, or in flight for another claim
-        else:
-            future = asyncio.get_running_loop().create_future()
-            self._entries[item] = future
-            try:
-                results = await collect(self.step(once(item)))
-            except BaseException as exc:
-                self._entries.pop(item, None)
-                future.set_exception(exc)
-                future.exception()  # retrieved: no "exception was never retrieved" noise if nobody else waited
-                raise
-            future.set_result(results)
-        for result in results:
+        if (task := self._entries.get(item)) is None:
+            # the work runs in its own task: a waiter that gets cancelled (a claim hitting its deadline mid-search)
+            # must not take down the search the other claims are sharing
+            task = self._entries[item] = asyncio.create_task(self._run(item))
+            task.add_done_callback(_retrieve)
+        for result in await asyncio.shield(task):
             yield result
+
+    async def _run(self, item: Any) -> list[Any]:
+        try:
+            return await collect(self.step(once(item)))
+        except BaseException:
+            self._entries.pop(item, None)  # a failure is not remembered
+            raise
+
+
+def _retrieve(task: asyncio.Task[Any]) -> None:
+    """Mark a finished task's exception as seen, so an error nobody awaited (every waiter cancelled) stays quiet."""
+    if not task.cancelled():
+        task.exception()
 
 
 class Take(Step):

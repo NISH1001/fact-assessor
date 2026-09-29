@@ -114,8 +114,11 @@ class Verify(Step):
         # the claim's own search, plus the text's source query when the atomizer wrote one (a claim about a detail
         # inside a paper rarely finds the paper by itself); the claim's hits come first, each url once
         queries = [atom.text] + ([atom.source_query] if atom.source_query and atom.source_query != atom.text else [])
-        found = await asyncio.gather(*(collect(self.searcher(once(q))) for q in queries))
-        hits = list({h["url"]: h for hs in found for h in hs}.values())
+        found = await asyncio.gather(*(collect(self.searcher(once(q))) for q in queries), return_exceptions=True)
+        failed = [f for f in found if isinstance(f, BaseException)]
+        if len(failed) == len(found):
+            raise failed[0]  # every search failed: the claim comes back unverified with the error
+        hits = list({h["url"]: h for hs in found if not isinstance(hs, BaseException) for h in hs}.values())
         evidence = await self.judge.judge(atom.text, hits)  # snippets first: often enough on their own
         so_far[:] = evidence
         if hits and not self.policy.settled(evidence):

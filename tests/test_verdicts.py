@@ -374,3 +374,17 @@ async def test_no_source_query_means_one_search_as_before():
     searcher = SearchByQuery({"claim": [hit("https://a.org")]})
     await Verify(searcher, PageCrawler({}), RecordingJudge()).verify(Atom(id=0, text="claim", span=(0, 5)))
     assert searcher.queries == ["claim"]
+
+
+async def test_a_failing_source_query_search_does_not_lose_the_claims_own_hits():
+    class Flaky(Step):
+        async def __call__(self, queries):
+            async for q in queries:
+                if q == "paper query":
+                    raise RuntimeError("engine suspended")
+                yield hit("https://a.org")
+
+    judge = RecordingJudge()
+    atom = Atom(id=0, text="claim", span=(0, 5), source_query="paper query")
+    result = await Verify(Flaky(), PageCrawler({}), judge).verify(atom)
+    assert result.error is None and [h["url"] for h in judge.snippet_docs] == ["https://a.org"]
