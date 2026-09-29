@@ -367,7 +367,7 @@ def main() -> None:
     lv.add_argument("--limit", type=int, help="first N pairs")
     lv.add_argument("--searxng", default="http://localhost:8080")
     lv.add_argument("--search-type", default="general", choices=["general", "science"])
-    lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="gpt-5-nano returns whole sentences, not atoms")
+    lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
     lv.add_argument("--no-resolver", action="store_true")
     lv.add_argument("--passages", type=int, default=1, help="passages per page for the judge")
     lv.add_argument("--strong", type=float, default=0.7)
