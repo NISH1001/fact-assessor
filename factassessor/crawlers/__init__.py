@@ -2,7 +2,7 @@
 
 `Crawler` is the role: implement `crawl(url)` (return None on failure).
 - `Crawl4AICrawler`: a headless browser; renders JavaScript; ~0.6-1.6s per page.
-- `HTTPXCrawler`: a plain HTTP fetch + HTML-to-text; no JavaScript; much faster for ordinary pages.
+- `HTTPXCrawler`: a plain HTTP fetch + `extract()` (HTML or PDF); no JavaScript; much faster for ordinary pages.
 - `FallbackCrawler(fast, thorough)`: the first crawler that gets text wins.
 - `OpenAccessCrawler`: for a URL with a DOI, the paper's free full text (via OpenAlex); for publishers that block
   crawlers, as the last crawler in a `FallbackCrawler`.

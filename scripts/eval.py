@@ -57,7 +57,6 @@ import httpx
 from factassessor import Atom, Crawl4AICrawler, FactAssessor, LayaClaimFilter, LayaJudge, LLMJudge, SerperSearcher
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.crawlers import Crawler, OpenAccessCrawler
-from factassessor.passages import clean_text
 from factassessor.pipeline import Take
 from factassessor.search import DuckDuckGoSearcher, Searcher, SearxngSearcher, is_blocked, not_blocked
 
@@ -260,8 +259,7 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_words: int = 500) -> Non
 
     import pandas as pd
 
-    from factassessor.crawlers.open_access import _pdf_text
-    from factassessor.crawlers.plain_http import _html_to_text
+    from factassessor.extract import extract
 
     norm = lambda v: " ".join(str(v).split())  # noqa: E731
     new = pd.read_excel(xlsx, sheet_name=links_sheet)  # a sheet with the source's open-access link per row
@@ -277,9 +275,8 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_words: int = 500) -> Non
             r = await http.get(url)
             if not 200 <= r.status_code < 300:
                 return ""
-            if "pdf" in r.headers.get("content-type", "") or r.content.startswith(b"%PDF"):
-                return clean_text(await asyncio.to_thread(_pdf_text, r.content))
-            return clean_text((await asyncio.to_thread(_html_to_text, r.text))[1])
+            got = await asyncio.to_thread(extract, r.content, r.headers.get("content-type", ""), r.charset_encoding)
+            return got[1] if got else ""
         except Exception:
             return ""
 

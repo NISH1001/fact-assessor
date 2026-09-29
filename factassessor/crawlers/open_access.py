@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import re
-import threading
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
 from factassessor.crawlers._base import Crawler
-from factassessor.crawlers.plain_http import HTTPXCrawler, _html_to_text
-from factassessor.passages import clean_text
+from factassessor.crawlers.plain_http import HTTPXCrawler
+from factassessor.extract import extract
 from factassessor.resolvers import doi_in
 
 _ARXIV = re.compile(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?/\d{7})(?:v\d+)?", re.IGNORECASE)
 _PDF_PATH = re.compile(r"(?:\.pdf$|/(?:e?pdf|pdfdirect)(?:/|$))", re.IGNORECASE)
-_PDFIUM_LOCK = threading.Lock()  # PDFium must never be called from two threads at once
 
 
 def arxiv_pdf_url(url: str) -> str | None:
@@ -30,19 +28,6 @@ def arxiv_pdf_url(url: str) -> str | None:
 def looks_like_pdf(url: str) -> bool:
     """A direct PDF link, judging by the URL (`.pdf`, `/pdf/`, `/epdf/`, `/pdfdirect/`)."""
     return bool(_PDF_PATH.search(urlparse(url).path))
-
-
-def _pdf_text(data: bytes) -> str:
-    """PDF text with PDFium (pypdfium2, fact-assessor[pdf]): on 6 arXiv papers 22ms each vs pypdf's 171ms, and no
-    words broken across lines (pypdf: 41 per 1,000 words, which hurts passage matching)."""
-    import pypdfium2 as pdfium
-
-    with _PDFIUM_LOCK:
-        doc = pdfium.PdfDocument(data)
-        try:
-            return "\n".join(doc[i].get_textpage().get_text_range() for i in range(len(doc)))
-        finally:
-            doc.close()
 
 
 class OpenAccessCrawler(Crawler):
@@ -65,7 +50,7 @@ class OpenAccessCrawler(Crawler):
     OPENALEX = "https://api.openalex.org/works/doi:"
 
     def __init__(
-        self, timeout: float = 10.0, max_concurrent: int = 5, max_bytes: int = 20_000_000, min_words: int = 300, pdf_text: Any = None
+        self, timeout: float = 10.0, max_concurrent: int = 5, max_bytes: int = 20_000_000, min_words: int = 300
     ) -> None:
         self.timeout = timeout  # a lookup plus a PDF download: slower than a page, so it gets its own deadline
         self.max_bytes = max_bytes
@@ -73,7 +58,6 @@ class OpenAccessCrawler(Crawler):
         # "Making sure you're not a bot!" pages are ~180 words; a paper is thousands. Words, not characters: links
         # and markup leftovers inflate character counts. (Scripts written without spaces, like Chinese, count low.)
         self.min_words = min_words
-        self._pdf_text = pdf_text or _pdf_text  # tests pass a fake
         self._slots = asyncio.Semaphore(max_concurrent)  # OpenAlex asks for at most 10 requests/s
         self._http: httpx.AsyncClient | None = None
 
@@ -125,11 +109,5 @@ class OpenAccessCrawler(Crawler):
         if not 200 <= response.status_code < 300:
             return None
         body, kind = response.content[: self.max_bytes], response.headers.get("content-type", "")
-        if "pdf" in kind or body.startswith(b"%PDF"):
-            text = await asyncio.to_thread(self._pdf_text, body)
-        elif "html" in kind:
-            _, text = await asyncio.to_thread(_html_to_text, body.decode(response.encoding or "utf-8", errors="replace"))
-        else:
-            return None
-        text = clean_text(text)
-        return text if len(text.split()) >= self.min_words else None
+        got = await asyncio.to_thread(extract, body, kind, response.charset_encoding)
+        return got[1] if got and len(got[1].split()) >= self.min_words else None

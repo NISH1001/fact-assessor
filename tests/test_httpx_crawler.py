@@ -3,6 +3,7 @@ import asyncio
 import httpx
 
 from factassessor import Crawler, FallbackCrawler, HTTPXCrawler, collect
+from tests.pdfs import minimal_pdf
 
 PAGE = """<html><head><title>Nepal earthquake - Wikipedia</title><script>var x = 1;</script>
 <style>body { color: red }</style></head>
@@ -31,8 +32,27 @@ async def test_extracts_title_and_readable_text_without_markup_or_chrome():
         assert junk not in page["text"]
 
 
+def raw(body: bytes, ctype: str):
+    return lambda request: httpx.Response(200, content=body, headers={"content-type": ctype})
+
+
+async def test_pdfs_are_read_too_by_content_type_or_their_bytes():
+    pdf = minimal_pdf("Secondary forests gained 122 Mg per ha in 20 years.")
+    for ctype in ("application/pdf", "application/octet-stream", ""):  # repositories often mislabel PDFs
+        page = await crawler(raw(pdf, ctype)).crawl("https://repositorio.example/directbitstream/9813d075")
+        assert page == {"url": "https://repositorio.example/directbitstream/9813d075", "title": "",
+                        "text": "Secondary forests gained 122 Mg per ha in 20 years."}
+
+
+async def test_pdfs_get_a_larger_size_limit_than_pages():
+    pdf = minimal_pdf("A long paper.")
+    assert await crawler(raw(pdf, "application/pdf"), max_bytes=100).crawl("https://x.org/a.pdf") is not None
+    assert await crawler(raw(pdf, "application/pdf"), max_pdf_bytes=100).crawl("https://x.org/a.pdf") is None  # cut: unreadable
+
+
 async def test_non_html_error_and_empty_responses_are_none():
-    assert await crawler(html(ctype="application/pdf")).crawl("https://x.org/a.pdf") is None
+    assert await crawler(raw(b"\x89PNG....", "image/png")).crawl("https://x.org/a.png") is None
+    assert await crawler(raw(b'{"a": 1}', "application/json")).crawl("https://x.org/api") is None
     assert await crawler(html(status=404)).crawl("https://x.org/missing") is None
     assert await crawler(html(body="<html><body><script>app()</script></body></html>")).crawl("https://spa.org") is None
 

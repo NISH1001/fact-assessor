@@ -373,7 +373,8 @@ On that set it recovered 87 of 162 failed pages that had a DOI; the rest have no
 
 End to end the gain is smaller, since many claims settle on search snippets without crawling (Nepal example:
 6.1s → 5.2s median; mixed example: about the same). `HTTPXCrawler` has a 1s connect timeout plus a hard 2.5s total
-deadline (httpx's own timeouts are per phase), reads only HTML, and stops at 3 MB.
+deadline (httpx's own timeouts are per phase), reads HTML and PDFs (`fact-assessor[pdf]`), and stops at 3 MB for
+pages and 20 MB for PDFs.
 
 **GLiNER2.5-decide judge** ([GLiNER2.5-decide](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model),
 another Jev/Laya-style decision model, as ONNX from
@@ -495,6 +496,8 @@ factassessor/
     browser.py       Crawl4AICrawler (headless browser, JavaScript)
     plain_http.py    HTTPXCrawler (plain HTTP, fast)
     open_access.py   OpenAccessCrawler (arXiv, direct PDFs, DOIs via open-access copies)
+  resolvers.py       Resolver (role, a Protocol): url -> where to read it in full; ArxivResolver, OpenAlexResolver
+  extract.py         document -> text: extract() (PDF or HTML, by type or bytes), pdf_text, html_text
   verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
   judges/            evidence -> stance per passage
     _base.py         Judge (role)
