@@ -57,7 +57,7 @@ import httpx
 
 from factassessor import Atom, Crawl4AICrawler, FactAssessor, LayaClaimFilter, LayaJudge, LLMJudge, SerperSearcher
 from factassessor.atomizer import Atomizer, LLMAtomizer
-from factassessor.crawlers import Crawler, OpenAccessCrawler, doi_in
+from factassessor.crawlers import Crawler, OpenAccessCrawler
 from factassessor.passages import clean_text
 from factassessor.pipeline import Take
 from factassessor.search import DuckDuckGoSearcher, Searcher, SearxngSearcher, is_blocked, not_blocked
@@ -313,24 +313,25 @@ async def fetch_papers(xlsx: str, min_chars: int = 3000) -> None:
 
 
 async def recrawl_open_access() -> None:
-    """Pages that failed to crawl but have a DOI: fetch the paper's open-access copy (OpenAccessCrawler), as
-    `FallbackCrawler(Crawl4AICrawler(), OpenAccessCrawler())` would have while recording. Keeps a backup."""
+    """Pages that failed to crawl: read the ones OpenAccessCrawler handles (arXiv, direct PDFs, DOIs via their
+    open-access copy), as `FallbackCrawler(OpenAccessCrawler(), Crawl4AICrawler())` would have while recording.
+    Keeps a backup."""
     import shutil
 
     evidence = load_evidence()
     backup = EVIDENCE.with_name(EVIDENCE.name.replace(".json.gz", ".before-open-access.json.gz"))
     if not backup.exists():
         shutil.copy(EVIDENCE, backup)
-    todo = [u for u, page in evidence["pages"].items() if page is None and doi_in(u)]
+    todo = [u for u, page in evidence["pages"].items() if page is None]  # the crawler skips what it can't read
     crawler = OpenAccessCrawler()
     start = time.perf_counter()
     pages = await asyncio.gather(*(crawler.crawl(u) for u in todo))
     await crawler.stop()
     recovered = {u: p for u, p in zip(todo, pages) if p}
     evidence["pages"].update(recovered)
-    evidence["crawler"] = "crawl4ai, then open access (OpenAlex) for failed pages with a DOI"
+    evidence["crawler"] = "crawl4ai, then OpenAccessCrawler (arXiv, PDFs, open access) for failed pages"
     save_evidence(evidence)
-    print(f"{len(todo)} failed pages with a DOI -> {len(recovered)} recovered from open access in "
+    print(f"{len(todo)} failed pages -> {len(recovered)} recovered (arXiv, PDFs, open access) in "
           f"{time.perf_counter() - start:.1f}s (backup: {backup.name})")
 
 
@@ -817,7 +818,8 @@ async def main() -> None:
     r.add_argument("--evidence", help="replay evidence-<tag>.json.gz instead of the default (e.g. llmq from requery)")
     r.add_argument("--live", action="store_true", help="live atomizer, search (--searcher), and crawling instead of recorded evidence")
     sub.add_parser("report", parents=[common], help="rebuild data/results/eval-comparison.md and the plots")
-    sub.add_parser("recrawl", parents=[common], help="fill failed pages that have a DOI from open access (needs --extra pdf)")
+    rc = sub.add_parser("recrawl", parents=[common], help="re-read failed pages with OpenAccessCrawler (needs --extra pdf)")
+    rc.add_argument("--evidence", help="evidence-<tag>.json.gz instead of the default")
     fp = sub.add_parser("fetch-papers", parents=[common], help="factreasoner: each pair's source paper, for in-domain checks")
     fp.add_argument("--xlsx", required=True, help="the FactReasoner evaluation workbook")
     rq = sub.add_parser("requery", parents=[common], help="search the recorded atoms again with LLM-written queries")
@@ -847,6 +849,7 @@ async def main() -> None:
     elif args.cmd == "record":
         await record(args.searcher, args.searxng_url, args.llm_model, args.search_type)
     elif args.cmd == "recrawl":
+        use_evidence(args.evidence)
         await recrawl_open_access()
     elif args.cmd == "fetch-papers":
         await fetch_papers(args.xlsx)

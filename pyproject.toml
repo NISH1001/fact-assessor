@@ -38,7 +38,7 @@ ddg = [
     "ddgs>=9.16.0",
 ]
 pdf = [
-    "pypdf>=6.19.0",
+    "pypdfium2>=5.13.0",
 ]
 
 [dependency-groups]
@@ -49,6 +49,7 @@ dev = [
     "matplotlib>=3.11.2",
     "ddgs>=9.16.0",
     "pytest-xdist>=3.8.0",
+    "pypdfium2>=5.13.0",
 ]
 
 [build-system]

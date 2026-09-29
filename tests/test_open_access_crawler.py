@@ -112,3 +112,62 @@ async def test_other_open_access_copies_are_tried_and_stub_pages_rejected():
     await c.stop()
     assert page is not None and "warm season" in page["text"]
     assert "https://paywalled.example/pdf" not in seen  # only open-access locations
+
+
+# --- direct PDFs and arXiv: papers found by scholarly search (61% of Google Scholar hits were PDF links) ------------
+
+def minimal_pdf(text: str) -> bytes:
+    """A real, valid one-page PDF showing `text` (hand-built: header, catalog, page, font, content, xref)."""
+    stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out, offsets = bytearray(b"%PDF-1.4\n"), []
+    for i, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % i + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    return bytes(out)
+
+
+def test_pdf_text_extracts_a_real_pdf():
+    from factassessor.crawlers import _pdf_text
+
+    assert "Secondary forests recover" in _pdf_text(minimal_pdf("Secondary forests recover biomass quickly"))
+
+
+async def test_direct_pdf_links_are_read():
+    url = "https://repository.example/papers/biomass.pdf"
+    c, seen = crawler({url: (200, "application/pdf", b"Secondary forests gained 122 Mg per ha in 20 years.")})
+    page = await c.crawl(url)
+    await c.stop()
+    assert page["text"] == "Secondary forests gained 122 Mg per ha in 20 years." and seen == [url]
+
+
+async def test_arxiv_links_read_the_full_paper_not_the_abstract_page():
+    c, seen = crawler({"https://arxiv.org/pdf/2104.10311": (200, "application/pdf", b"Full text of the paper.")})
+    for url in ("https://arxiv.org/abs/2104.10311", "https://arxiv.org/abs/2104.10311v2", "https://arxiv.org/html/2104.10311v1"):
+        page = await c.crawl(url)
+        assert page == {"url": url, "title": "", "text": "Full text of the paper."}
+    await c.stop()
+    assert set(seen) == {"https://arxiv.org/pdf/2104.10311"}
+
+
+async def test_a_pdf_link_that_serves_a_bot_page_falls_back_to_open_access():
+    url = "https://iopscience.iop.org/article/10.3847/1538-4357/ac1a76/pdf"
+    work = {"title": "T", "best_oa_location": {"pdf_url": "https://arxiv.org/pdf/2106.00001"}}
+    c, seen = crawler({
+        url: (200, "text/html", b"<html><body>Radware bot check</body></html>"),
+        "https://api.openalex.org/": (200, "application/json", json.dumps(work).encode()),
+        "https://arxiv.org/pdf/2106.00001": (200, "application/pdf", b"The real paper text, long enough to count."),
+    }, min_chars=20)
+    page = await c.crawl(url)
+    await c.stop()
+    assert page["text"].startswith("The real paper") and page["url"] == url

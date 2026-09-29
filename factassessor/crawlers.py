@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import re
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 import httpx
 
@@ -205,22 +206,51 @@ def doi_in(url: str) -> str | None:
     return doi.lower()
 
 
+_ARXIV = re.compile(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?/\d{7})(?:v\d+)?", re.IGNORECASE)
+_PDF_PATH = re.compile(r"(?:\.pdf$|/(?:e?pdf|pdfdirect)(?:/|$))", re.IGNORECASE)
+_PDFIUM_LOCK = threading.Lock()  # PDFium must never be called from two threads at once
+
+
+def arxiv_pdf_url(url: str) -> str | None:
+    """The full-paper PDF for any arXiv link (`/abs/`, `/html/`, `/pdf/`, with or without a version), or None.
+    The rule is akd-core's ArxivResolver (NASA-IMPACT/akd-core)."""
+    match = _ARXIV.search(url)
+    return f"https://arxiv.org/pdf/{match.group(1)}" if match else None
+
+
+def looks_like_pdf(url: str) -> bool:
+    """A direct PDF link, judging by the URL (`.pdf`, `/pdf/`, `/epdf/`, `/pdfdirect/`)."""
+    return bool(_PDF_PATH.search(urlparse(url).path))
+
+
 def _pdf_text(data: bytes) -> str:
-    from io import BytesIO
+    """PDF text with PDFium (pypdfium2, fact-assessor[pdf]): on 6 arXiv papers 22ms each vs pypdf's 171ms, and no
+    words broken across lines (pypdf: 41 per 1,000 words, which hurts passage matching)."""
+    import pypdfium2 as pdfium
 
-    from pypdf import PdfReader  # fact-assessor[pdf]
-
-    return "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages)
+    with _PDFIUM_LOCK:
+        doc = pdfium.PdfDocument(data)
+        try:
+            return "\n".join(doc[i].get_textpage().get_text_range() for i in range(len(doc)))
+        finally:
+            doc.close()
 
 
 class OpenAccessCrawler(Crawler):
-    """A paper's free full text, for publishers that block crawlers. For a URL with a DOI, OpenAlex (free, no key)
-    says where the open-access copy is (a PDF or an HTML page); the text comes back under the original URL, so it
-    stays that search hit's evidence. URLs without a DOI return None at once, with no request.
+    """Papers and PDFs: the full text of a scholarly link, read directly. It handles, in this order:
 
-    Why: on the FactReasoner eval set, search found the source paper for 32 of 50 passages, but Wiley and IOP
-    block headless browsers (0 of 15 crawled, even with a 10s timeout). Use it last:
-    `FallbackCrawler(Crawl4AICrawler(), OpenAccessCrawler())`. Needs `fact-assessor[pdf]` for PDFs.
+    - arXiv links (`/abs/`, `/html/`): the full paper at `arxiv.org/pdf/<id>`, not the abstract page;
+    - direct PDF links (`.pdf`, `/pdf/`...): downloaded and extracted;
+    - links with a DOI (publisher pages): OpenAlex (free; DOI lookups cost nothing, no key needed) lists the
+      open-access copies, PDF or HTML, and the first readable one is used.
+
+    Anything else (ordinary web pages) returns None at once, with no request: put it first and let the browser
+    take the rest, `FallbackCrawler(OpenAccessCrawler(), Crawl4AICrawler())`. The text comes back under the
+    original URL, so it stays that search hit's evidence; less than `min_chars` counts as a bot-check page, not a
+    paper. Needs `fact-assessor[pdf]` for PDFs.
+
+    Why: Google Scholar found a claim's source paper 2.5x as often as web search (49% vs 19%, FactReasoner eval
+    set), but 61% of its hits are PDFs, and Wiley and IOP block headless browsers (0 of 15 crawled).
     """
 
     OPENALEX = "https://api.openalex.org/works/doi:"
@@ -236,12 +266,13 @@ class OpenAccessCrawler(Crawler):
         self._http: httpx.AsyncClient | None = None
 
     async def crawl(self, url: str) -> dict[str, Any] | None:
+        direct = [u for u in (arxiv_pdf_url(url), url if looks_like_pdf(url) else None) if u]
         doi = doi_in(url)
-        if doi is None:
-            return None
+        if not direct and doi is None:
+            return None  # an ordinary web page: not ours
         try:
             async with self._slots:
-                return await asyncio.wait_for(self._fetch(url, doi), self.timeout)
+                return await asyncio.wait_for(self._fetch(url, list(dict.fromkeys(direct)), doi), self.timeout)
         except Exception:  # timeouts, no free copy, unreadable PDFs
             return None
 
@@ -256,8 +287,13 @@ class OpenAccessCrawler(Crawler):
             await self._http.aclose()
             self._http = None
 
-    async def _fetch(self, url: str, doi: str) -> dict[str, Any] | None:
+    async def _fetch(self, url: str, direct: list[str], doi: str | None) -> dict[str, Any] | None:
         await self.start()
+        for target in direct:  # arXiv's PDF, or the PDF link itself
+            if text := await self._read(target):
+                return {"url": url, "title": "", "text": text}
+        if doi is None:
+            return None
         response = await self._http.get(self.OPENALEX + doi)
         if response.status_code != 200:
             return None
