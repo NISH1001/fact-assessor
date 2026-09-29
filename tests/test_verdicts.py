@@ -108,6 +108,30 @@ async def test_verify_times_out_to_unverified():
     assert result.verdict == "unverified" and result.error == "timeout"
 
 
+async def test_a_timeout_keeps_the_evidence_gathered_so_far():
+    # the snippets were judged (one strong support) before the crawls hung: that evidence still decides the claim
+    crawler = FakeCrawler(dead={"https://s0.org", "https://s1.org", "https://s2.org"})
+    verify = Verify(FakeSearcher(), crawler, FakeJudge([ev("supports", 0.8)], []), timeout=0.1)
+    result = await verify.verify(ATOM)
+    assert result.error == "timeout" and result.verdict == "supported" and len(result.evidence) == 1
+
+
+async def test_a_timeout_keeps_pages_judged_before_it():
+    class OnePageThenHang(Step):
+        def __call__(self, urls):
+            async def crawl(url):
+                if url != "https://s0.org":
+                    await asyncio.sleep(5)
+                return {"url": url, "title": "t", "text": "page"}
+
+            return Map(crawl)(urls)
+
+    judge = FakeJudge([ev("not_enough_info", 0.9)], [ev("refutes", 0.9, source="page")])
+    result = await Verify(FakeSearcher(), OnePageThenHang(), judge, timeout=0.2).verify(ATOM)
+    assert result.error == "timeout" and result.verdict == "refuted"
+    assert [e.source for e in result.evidence] == ["snippet", "page"]
+
+
 def test_fact_score_is_computed_from_the_atoms_and_serialized():
     from factassessor import CheckResult
 

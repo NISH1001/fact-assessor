@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import operator
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
@@ -83,26 +82,34 @@ class Verify(Step):
         return Map(self.verify, concurrency=self.concurrency)(atoms)
 
     async def verify(self, atom: Atom) -> AtomResult:
-        """Never raises: a failed or slow claim comes back unverified with `error` set."""
+        """Never raises: a failed claim comes back unverified with `error` set. A slow one is decided on the evidence
+        judged before its `timeout` (snippets, pages that landed), with `error="timeout"`."""
+        so_far: list[Evidence] = []  # the running total, kept current by _verify
         try:
-            return await asyncio.wait_for(self._verify(atom), self.timeout)
+            return await asyncio.wait_for(self._verify(atom, so_far), self.timeout)
         except TimeoutError:
-            return AtomResult(atom=atom, verdict="unverified", error="timeout")
+            verdict, confidence = self.policy.verdict(so_far)
+            return AtomResult(atom=atom, verdict=verdict, confidence=confidence, evidence=so_far, error="timeout")
         except Exception as exc:
             return AtomResult(atom=atom, verdict="unverified", error=repr(exc))
 
-    async def _verify(self, atom: Atom) -> AtomResult:
+    async def _verify(self, atom: Atom, so_far: list[Evidence]) -> AtomResult:
         hits = await collect(self.searcher(once(atom.text)))
         evidence = await self.judge.judge(atom.text, hits)  # snippets first: often enough on their own
+        so_far[:] = evidence
         if hits and not self.policy.settled(evidence):
 
             async def judge_page(page: dict[str, Any]) -> list[Evidence]:
                 return await self.judge.judge(atom.text, [page])
 
+            def add(total: list[Evidence], new: list[Evidence]) -> list[Evidence]:
+                so_far[:] = total + new  # visible to verify() if the timeout strikes mid-crawl
+                return so_far[:]
+
             # crawl every hit at once -> judge each page as it lands -> running total of the evidence ->
             # stop at the first total that settles the claim (TakeUntil cancels the crawls still in flight)
             gather_evidence = (
-                self.crawler >> judge_page >> Scan(operator.add, evidence) >> TakeUntil(self.policy.settled)
+                self.crawler >> judge_page >> Scan(add, evidence) >> TakeUntil(self.policy.settled)
             )
             evidence = await last(gather_evidence(_urls(hits)), default=evidence)
         verdict, confidence = self.policy.verdict(evidence)
