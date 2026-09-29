@@ -7,6 +7,10 @@ page just moves on to the next. A URL that isn't the resolver's kind gets `[]` a
 
 - `ArxivResolver`: any arXiv link -> its full paper, `arxiv.org/html/<id>` then `arxiv.org/pdf/<id>`; no request.
 - `OpenAlexResolver`: a URL with a DOI -> the paper's open-access copies (one free OpenAlex lookup).
+- `CompositeResolver(a, b, ...)`: every resolver at once, their candidates joined in order.
+
+`locations(url, candidates)` is the order the crawl stage tries them in: a hit that is itself a PDF first (exactly
+the document search matched), then the candidates, then an ordinary hit's own page last.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import re
 from typing import Any, Literal, Protocol, runtime_checkable
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 import httpx
 
@@ -25,6 +29,43 @@ class Resolver(Protocol):
     Never raises: a failed lookup is `[]`."""
 
     async def resolve(self, url: str) -> list[str]: ...
+
+
+class CompositeResolver:
+    """Several resolvers as one: all are asked at once (arXiv answers instantly, OpenAlex in one request), and their
+    candidates are joined in the resolvers' order, without duplicates. A failing resolver just adds nothing."""
+
+    def __init__(self, *resolvers: Resolver) -> None:
+        self.resolvers = list(resolvers)
+
+    async def resolve(self, url: str) -> list[str]:
+        found = await asyncio.gather(*(r.resolve(url) for r in self.resolvers), return_exceptions=True)
+        return list(dict.fromkeys(u for urls in found if isinstance(urls, list) for u in urls))
+
+    async def aload(self) -> None:
+        for r in self.resolvers:
+            if hasattr(r, "aload"):
+                await r.aload()
+
+    async def aclose(self) -> None:
+        for r in self.resolvers:
+            if hasattr(r, "aclose"):
+                await r.aclose()
+
+
+_PDF_PATH = re.compile(r"(?:\.pdf$|/(?:e?pdf|pdfdirect)(?:/|$))", re.IGNORECASE)
+
+
+def looks_like_pdf(url: str) -> bool:
+    """A direct PDF link, judging by the URL (`.pdf`, `/pdf/`, `/epdf/`, `/pdfdirect/`)."""
+    return bool(_PDF_PATH.search(urlparse(url).path))
+
+
+def locations(url: str, candidates: list[str]) -> list[str]:
+    """Where to read a search hit, in order: the hit itself if it's a direct PDF (the exact document search matched),
+    then the resolvers' `candidates`, then the hit's own page (an ordinary page, or the PDF's fallback). No duplicates."""
+    first = [url] if looks_like_pdf(url) else []
+    return list(dict.fromkeys([*first, *candidates, url]))
 
 
 # --- arXiv -------------------------------------------------------------------------------------------------------
@@ -79,6 +120,9 @@ def doi_in(url: str) -> str | None:
     return doi.lower()
 
 
+_DOI_HOSTS = {"doi.org", "dx.doi.org", "www.doi.org"}
+
+
 class OpenAlexResolver:
     """A URL with a DOI (publisher pages, doi.org links) -> the paper's open-access copies: every open-access
     location OpenAlex knows, PDFs before landing pages, the "best" one first.
@@ -115,7 +159,8 @@ class OpenAlexResolver:
         copies = [work.get("best_oa_location") or {}] + [loc for loc in work.get("locations") or [] if loc.get("is_oa")]
         urls = [c.get("pdf_url") for c in copies] + [c.get("landing_page_url") for c in copies]
         urls.append((work.get("open_access") or {}).get("oa_url"))
-        return list(dict.fromkeys(u for u in urls if u))
+        # doi.org links only redirect to the publisher's page, usually the one that blocked us in the first place
+        return list(dict.fromkeys(u for u in urls if u and urlparse(u).netloc.lower() not in _DOI_HOSTS))
 
     async def start(self) -> None:
         if self._http is None:
@@ -125,3 +170,5 @@ class OpenAlexResolver:
         if self._http is not None:
             await self._http.aclose()
             self._http = None
+
+    aload, aclose = start, stop  # found and managed by the pipeline's lifecycle (FactAssessor.aload / aclose)

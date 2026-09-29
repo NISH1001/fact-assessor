@@ -58,7 +58,8 @@ from factassessor import Atom, Crawl4AICrawler, FactAssessor, LayaClaimFilter, L
 from factassessor._llm import reasoning_off
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.crawlers import Crawler, HTTPXCrawler
-from factassessor.resolvers import ArxivResolver, OpenAlexResolver
+from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, locations
+from factassessor.verify import read_first
 from factassessor.pipeline import Take
 from factassessor.search import DuckDuckGoSearcher, Searcher, SearxngSearcher, is_blocked, not_blocked
 
@@ -270,7 +271,7 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_words: int = 500) -> Non
     out_path = TEXTS.parent / "papers.json"
     papers = json.loads(out_path.read_text()) if out_path.exists() else {}
     browser = Crawl4AICrawler(timeout=20)
-    open_access = paper_crawler(timeout=30, paper_timeout=30, min_words=min_words, min_paper_words=min_words)
+    open_access = paper_crawler(min_words=min_words, timeout=30, pdf_timeout=30)
     http = httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (fact-assessor eval)"})
 
     async def download(url: str) -> str:
@@ -449,9 +450,25 @@ class RecordedCrawler(Crawler):
 
 # --- runs ------------------------------------------------------------------------------------------------------
 
-def paper_crawler(**kwargs: Any) -> HTTPXCrawler:
-    """Plain HTTP that reads papers in full: their free copies (arXiv HTML or PDF, OpenAlex) first, then the page."""
-    return HTTPXCrawler(resolvers=[ArxivResolver(), OpenAlexResolver()], **kwargs)
+class PaperReader(Crawler):
+    """crawl(url) as the pipeline reads a hit with resolvers: its free copies (arXiv HTML or PDF, OpenAlex) first,
+    then the page itself, over plain HTTP."""
+
+    def __init__(self, min_words: int = 300, **http: Any) -> None:
+        self.resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver())
+        self.http = HTTPXCrawler(**http)
+        self.min_words = min_words
+
+    async def crawl(self, url: str) -> dict[str, Any] | None:
+        return await read_first(self.http, url, locations(url, await self.resolver.resolve(url)), self.min_words)
+
+    async def stop(self) -> None:
+        await self.resolver.aclose()
+        await self.http.stop()
+
+
+def paper_crawler(**kwargs: Any) -> PaperReader:
+    return PaperReader(**kwargs)
 
 
 def llm_settings(model: str) -> dict[str, Any]:

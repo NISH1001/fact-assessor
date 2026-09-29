@@ -28,6 +28,7 @@ from factassessor.pipeline import Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
 from factassessor.verify import Policy, Verify, WeightedPolicy
+from factassessor.resolvers import Resolver
 
 _END = object()
 _DEFAULT: Any = object()  # "build the default" (so claim_filter=None can mean "no filter")
@@ -61,6 +62,7 @@ class FactAssessor:
         claim_filter: ClaimFilter | Step | None = _DEFAULT,  # None: no filter (e.g. your atomizer chain already filters)
         searcher: Step | None = None,  # a Searcher, or any chain starting with one (query -> hits)
         crawler: Step | None = None,  # a Crawler, or any step url -> page
+        resolver: Resolver | None = None,  # e.g. CompositeResolver(ArxivResolver(), OpenAlexResolver()): papers in full
         judge: Judge | None = None,
         policy: Policy | None = None,
     ) -> None:
@@ -80,7 +82,9 @@ class FactAssessor:
         self.judge = judge or LayaJudge(model=laya_model, device=device)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf)
         claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}
-        self.verify = Verify(self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, **claims)
+        self.verify = Verify(
+            self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, resolver=resolver, **claims
+        )
         self._loop: asyncio.AbstractEventLoop | None = None  # background loop behind assess_sync()
         self._loop_thread: threading.Thread | None = None
 

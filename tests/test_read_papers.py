@@ -1,10 +1,13 @@
-"""HTTPXCrawler with resolvers: a paper's full text from its free copies (arXiv, OpenAlex), then the page itself."""
+"""Resolve -> read, end to end over (fake) HTTP: a paper's full text from its free copies (arXiv, OpenAlex), then
+the hit's own page. The real resolvers, Verify's resolve and read stages, and a real HTTPXCrawler."""
 
 import json
 
 import httpx
 
-from factassessor import ArxivResolver, FallbackCrawler, HTTPXCrawler, OpenAlexResolver
+from factassessor import ArxivResolver, HTTPXCrawler, OpenAlexResolver, Verify
+from factassessor.pipeline import Step
+from factassessor.resolvers import CompositeResolver
 from tests.pdfs import minimal_pdf
 
 WORK = {
@@ -15,8 +18,22 @@ PAPER = minimal_pdf(*["Secondary forests gained 122 Mg per ha in 20 years."] * 4
 ABSTRACT_PAGE = "<html><body>" + "<p>An abstract page with enough words to read on its own.</p>" * 15 + "</body></html>"
 
 
+class Reader:
+    """Verify's resolve + read stages for one hit, with `crawl(url)` like a crawler; HTTP is faked."""
+
+    def __init__(self, verify):
+        self.verify = verify
+
+    async def crawl(self, url):
+        return await self.verify._read(await self.verify._resolve(url))
+
+    async def stop(self):
+        await self.verify.resolver.aclose()
+        await self.verify.crawler.stop()
+
+
 def crawler(routes, **kwargs):
-    """HTTPXCrawler(resolvers=[arXiv, OpenAlex]) whose HTTP goes to `routes`: {url prefix: (status, type, body)}."""
+    """Resolve (arXiv, OpenAlex) -> read with an HTTPXCrawler, whose HTTP goes to `routes`: {prefix: (status, type, body)}."""
     seen = []
 
     def handler(request):
@@ -29,9 +46,10 @@ def crawler(routes, **kwargs):
     transport = httpx.MockTransport(handler)
     openalex = OpenAlexResolver()
     openalex._http = httpx.AsyncClient(transport=transport)
-    c = HTTPXCrawler(resolvers=[ArxivResolver(), openalex], **kwargs)
-    c._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
-    return c, seen
+    http = HTTPXCrawler()
+    http._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
+    verify = Verify(Step(), http, judge=None, resolver=CompositeResolver(ArxivResolver(), openalex), **kwargs)
+    return Reader(verify), seen
 
 
 async def test_blocked_publisher_page_is_read_from_its_open_access_pdf():
@@ -114,11 +132,7 @@ async def test_a_search_hit_that_is_already_a_candidate_is_fetched_once():
     assert seen.count("https://arxiv.org/pdf/1706.03762") == 1
 
 
-async def test_nothing_readable_is_none_so_the_next_crawler_tries():
-    class Browser:
-        async def crawl(self, url):
-            return {"url": url, "title": "", "text": "rendered by the browser"}
-
+async def test_nothing_readable_is_none():
     url = "https://doi.org/10.1002/rse2.203"
     c, _ = crawler({
         "https://api.openalex.org/": (200, "application/json", json.dumps(WORK).encode()),
@@ -126,25 +140,4 @@ async def test_nothing_readable_is_none_so_the_next_crawler_tries():
         url: (403, "text/html", b"Just a moment..."),
     })
     assert await c.crawl(url) is None
-    assert (await FallbackCrawler(c, Browser()).crawl(url))["text"] == "rendered by the browser"
     await c.stop()
-
-
-async def test_a_failing_resolver_never_breaks_the_crawl():
-    class Broken:
-        async def resolve(self, url):
-            raise RuntimeError("boom")
-
-    c = HTTPXCrawler(resolvers=[Broken()])
-    c._http = httpx.AsyncClient(transport=httpx.MockTransport(
-        lambda r: httpx.Response(200, headers={"content-type": "text/html"}, content=ABSTRACT_PAGE.encode())))
-    assert (await c.crawl("https://example.org"))["url"] == "https://example.org"
-    await c.stop()
-
-
-async def test_stop_closes_the_resolvers_too():
-    openalex = OpenAlexResolver()
-    await openalex.start()
-    c = HTTPXCrawler(resolvers=[openalex])
-    await c.stop()
-    assert openalex._http is None

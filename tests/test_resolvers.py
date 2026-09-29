@@ -121,3 +121,70 @@ async def test_openalex_failures_are_an_empty_list_not_an_error():
     r._http = httpx.AsyncClient(transport=httpx.MockTransport(broken))
     assert await r.resolve("https://doi.org/10.1038/nature16512") == []
     await r.stop()
+
+
+async def test_openalex_drops_doi_org_links_they_only_redirect_to_the_publisher():
+    work = {
+        "best_oa_location": {"pdf_url": "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1002/rse2.203",
+                             "landing_page_url": "https://doi.org/10.1002/rse2.203"},
+        "locations": [{"is_oa": True, "pdf_url": None, "landing_page_url": "https://hal.inrae.fr/hal-03193170v1/document"}],
+    }
+    r, _ = openalex({"https://api.openalex.org/": (200, work)})
+    urls = await r.resolve("https://zslpublications.onlinelibrary.wiley.com/doi/full/10.1002/rse2.203")
+    await r.stop()
+    assert urls == ["https://onlinelibrary.wiley.com/doi/pdfdirect/10.1002/rse2.203", "https://hal.inrae.fr/hal-03193170v1/document"]
+
+
+# --- CompositeResolver and the order locations are tried in -----------------------------------------------------
+
+async def test_composite_asks_every_resolver_at_once_and_keeps_their_order():
+    import asyncio
+
+    class Slow:
+        def __init__(self, urls, delay):
+            self.urls, self.delay = urls, delay
+
+        async def resolve(self, url):
+            await asyncio.sleep(self.delay)
+            return self.urls
+
+    from factassessor.resolvers import CompositeResolver
+
+    r = CompositeResolver(Slow(["https://a.org/1", "https://b.org/2"], 0.2), Slow(["https://b.org/2", "https://c.org/3"], 0.2))
+    start = asyncio.get_running_loop().time()
+    assert await r.resolve("https://x.org") == ["https://a.org/1", "https://b.org/2", "https://c.org/3"]  # no duplicates
+    assert asyncio.get_running_loop().time() - start < 0.35  # concurrently, not 0.4s one after the other
+    assert isinstance(r, Resolver)
+
+
+async def test_composite_survives_a_failing_resolver():
+    from factassessor.resolvers import CompositeResolver
+
+    class Broken:
+        async def resolve(self, url):
+            raise RuntimeError("boom")
+
+    assert await CompositeResolver(Broken(), ArxivResolver()).resolve("https://arxiv.org/abs/1706.03762") == [
+        "https://arxiv.org/html/1706.03762", "https://arxiv.org/pdf/1706.03762"]
+
+
+async def test_composite_closes_the_resolvers_that_hold_a_client():
+    from factassessor.resolvers import CompositeResolver
+
+    oa = OpenAlexResolver()
+    await oa.start()
+    await CompositeResolver(ArxivResolver(), oa).aclose()
+    assert oa._http is None
+
+
+def test_locations_direct_pdf_hit_first_ordinary_page_last():
+    from factassessor.resolvers import locations
+
+    copies = ["https://repository.example/paper.pdf", "https://hal.example/document"]
+    # the hit is itself a PDF: exactly the document search matched, so it comes first
+    assert locations("https://site.example/papers/biomass.pdf", copies) == ["https://site.example/papers/biomass.pdf", *copies]
+    # an ordinary page (publisher landing page, Wikipedia): after the copies
+    assert locations("https://publisher.example/doi/10.1/x", copies) == [*copies, "https://publisher.example/doi/10.1/x"]
+    assert locations("https://en.wikipedia.org/wiki/NASA", []) == ["https://en.wikipedia.org/wiki/NASA"]
+    assert locations("https://arxiv.org/pdf/1706.03762", ["https://arxiv.org/html/1706.03762", "https://arxiv.org/pdf/1706.03762"]) == [
+        "https://arxiv.org/pdf/1706.03762", "https://arxiv.org/html/1706.03762"]  # listed once

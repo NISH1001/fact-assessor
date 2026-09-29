@@ -360,30 +360,39 @@ FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))      # 
 
 **Scientific papers: read in full, even behind bot protection.** Publishers like Wiley and IOP block headless
 browsers (0 of 15 paper pages crawled on a scientific eval set, even with a 10s timeout), and an arXiv or publisher
-link usually lands on an abstract. Give `HTTPXCrawler` resolvers: small steps that find where a document can be
-read in full (`async resolve(url) -> list[str]`, the `Resolver` protocol). Their candidates are tried first, then
-the page itself; the text comes back under the original URL (`fact-assessor[pdf]` for PDFs):
+link usually lands on an abstract. Give the pipeline a resolver: a step before the crawler that finds where each
+hit can be read in full (`async resolve(url) -> list[str]`, the `Resolver` protocol). The crawler is unchanged:
+it just crawls those locations in order (`fact-assessor[pdf]` for PDFs):
 
 ```python
-from factassessor import ArxivResolver, Crawl4AICrawler, FallbackCrawler, HTTPXCrawler, OpenAlexResolver
+from factassessor import ArxivResolver, CompositeResolver, Crawl4AICrawler, FallbackCrawler, HTTPXCrawler, OpenAlexResolver
 
-papers = HTTPXCrawler(resolvers=[ArxivResolver(), OpenAlexResolver()])
-FactAssessor(crawler=FallbackCrawler(papers, Crawl4AICrawler()))              # browser only for what HTTP can't read
+FactAssessor(
+    resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver()),
+    crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()),
+)
+```
+
+```
+search -> judge snippets -> resolve (every hit at once) -> crawl each hit's locations in order -> judge each page
 ```
 
 - `ArxivResolver`: any arXiv link (or arXiv DOI) -> `arxiv.org/html/<id>`, then `arxiv.org/pdf/<id>`; no request.
 - `OpenAlexResolver`: a URL with a DOI -> the paper's open-access copies from [OpenAlex](https://openalex.org)
-  (one free lookup, no key), PDFs first.
+  (one free lookup, no key), PDFs first; doi.org links are left out (they redirect back to the publisher).
+- `CompositeResolver(a, b)`: asks every resolver at once and joins their candidates, so a later resolver's copies
+  are still tried when an earlier one's are all blocked.
 
-Resolvers only propose; the crawler checks by fetching, so a 404 or a bot-check page moves on to the next
-candidate. A resolved copy needs 300 words (Wiley's and HAL's bot-check pages are ~180), the page itself 100.
-Ordinary pages cost nothing extra: resolvers answer `[]` for them without a request.
+A hit's locations are: the hit itself if it's a direct PDF, then the copies, then the hit's own page. Resolvers only
+propose; the crawl checks by fetching, so a 403 or a bot-check page moves on to the next. A copy needs 300 words
+(Wiley's and HAL's bot-check pages are ~180); one hit's locations share an 8s deadline (`read_timeout`). The page is
+cited under the hit's URL. Ordinary pages cost nothing extra: resolvers answer `[]` for them without a request.
 
 On that set, OpenAlex's copies recovered 87 of 162 failed pages that had a DOI; the rest have no free copy.
 
 End to end the gain is smaller, since many claims settle on search snippets without crawling (Nepal example:
 6.1s → 5.2s median; mixed example: about the same). `HTTPXCrawler` has a 1s connect timeout plus a hard 2.5s total
-deadline per page (10s per resolved copy; httpx's own timeouts are per phase), reads HTML and PDFs (`fact-assessor[pdf]`), and stops at 3 MB for
+deadline per page (8s once the response is a PDF; httpx's own timeouts are per phase), reads HTML and PDFs (`fact-assessor[pdf]`), and stops at 3 MB for
 pages and 20 MB for PDFs.
 
 **GLiNER2.5-decide judge** ([GLiNER2.5-decide](https://fastino.ai/blog/gliner-2-5-decide-open-weight-decision-model),
@@ -504,10 +513,10 @@ factassessor/
   crawlers/          url -> clean page text
     _base.py         Crawler (role), FallbackCrawler, NoCrawler
     browser.py       Crawl4AICrawler (headless browser, JavaScript)
-    plain_http.py    HTTPXCrawler (plain HTTP, fast; HTML and PDF; optional resolvers)
-  resolvers.py       Resolver (role, a Protocol): url -> where to read it in full; ArxivResolver, OpenAlexResolver
+    plain_http.py    HTTPXCrawler (plain HTTP, fast; HTML and PDF)
+  resolvers.py       Resolver (role, a Protocol): url -> where to read it in full; Arxiv, OpenAlex, Composite
   extract.py         document -> text: extract() (PDF or HTML, by type or bytes), pdf_text, html_text
-  verify.py          Verify (per claim: snippets, crawl if needed, early exit), Policy (role), WeightedPolicy
+  verify.py          Verify (per claim: snippets, resolve + crawl if needed, early exit), Policy (role), WeightedPolicy
   judges/            evidence -> stance per passage
     _base.py         Judge (role)
     laya.py          LayaJudge (default, local)

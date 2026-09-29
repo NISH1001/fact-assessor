@@ -116,3 +116,16 @@ async def test_short_pages_are_not_documents():
     shell = "<html><body><p>Checking your browser before accessing pubmed.ncbi.nlm.nih.gov...</p></body></html>"
     assert await crawler(html(body=shell), min_words=100).crawl("https://pubmed.ncbi.nlm.nih.gov/1/") is None
     assert HTTPXCrawler().min_words == 100
+
+
+async def test_pdfs_get_more_time_than_pages_once_the_response_says_pdf():
+    async def slow_body(body):
+        await asyncio.sleep(0.3)  # the headers arrive fast; the body (a several-MB paper) takes a while
+        yield body
+
+    def slow(ctype, body):
+        return lambda request: httpx.Response(200, headers={"content-type": ctype}, content=slow_body(body))
+
+    pdf = minimal_pdf("A paper that takes a while to download.")
+    assert await crawler(slow("application/pdf", pdf), timeout=0.1, pdf_timeout=2).crawl("https://x.org/a.pdf") is not None
+    assert await crawler(slow("text/html", PAGE.encode()), timeout=0.1, pdf_timeout=2).crawl("https://x.org/") is None

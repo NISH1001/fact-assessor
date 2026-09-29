@@ -3,7 +3,7 @@
 `Crawler` is the role: implement `crawl(url)` (return None on failure).
 - `Crawl4AICrawler`: a headless browser; renders JavaScript; ~0.6-1.6s per page.
 - `HTTPXCrawler`: a plain HTTP fetch + `extract()` (HTML or PDF); no JavaScript; much faster for ordinary pages.
-  With `resolvers=[ArxivResolver(), OpenAlexResolver()]` it reads papers in full from their free copies first.
+  (Papers in full from their free copies: give the pipeline a resolver, `FactAssessor(resolver=...)`.)
 - `FallbackCrawler(fast, thorough)`: the first crawler that gets text wins.
 """
 

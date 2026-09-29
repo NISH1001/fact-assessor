@@ -1,4 +1,4 @@
-"""Atom -> AtomResult: search, judge, crawl only if needed, stop as soon as the evidence settles the claim."""
+"""Atom -> AtomResult: search, judge, resolve and crawl only if needed, stop as soon as the evidence settles it."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from factassessor.pipeline import Map, Scan, Step, TakeUntil, collect, last, once
+from factassessor.resolvers import Resolver, locations
 from factassessor.schema import Atom, AtomResult, Evidence, Verdict
 
 _FROM_JUDGE: Any = object()  # "use the judge's concurrency" (so concurrency=None can mean "no limit")
@@ -55,8 +56,16 @@ class Verify(Step):
     """Per claim: judge the search snippets; if they don't settle it, crawl every hit concurrently, judge each
     page the moment it lands, and stop (cancelling the remaining crawls) once the policy says settled.
 
-    searcher: step, query -> hits      crawler: step, url -> pages
+        search -> judge snippets -> [resolve ->] crawl -> judge each page -> running total -> stop when settled
+
+    searcher: step, query -> hits      crawler: step, url -> pages (a Crawler, `crawl(url)`, when resolving)
     judge:    a Judge (`judge(claim, docs)`)      policy: a Policy (`settled(ev)`, `verdict(ev)`)
+    resolver: optional Resolver (`resolve(url) -> urls`; `CompositeResolver` for several). Every hit is resolved at
+        once; its locations (`resolvers.locations`: a direct-PDF hit, the free copies, the hit's own page) are then
+        crawled in order and the first readable one is judged, cited under the hit's URL. A copy claims to be the
+        full document, so it needs `min_copy_words` (bot-check pages are shorter); the hit's own page is taken as the
+        crawler returns it. `read_timeout` caps one hit's locations together, so a hit with several blocked copies
+        can't eat the claim's `timeout`.
     concurrency: claims verified at once, like `Map(concurrency=)`. Default: the judge's `concurrency` (none for
         Laya and LLM judges, so every claim starts at once); None: no limit. A claim's `timeout` starts when it
         gets its slot, so claims waiting for a slow judge don't time out in the queue.
@@ -70,9 +79,17 @@ class Verify(Step):
         policy: Any = None,
         timeout: float = 15.0,
         concurrency: int | None | Any = _FROM_JUDGE,
+        resolver: Resolver | None = None,
+        read_timeout: float = 8.0,
+        min_copy_words: int = 300,
     ) -> None:
+        if resolver is not None and not callable(getattr(crawler, "crawl", None)):
+            raise TypeError("resolving needs a Crawler (crawl(url) -> page) to read each location")
         self.searcher = searcher
         self.crawler = crawler
+        self.resolver = resolver
+        self.read_timeout = read_timeout
+        self.min_copy_words = min_copy_words
         self.judge = judge
         self.policy = policy or WeightedPolicy()
         self.timeout = timeout
@@ -108,12 +125,39 @@ class Verify(Step):
 
             # crawl every hit at once -> judge each page as it lands -> running total of the evidence ->
             # stop at the first total that settles the claim (TakeUntil cancels the crawls still in flight)
-            gather_evidence = (
-                self.crawler >> judge_page >> Scan(add, evidence) >> TakeUntil(self.policy.settled)
-            )
+            read = Map(self._resolve) >> Map(self._read) if self.resolver else self.crawler
+            gather_evidence = read >> judge_page >> Scan(add, evidence) >> TakeUntil(self.policy.settled)
             evidence = await last(gather_evidence(_urls(hits)), default=evidence)
         verdict, confidence = self.policy.verdict(evidence)
         return AtomResult(atom=atom, verdict=verdict, confidence=confidence, evidence=evidence)
+
+
+    async def _resolve(self, url: str) -> tuple[str, list[str]]:
+        """hit url -> (hit url, the locations to read it from, in order). Never raises."""
+        try:
+            candidates = await self.resolver.resolve(url)  # type: ignore[union-attr]
+        except Exception:
+            candidates = []
+        return url, locations(url, candidates)
+
+    async def _read(self, source: tuple[str, list[str]]) -> dict[str, Any] | None:
+        """The first readable location, as the hit's page; None (dropped) if none is, or `read_timeout` runs out."""
+        url, where = source
+        try:
+            async with asyncio.timeout(self.read_timeout):
+                return await read_first(self.crawler, url, where, self.min_copy_words)
+        except TimeoutError:
+            return None
+
+
+async def read_first(crawler: Any, url: str, where: list[str], min_copy_words: int = 300) -> dict[str, Any] | None:
+    """Crawl `where` (a hit's locations, `resolvers.locations`) in order; the first readable one, as `url`'s page.
+    A location other than `url` is a copy claiming to be the full document, so it needs `min_copy_words`."""
+    for location in where:
+        page = await crawler.crawl(location)
+        if page and (location == url or len(page["text"].split()) >= min_copy_words):
+            return {**page, "url": url}
+    return None
 
 
 async def _urls(hits: list[dict[str, Any]]) -> AsyncIterator[str]:
