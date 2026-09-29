@@ -53,3 +53,56 @@ def test_unreadable_or_empty_documents_are_none():
     assert extract(b'{"a": 1}', "application/json") is None
     assert extract(b"%PDF-1.4 truncated garbage", "application/pdf") is None  # a broken PDF: None, not an error
     assert extract(b"<html><body><script>app()</script></body></html>", "text/html") is None  # nothing to read
+
+
+def test_pdf_text_is_safe_from_many_threads_at_once():
+    # PDFium is not thread-safe: pages must be closed under the lock, not left to the garbage collector, which can
+    # run in another thread while one is inside PDFium (a live eval run aborted the process that way)
+    import gc
+    from concurrent.futures import ThreadPoolExecutor
+
+    pdf = minimal_pdf(*[f"Line {i} of a many-line paper about forests." for i in range(40)])
+    gc.set_threshold(1)  # collect constantly, in whichever thread allocates
+    try:
+        with ThreadPoolExecutor(16) as pool:
+            texts = list(pool.map(pdf_text, [pdf] * 400))
+    finally:
+        gc.set_threshold(700, 10, 10)
+    assert all("Line 39 of a many-line paper" in t for t in texts)
+
+
+# --- PDFs are parsed in worker processes: a PDFium crash (a real segfault in a live run) loses one PDF, not the run --
+
+def test_pdfs_are_parsed_in_a_worker_process_not_this_one():
+    import os
+
+    from factassessor import extract as ex
+
+    assert "forests" in pdf_text(minimal_pdf("Secondary forests recover."))
+    assert ex._WORKERS.pids() and os.getpid() not in ex._WORKERS.pids()
+
+
+def test_a_dead_worker_is_replaced_and_the_pdf_still_read():
+    import os
+    import signal
+
+    from factassessor import extract as ex
+
+    pdf_text(minimal_pdf("warm up"))
+    for pid in ex._WORKERS.pids():
+        os.kill(pid, signal.SIGKILL)  # what a PDFium segfault does to the worker
+    assert "after the crash" in pdf_text(minimal_pdf("Read after the crash."))
+
+
+def test_a_pdf_that_kills_its_worker_is_none_from_extract():
+    from factassessor import extract as ex
+
+    assert ex._WORKERS.run(b"__test_crash__") is None  # the worker aborts on this input (test hook)
+    assert "still works" in pdf_text(minimal_pdf("It still works."))
+
+
+def test_worker_results_match_in_process_extraction():
+    from factassessor import extract as ex
+
+    pdf = minimal_pdf(*[f"Line {i} about biomass." for i in range(30)])
+    assert pdf_text(pdf) == ex._pdf_text_here(pdf)
