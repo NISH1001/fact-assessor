@@ -20,6 +20,12 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   models once split "67 variables from LiDAR, NAIP and Sentinel-2" into three claims each attributing all 67 to one
   source. gpt-6-luna (none): ~6s per 160-word answer, $0.0003. gpt-5-nano returns whole sentences at minimal
   reasoning and bare "the researchers" claims at low/medium (33s): unusable as the atomizer.
+- **The atomizer also writes the text's source query** (`LLMAtomizer(source_query=True)`, `Atom.source_query`),
+  searched next to each claim and shared by the text's claims (`Cache` around the searcher: one real search).
+  A claim about a detail inside a paper rarely finds the paper: on 8 scientific passages, 24% of claims did (SearXNG
+  top 5; FactReasoner's own revised atoms: 21%), and two passages 0 of 18 and 0 of 21. One query per passage found
+  the paper for 5 of 8 (Serper: 7 of 8), but only when written like a title (topic, method, place, instruments):
+  a query of quoted distinctive numbers found 0 of 8 on SearXNG. Same LLM call as atomization: no added latency.
 - Model: **`gpt-5.6-luna`, reasoning `none`** (~2s). Benchmarked on 3 decontextualization cases:
 
   | Model | Warm latency | Quality |

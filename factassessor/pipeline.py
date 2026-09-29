@@ -157,6 +157,39 @@ class TakeUntil(Step):
             await _aclose(items)
 
 
+class Cache(Step):
+    """A TTL cache around any step or sub-chain: what `step` yields for an input is remembered for `ttl` seconds
+    (`cachetools.TTLCache`, least recently used out first past `maxsize`) and replayed for the same input, so the
+    claims of one text share their source query (one real search, not one per claim) and often the same pages.
+    Concurrent duplicates wait for the one in flight; a failure is not remembered. Inputs must be hashable."""
+
+    def __init__(self, step: Step, ttl: float = 600.0, maxsize: int = 1024) -> None:
+        from cachetools import TTLCache
+
+        self.step = step
+        self._entries: TTLCache[Any, asyncio.Future[list[Any]]] = TTLCache(maxsize=maxsize, ttl=ttl)
+
+    def __call__(self, items: AsyncIterator[Any]) -> AsyncIterator[Any]:
+        return FlatMap(self._get)(items)
+
+    async def _get(self, item: Any) -> AsyncIterator[Any]:
+        if (future := self._entries.get(item)) is not None:
+            results = await asyncio.shield(future)  # done, or in flight for another claim
+        else:
+            future = asyncio.get_running_loop().create_future()
+            self._entries[item] = future
+            try:
+                results = await collect(self.step(once(item)))
+            except BaseException as exc:
+                self._entries.pop(item, None)
+                future.set_exception(exc)
+                future.exception()  # retrieved: no "exception was never retrieved" noise if nobody else waited
+                raise
+            future.set_result(results)
+        for result in results:
+            yield result
+
+
 class Take(Step):
     """The first n items; then closes the stream upstream (cancelling what's still running)."""
 

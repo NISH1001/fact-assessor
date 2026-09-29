@@ -4,7 +4,8 @@ Each JSONL row is a pair: an `original` and a `corrupted` long-form answer, each
 (`{"text", "label": "S" | "NS"}`). The data is external: keep it in tmp/ (gitignored).
 
     # live: gpt-6-luna atomizer + Laya filter (timed per answer), then every labelled atom verified live
-    # (SearXNG, resolvers, HTTPX -> browser, Laya); search hits and pages are cached for replays
+    # (SearXNG, resolvers, HTTPX -> browser, Laya); search hits and pages are cached for replays. The atomizer
+    # also writes the text's source query (--no-source-query to skip), searched once per text for every atom
     uv run python scripts/eval_atoms.py live --data tmp/scielf_paired.jsonl --tag web
 
     # replay: the same cached evidence, another judging setup, in seconds (no network)
@@ -217,13 +218,15 @@ def _atom_record(atom: dict[str, Any], result: Any, spans: dict[str, list[tuple[
 
 
 async def verify_answer(verify: Verify, answer: dict[str, Any]) -> tuple[list[dict[str, Any]], float]:
-    """Every atom of an answer at once, as the pipeline checks a text's claims; per-atom spans and totals."""
+    """Every atom of an answer at once, as the pipeline checks a text's claims; per-atom spans and totals.
+    `answer["source_query"]` (the atomizer's search for the text's source document) goes on every atom."""
 
     async def one(a: dict[str, Any]) -> dict[str, Any]:
         spans: dict[str, list[tuple[float, float]]] = {}
         _spans.set(spans)  # this task's context only: each atom's own spans
         start = time.perf_counter()
-        result = await verify.verify(Atom(id=0, text=a["text"], span=(0, len(a["text"]))))
+        atom = Atom(id=0, text=a["text"], span=(0, len(a["text"])), source_query=answer.get("source_query"))
+        result = await verify.verify(atom)
         return _atom_record(a, result, spans, time.perf_counter() - start)
 
     start = time.perf_counter()
@@ -232,11 +235,11 @@ async def verify_answer(verify: Verify, answer: dict[str, Any]) -> tuple[list[di
 
 
 async def fill_pages(cache_hits: dict[str, Any], pages: dict[str, Any], resolver: Any, crawler: Crawler,
-                     atoms: list[dict[str, Any]], min_copy_words: int = 300) -> None:
+                     queries: list[str], min_copy_words: int = 300) -> None:
     """Read the hits the live run skipped (early exit), so replays with another judge see every page. Untimed."""
     from factassessor.verify import read_first
 
-    todo = {h["url"] for a in atoms for h in cache_hits.get(a["text"], [])} - set(pages)
+    todo = {h["url"] for q in queries for h in cache_hits.get(q, [])} - set(pages)
     slots = asyncio.Semaphore(8)
 
     async def read(url: str) -> None:
@@ -258,7 +261,7 @@ async def live(args: argparse.Namespace) -> None:
     pages: dict[str, Any] = _load(run_dir / "pages.json.gz", {})
     done = {r["id"]: r for r in _load(run_dir / "results.json.gz", [])}
 
-    atomizer = LLMAtomizer(args.atomizer)
+    atomizer = LLMAtomizer(args.atomizer, source_query=not args.no_source_query)
     claim_filter = LayaClaimFilter()
     judge = LayaJudge(passages_per_page=args.passages)
     searcher = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type,
@@ -277,12 +280,14 @@ async def live(args: argparse.Namespace) -> None:
         t1 = time.perf_counter()
         kept = await collect(claim_filter(_stream(ours)))
         t2 = time.perf_counter()
+        answer["source_query"] = ours[0].source_query if ours else None  # from the same atomizer call
         atoms, verify_s = await verify_answer(verify, answer)
-        done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind")}, "atoms": atoms,
+        done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind", "source_query")}, "atoms": atoms,
                               "time": {"atomize": t1 - t0, "filter": t2 - t1, "verify": verify_s,
                                        "total": t1 - t0 + t2 - t1 + verify_s},
                               "our_atoms": len(ours), "our_kept": len(kept)}
-        await fill_pages(hits, pages, base_resolver, base_crawler, answer["atoms"])
+        queries = [a["text"] for a in answer["atoms"]] + ([answer["source_query"]] if answer["source_query"] else [])
+        await fill_pages(hits, pages, base_resolver, base_crawler, queries)
         _save(run_dir / "hits.json.gz", hits)
         _save(run_dir / "pages.json.gz", pages)
         _save(run_dir / "results.json.gz", list(done.values()))
@@ -369,6 +374,7 @@ def main() -> None:
     lv.add_argument("--search-type", default="general", choices=["general", "science"])
     lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
     lv.add_argument("--no-resolver", action="store_true")
+    lv.add_argument("--no-source-query", action="store_true", help="claims search on their own only")
     lv.add_argument("--passages", type=int, default=1, help="passages per page for the judge")
     lv.add_argument("--strong", type=float, default=0.7)
     rp = sub.add_parser("replay", help="judge the cached evidence of --tag again, with another setup")

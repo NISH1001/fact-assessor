@@ -9,7 +9,7 @@ from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, GlinerClaimFilter, LayaClaimFilter
 from factassessor.crawlers import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler, NoCrawler
 from factassessor.judges import GlinerJudge, Judge, LayaJudge, LLMJudge
-from factassessor.pipeline import Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
+from factassessor.pipeline import Cache, Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, Resolver
 from factassessor.schema import (
     Atom,
@@ -48,7 +48,7 @@ __all__ = [
     "Policy", "WeightedPolicy",
     "Verify",
     # composition
-    "Step", "Chain", "Map", "FlatMap", "Filter", "Take", "Scan", "TakeUntil", "Pred", "once", "collect", "last",
+    "Step", "Chain", "Map", "FlatMap", "Filter", "Take", "Scan", "TakeUntil", "Cache", "Pred", "once", "collect", "last",
     # helpers
     "not_blocked", "is_blocked", "BLOCKED_DOMAINS", "fact_score", "kg",
     # data

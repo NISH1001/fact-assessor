@@ -264,3 +264,49 @@ def test_sync_conditions_evaluate_each_side_at_most_once():
     (Pred(left) | Pred(lambda n: True))(1)
     (Pred(left) & Pred(lambda n: True))(1)
     assert calls == ["left", "left"]  # once per combined check, not twice
+
+
+# --- Cache: the same item is processed once ----------------------------------------------------------------------
+
+async def test_cache_runs_the_step_once_per_item_and_shares_in_flight_work():
+    import asyncio
+
+    from factassessor.pipeline import Cache
+
+    calls = []
+
+    async def slow_search(q):
+        calls.append(q)
+        await asyncio.sleep(0.05)
+        for i in range(2):
+            yield {"url": f"{q}-{i}"}
+
+    memo = Cache(FlatMap(slow_search))
+    # three claims of one text search the same source query at the same time: one real search
+    results = await asyncio.gather(*(collect(memo(once("paper"))) for _ in range(3)))
+    assert calls == ["paper"] and all(r == [{"url": "paper-0"}, {"url": "paper-1"}] for r in results)
+    assert await collect(memo(once("paper"))) == [{"url": "paper-0"}, {"url": "paper-1"}]  # later: from memory
+    assert await collect(memo(once("other"))) == [{"url": "other-0"}, {"url": "other-1"}] and calls == ["paper", "other"]
+
+
+async def test_cache_forgets_after_ttl_and_does_not_keep_failures():
+    import asyncio
+
+    from factassessor.pipeline import Cache
+
+    calls = []
+
+    async def search(q):
+        calls.append(q)
+        if q == "boom" and len(calls) == 1:
+            raise RuntimeError("down")
+        yield q
+
+    memo = Cache(FlatMap(search), ttl=0.05)
+    with pytest.raises(RuntimeError):
+        await collect(memo(once("boom")))
+    assert await collect(memo(once("boom"))) == ["boom"]  # the failure wasn't remembered
+    await collect(memo(once("q")))
+    await asyncio.sleep(0.06)
+    await collect(memo(once("q")))
+    assert calls.count("q") == 2  # expired, searched again

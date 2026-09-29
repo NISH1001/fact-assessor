@@ -138,7 +138,7 @@ def test_default_pipeline_is_built_from_the_familiar_arguments():
     atomizer, claim_filter, take_atoms = fa.atoms.steps
     assert type(atomizer).__name__ == "LLMAtomizer" and type(claim_filter).__name__ == "LayaClaimFilter"
     assert claim_filter.threshold == 0.6
-    serper, block, take_hits = fa.searcher.steps
+    serper, block, take_hits = fa.searcher.step.steps  # under the Cache wrapper
     assert take_atoms.n == 8 and serper.num == 6 and take_hits.n == 3 and fa.crawler.timeout == 1.5
     assert block.pred({"url": "https://facebook.com/x"}) and not block.pred({"url": "https://example.com/x"})
 

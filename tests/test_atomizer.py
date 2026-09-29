@@ -63,3 +63,25 @@ async def test_empty_text_skips_the_model():
     with atomizer.agent.override(model=model):
         assert await atomizer.atomize("   ") == []
     assert model.last_model_request_parameters is None
+
+
+async def test_source_query_is_written_once_per_text_and_carried_by_every_atom():
+    # the atomizer reads the whole text, so in the same call it can say what document the text is from
+    atomizer = LLMAtomizer(source_query=True)
+    model = TestModel(custom_output_args={
+        "atoms": [{"text": "A", "source": "Nepal's earthquake in 2017"}, {"text": "B", "source": "7.8 magnitude scale"}],
+        "source_query": "Nepal earthquake 2017 magnitude damage casualties",
+    })
+    with atomizer.agent.override(model=model):
+        atoms = await atomizer.atomize(TEXT)
+    assert [a.source_query for a in atoms] == ["Nepal earthquake 2017 magnitude damage casualties"] * 2
+    assert "source_query" in atomizer.instructions  # the model is asked for it
+
+
+async def test_without_the_flag_no_source_query_is_asked_for_or_kept():
+    atomizer = LLMAtomizer()
+    assert "source_query" not in atomizer.instructions
+    model = TestModel(custom_output_args={"atoms": [{"text": "A", "source": "x"}], "source_query": "ignored"})
+    with atomizer.agent.override(model=model):
+        [atom] = await atomizer.atomize(TEXT)
+    assert atom.source_query is None

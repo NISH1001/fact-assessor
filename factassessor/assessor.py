@@ -24,7 +24,7 @@ from factassessor.atomizer import LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, LayaClaimFilter
 from factassessor.crawlers import Crawl4AICrawler
 from factassessor.judges import Judge, LayaJudge
-from factassessor.pipeline import Map, Step, Take, dropped, once
+from factassessor.pipeline import Cache, Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
 from factassessor.verify import Policy, Verify, WeightedPolicy
@@ -58,6 +58,7 @@ class FactAssessor:
         blocked_domains: tuple[str, ...] = BLOCKED_DOMAINS,
         timeout: float = 15.0,  # per claim; a claim still running then comes back unverified
         atomizer_model: str = DEFAULT_ATOMIZER_MODEL,
+        source_query: bool = False,  # the atomizer also writes one search for the text's source document (papers)
         atomizer: Step | None = None,  # an Atomizer, or any chain starting with one (text -> atoms)
         claim_filter: ClaimFilter | Step | None = _DEFAULT,  # None: no filter (e.g. your atomizer chain already filters)
         searcher: Step | None = None,  # a Searcher, or any chain starting with one (query -> hits)
@@ -66,15 +67,16 @@ class FactAssessor:
         judge: Judge | None = None,
         policy: Policy | None = None,
     ) -> None:
-        self.atomizer = atomizer or LLMAtomizer(atomizer_model)
+        self.atomizer = atomizer or LLMAtomizer(atomizer_model, source_query=source_query)
         self.claim_filter = (
             LayaClaimFilter(claim_threshold, model=laya_model, device=device) if claim_filter is _DEFAULT else claim_filter
         )
         self.atoms = (  # text -> the atoms worth checking
             self.atomizer >> self.claim_filter >> Take(n_atoms) if self.claim_filter else self.atomizer >> Take(n_atoms)
         )
-        self.searcher = searcher or (
-            SerperSearcher(serper_api_key, num=2 * top_k, timeout=search_timeout, hedge_after=search_hedge_after)
+        self.searcher = Cache(  # a query is searched once per 10 minutes: a text's claims share their source query
+            searcher
+            or SerperSearcher(serper_api_key, num=2 * top_k, timeout=search_timeout, hedge_after=search_hedge_after)
             >> not_blocked(blocked_domains)  # over-fetched above so blocked hits don't leave us short
             >> Take(top_k)
         )

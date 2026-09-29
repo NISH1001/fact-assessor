@@ -275,10 +275,11 @@ class RecordingJudge(FakeJudge):
 
     def __init__(self):
         super().__init__([ev("not_enough_info", 0.9)], [ev("supports", 0.85, source="page")])
-        self.pages = []
+        self.pages, self.snippet_docs = [], []
 
     async def judge(self, claim, docs):
         self.pages += [d for d in docs if "text" in d]
+        self.snippet_docs += [d for d in docs if "text" not in d]
         return await super().judge(claim, docs)
 
 
@@ -338,3 +339,38 @@ async def test_fact_assessor_takes_a_resolver_and_manages_its_lifecycle():
     assert oa._http is not None
     await fa.aclose()
     assert oa._http is None
+
+
+# --- the text's source query: searched next to the claim, shared by every claim of the text ----------------------
+
+class SearchByQuery(Step):
+    """Hits per query; records every query it was asked."""
+
+    def __init__(self, hits):
+        self.hits, self.queries = hits, []
+
+    async def __call__(self, queries):
+        async for q in queries:
+            self.queries.append(q)
+            for h in self.hits.get(q, []):
+                yield h
+
+
+def hit(url):
+    return {"url": url, "title": "t", "snippet": "s"}
+
+
+async def test_a_claim_with_a_source_query_searches_both_and_merges_the_hits():
+    searcher = SearchByQuery({"claim": [hit("https://a.org"), hit("https://b.org")], "paper query": [hit("https://b.org"), hit("https://paper.org")]})
+    judge = RecordingJudge()
+    atom = Atom(id=0, text="claim", span=(0, 5), source_query="paper query")
+    await Verify(searcher, PageCrawler({}), judge).verify(atom)
+    assert sorted(searcher.queries) == ["claim", "paper query"]
+    urls = [h["url"] for h in judge.snippet_docs]
+    assert urls == ["https://a.org", "https://b.org", "https://paper.org"]  # the claim's own hits first, each url once
+
+
+async def test_no_source_query_means_one_search_as_before():
+    searcher = SearchByQuery({"claim": [hit("https://a.org")]})
+    await Verify(searcher, PageCrawler({}), RecordingJudge()).verify(Atom(id=0, text="claim", span=(0, 5)))
+    assert searcher.queries == ["claim"]
