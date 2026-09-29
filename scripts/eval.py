@@ -55,6 +55,7 @@ from typing import Any
 import httpx
 
 from factassessor import Atom, Crawl4AICrawler, FactAssessor, LayaClaimFilter, LayaJudge, LLMJudge, SerperSearcher
+from factassessor._llm import reasoning_off
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.crawlers import Crawler, OpenAccessCrawler
 from factassessor.pipeline import Take
@@ -447,8 +448,8 @@ class RecordedCrawler(Crawler):
 # --- runs ------------------------------------------------------------------------------------------------------
 
 def llm_settings(model: str) -> dict[str, Any]:
-    """Reasoning off (billed as output tokens); gpt-5 models take "minimal", newer ones "none"."""
-    return {"openai_reasoning_effort": "minimal" if model.startswith("openai:gpt-5-") else "none"}
+    """Reasoning as low as the model allows (the library's own default for LLM steps)."""
+    return reasoning_off(model)
 
 
 def components(variant: str, llm_model: str = LLM_MODEL) -> tuple[Any, Any]:

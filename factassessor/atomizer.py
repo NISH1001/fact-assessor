@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from factassessor.pipeline import FlatMap, Step
+from factassessor._llm import reasoning_off
 from factassessor.schema import Atom
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,6 @@ not "Nepal's 2017 earthquake had a magnitude of 7.8" (the year is its own claim)
 - source: copy the exact words from the text that the claim comes from."""
 
 DEFAULT_MODEL = "openai:gpt-5.6-luna"
-DEFAULT_SETTINGS: dict[str, Any] = {"openai_reasoning_effort": "none"}
 
 _SENTENCE = re.compile(r"\S.*?(?:[.!?]+(?=\s|$)|$)", re.S)  # ends at .!? + space, so "7.8" stays whole
 
@@ -72,7 +72,7 @@ class LLMAtomizer(Atomizer):
             model,
             output_type=Claims,
             instructions=INSTRUCTIONS,
-            model_settings=DEFAULT_SETTINGS if model_settings is None else model_settings,
+            model_settings=reasoning_off(model) if model_settings is None else model_settings,
             defer_model_check=True,  # don't require an API key until the first call
         )
 

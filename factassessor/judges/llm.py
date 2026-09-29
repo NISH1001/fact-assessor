@@ -22,12 +22,12 @@ from pydantic_ai import Agent
 
 from factassessor.judges._base import Judge
 from factassessor.passages import chunk, top_passages
+from factassessor._llm import reasoning_off
 from factassessor.schema import Evidence
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "openai:gpt-6-luna"  # most accurate judge we measured; reasoning off
-DEFAULT_SETTINGS: dict[str, Any] = {"openai_reasoning_effort": "none"}
 
 INSTRUCTIONS = """\
 You are a careful fact-checker. Each item is a claim and one evidence passage. Using the evidence alone, decide:
@@ -61,7 +61,7 @@ class LLMJudge(Judge):
             model,
             output_type=Stances,
             instructions=INSTRUCTIONS,
-            model_settings=DEFAULT_SETTINGS if model_settings is None else model_settings,
+            model_settings=reasoning_off(model) if model_settings is None else model_settings,
             defer_model_check=True,  # don't require an API key until the first call
         )
         self.window_ms = window_ms
