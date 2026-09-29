@@ -252,7 +252,7 @@ async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODE
     await crawler.stop()
 
 
-async def fetch_papers(xlsx: str, links_sheet: str, min_chars: int = 3000) -> None:
+async def fetch_papers(xlsx: str, links_sheet: str, min_words: int = 500) -> None:
     """paired: each pair's source paper (full text), for in-domain checks against the paper itself.
     Tries the workbook's open-access link (plain download: PDF or HTML, then the browser), then OpenAlex's
     open-access copies via the DOI. Writes papers.json next to the texts (gitignored)."""
@@ -269,7 +269,7 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_chars: int = 3000) -> No
     sources = list(dict.fromkeys(t["source"] for t in load_texts()))
     out_path = TEXTS.parent / "papers.json"
     papers = json.loads(out_path.read_text()) if out_path.exists() else {}
-    browser, open_access = Crawl4AICrawler(timeout=20), OpenAccessCrawler(timeout=30, min_chars=min_chars)
+    browser, open_access = Crawl4AICrawler(timeout=20), OpenAccessCrawler(timeout=30, min_words=min_words)
     http = httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (fact-assessor eval)"})
 
     async def download(url: str) -> str:
@@ -284,7 +284,7 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_chars: int = 3000) -> No
             return ""
 
     for source in sources:
-        if len(papers.get(source, {}).get("text", "")) >= min_chars:
+        if len(papers.get(source, {}).get("text", "").split()) >= min_words:
             continue
         link = links.get(norm(source), "")
         doi = re.search(r"10\.\d{4,9}/[^\s)\]]+", source + " " + link)
@@ -295,7 +295,7 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_chars: int = 3000) -> No
                 got = await get(link)
                 got = got["text"] if isinstance(got, dict) else (got or "")
                 tried.append(f"{name}:{len(got)}")
-                if len(got) >= min_chars:
+                if len(got.split()) >= min_words:
                     text, via = got, f"{name} {link}"
                     break
         if not text and doi:
@@ -307,8 +307,8 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_chars: int = 3000) -> No
         out_path.write_text(json.dumps(papers, ensure_ascii=False))
         print(f"{'OK  ' if text else 'none'} {len(text):7d} chars  {source[:70]}  [{', '.join(tried)}]", flush=True)
     await browser.stop(); await open_access.stop(); await http.aclose()
-    have = sum(len(p["text"]) >= min_chars for p in papers.values())
-    pairs = {t["pair"] for t in load_texts() if len(papers.get(t["source"], {}).get("text", "")) >= min_chars}
+    have = sum(len(p["text"].split()) >= min_words for p in papers.values())
+    pairs = {t["pair"] for t in load_texts() if len(papers.get(t["source"], {}).get("text", "").split()) >= min_words}
     print(f"\nfull text for {have} of {len(sources)} papers -> {len(pairs)} of 50 pairs usable in-domain")
 
 

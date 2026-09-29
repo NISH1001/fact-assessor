@@ -55,7 +55,7 @@ class OpenAccessCrawler(Crawler):
 
     Anything else (ordinary web pages) returns None at once, with no request: put it first and let the browser
     take the rest, `FallbackCrawler(OpenAccessCrawler(), Crawl4AICrawler())`. The text comes back under the
-    original URL, so it stays that search hit's evidence; less than `min_chars` counts as a bot-check page, not a
+    original URL, so it stays that search hit's evidence; fewer than `min_words` words counts as a bot-check page, not a
     paper. Needs `fact-assessor[pdf]` for PDFs.
 
     Why: on a scientific eval set, Google Scholar found a claim's source paper 2.5x as often as web search (49% vs
@@ -65,11 +65,14 @@ class OpenAccessCrawler(Crawler):
     OPENALEX = "https://api.openalex.org/works/doi:"
 
     def __init__(
-        self, timeout: float = 10.0, max_concurrent: int = 5, max_bytes: int = 20_000_000, min_chars: int = 1000, pdf_text: Any = None
+        self, timeout: float = 10.0, max_concurrent: int = 5, max_bytes: int = 20_000_000, min_words: int = 300, pdf_text: Any = None
     ) -> None:
         self.timeout = timeout  # a lookup plus a PDF download: slower than a page, so it gets its own deadline
         self.max_bytes = max_bytes
-        self.min_chars = min_chars  # less is a bot-check or error page (IOP's is 384 chars), not a paper
+        # fewer is a bot-check or error page, not a paper: on 2,748 crawled pages, Wiley's, Science's, and HAL's
+        # "Making sure you're not a bot!" pages are ~180 words; a paper is thousands. Words, not characters: links
+        # and markup leftovers inflate character counts. (Scripts written without spaces, like Chinese, count low.)
+        self.min_words = min_words
         self._pdf_text = pdf_text or _pdf_text  # tests pass a fake
         self._slots = asyncio.Semaphore(max_concurrent)  # OpenAlex asks for at most 10 requests/s
         self._http: httpx.AsyncClient | None = None
@@ -129,4 +132,4 @@ class OpenAccessCrawler(Crawler):
         else:
             return None
         text = clean_text(text)
-        return text if len(text) >= self.min_chars else None
+        return text if len(text.split()) >= self.min_words else None

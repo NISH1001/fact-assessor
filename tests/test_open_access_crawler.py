@@ -22,7 +22,7 @@ def crawler(routes, **kwargs):
                 return httpx.Response(status, headers={"content-type": ctype}, content=body)
         return httpx.Response(404)
 
-    kwargs.setdefault("min_chars", 0)  # the sample texts are short; the stub test sets the real minimum
+    kwargs.setdefault("min_words", 0)  # the sample texts are short; the stub test sets the real minimum
     c = OpenAccessCrawler(pdf_text=lambda data: data.decode(), **kwargs)  # tests: the "PDF" is plain text
     c._http = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True)
     return c, seen
@@ -98,7 +98,7 @@ async def test_other_open_access_copies_are_tried_and_stub_pages_rejected():
         "https://api.openalex.org/": (200, "application/json", json.dumps(work).encode()),
         "https://publisher.example/pdf/1": (200, "application/pdf", b"Please verify you are a human."),  # a stub
         "https://repository.example/paper.pdf": (200, "application/pdf", body),
-    }, min_chars=1000)
+    }, min_words=100)
     page = await c.crawl("https://doi.org/10.3847/1538-4357/ac1a76")
     await c.stop()
     assert page is not None and "warm season" in page["text"]
@@ -158,7 +158,7 @@ async def test_a_pdf_link_that_serves_a_bot_page_falls_back_to_open_access():
         url: (200, "text/html", b"<html><body>Radware bot check</body></html>"),
         "https://api.openalex.org/": (200, "application/json", json.dumps(work).encode()),
         "https://arxiv.org/pdf/2106.00001": (200, "application/pdf", b"The real paper text, long enough to count."),
-    }, min_chars=20)
+    }, min_words=5)
     page = await c.crawl(url)
     await c.stop()
     assert page["text"].startswith("The real paper") and page["url"] == url
