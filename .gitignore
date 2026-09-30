@@ -225,3 +225,6 @@ data/evidence/
 
 # Local scratch files
 /tmp/
+
+# the paper eval data and everything derived from it (their atoms and labels) stay local
+data/private/
