@@ -8,8 +8,8 @@ from factassessor.assessor import FactAssessor
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, GlinerClaimFilter, LayaClaimFilter
 from factassessor.crawlers import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler, NoCrawler
-from factassessor.judges import GlinerJudge, Judge, LayaJudge, LLMJudge
-from factassessor.pipeline import Cache, Chain, Filter, FlatMap, Map, Pred, Scan, Step, Take, TakeUntil, collect, last, once
+from factassessor.judges import DecisionAPIJudge, GlinerJudge, Judge, LayaJudge, LLMJudge
+from factassessor.pipeline import Cache, Chain, Filter, FlatMap, Map, Predicate, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.rankers import BM25Ranker, EmbeddingRanker, HybridRanker, Ranker
 from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, Resolver
 from factassessor.schema import (
@@ -46,11 +46,11 @@ __all__ = [
     "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "FallbackCrawler", "NoCrawler",
     "Resolver", "ArxivResolver", "OpenAlexResolver", "CompositeResolver",
     "Ranker", "BM25Ranker", "EmbeddingRanker", "HybridRanker",
-    "Judge", "LayaJudge", "GlinerJudge", "LLMJudge",
+    "Judge", "LayaJudge", "GlinerJudge", "LLMJudge", "DecisionAPIJudge",
     "Policy", "WeightedPolicy",
     "Verify",
     # composition
-    "Step", "Chain", "Map", "FlatMap", "Filter", "Take", "Scan", "TakeUntil", "Cache", "Pred", "once", "collect", "last",
+    "Step", "Chain", "Map", "FlatMap", "Filter", "Take", "Scan", "TakeUntil", "Cache", "Predicate", "once", "collect", "last",
     # helpers
     "not_blocked", "is_blocked", "BLOCKED_DOMAINS", "fact_score", "kg",
     # data

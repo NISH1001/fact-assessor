@@ -99,8 +99,8 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
     _imports.add(_search[0])
     _keep = "not_blocked()"
     if sources_choice.value.startswith("Official"):
-        _imports.add("Pred")
-        _pre += ['official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu", ".int")))', ""]
+        _imports.add("Predicate")
+        _pre += ['official = Predicate(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu", ".int")))', ""]
         _keep = "(not_blocked() & official)"
 
     _crawl = {
@@ -160,7 +160,7 @@ def _():
         LayaJudge,
         LLMAtomizer,
         LLMJudge,
-        Pred,
+        Predicate,
         SearxngSearcher,
         SerperSearcher,
         Take,
@@ -171,7 +171,7 @@ def _():
     # this also keeps one browser and one HTTP pool).
     browser = Crawl4AICrawler(timeout=2.5)
     fast_fetch = HTTPXCrawler(timeout=2.5)
-    official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu", ".int")))
+    official = Predicate(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu", ".int")))
     _cache = {}
 
     def component(kind, name):
@@ -340,13 +340,13 @@ def _(mo):
     FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))   # fast fetch, browser if needed
     ```
 
-    **4. Chain steps with `>>`.** A condition (`Pred`) filters, a plain function transforms, `Take(n)` caps:
+    **4. Chain steps with `>>`.** A condition (`Predicate`) filters, a plain function transforms, `Take(n)` caps:
 
     ```python
-    is_forum = Pred(lambda hit: "reddit.com" in hit["url"] or "quora.com" in hit["url"])
+    is_forum = Predicate(lambda hit: "reddit.com" in hit["url"] or "quora.com" in hit["url"])
 
     FactAssessor(
-        claim_filter=LayaClaimFilter(threshold=0.5) >> Pred(lambda atom: len(atom.text) > 15),
+        claim_filter=LayaClaimFilter(threshold=0.5) >> Predicate(lambda atom: len(atom.text) > 15),
         searcher=SerperSearcher(num=20) >> (not_blocked() & ~is_forum) >> Take(5),
     )
     ```

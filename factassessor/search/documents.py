@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from factassessor.passages import BM25Index
+from factassessor.passages import BM25Index, word_windows
 from factassessor.search._base import Searcher
 
 
@@ -21,7 +20,7 @@ class DocumentSearcher(Searcher):
         self.num = num
         self.passages: list[tuple[dict[str, Any], int, str]] = []
         for doc in documents:
-            for n, text in enumerate(_word_windows(doc["text"], passage_words, overlap)):
+            for n, text in enumerate(word_windows(doc["text"], passage_words, overlap)):
                 self.passages.append((doc, n, text))
         self.index = BM25Index([text for _, _, text in self.passages])
 
@@ -31,17 +30,3 @@ class DocumentSearcher(Searcher):
             {"url": f"{doc['url']}#p{n}", "title": doc.get("title") or "", "snippet": text}
             for doc, n, text in (self.passages[i] for i in best)
         ]
-
-
-def _word_windows(text: str, size: int, overlap: int) -> list[str]:
-    """Overlapping windows of `size` words, as exact slices of `text`."""
-
-    spans = [m.span() for m in re.finditer(r"\S+", text)]
-    step = max(1, size - overlap)
-    windows = []
-    for start in range(0, len(spans), step):
-        part = spans[start : start + size]
-        windows.append(text[part[0][0] : part[-1][1]])
-        if start + size >= len(spans):
-            break
-    return windows

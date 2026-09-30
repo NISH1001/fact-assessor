@@ -250,16 +250,16 @@ All keyword arguments to `FactAssessor`:
 
 ### Compose your own pipeline
 
-Every component is a step, and steps chain with `>>` ("then"). In a chain, a **`Pred`** (a condition) filters
+Every component is a step, and steps chain with `>>` ("then"). In a chain, a **`Predicate`** (a condition) filters
 whatever flows at that point (atoms after the atomizer, search hits after the searcher) and a **plain function**
 transforms it. Conditions combine with `&` (and), `|` (or), `~` (not).
 
 ```python
 from urllib.parse import urlparse
-from factassessor import Crawl4AICrawler, FactAssessor, LayaClaimFilter, Pred, SerperSearcher, Take, not_blocked
+from factassessor import Crawl4AICrawler, FactAssessor, LayaClaimFilter, Predicate, SerperSearcher, Take, not_blocked
 
-official = Pred(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu")))   # a condition
-long_enough = Pred(lambda atom: len(atom.text) > 15)
+official = Predicate(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu")))   # a condition
+long_enough = Predicate(lambda atom: len(atom.text) > 15)
 
 fa = FactAssessor(
     claim_filter=LayaClaimFilter(threshold=0.5) >> long_enough,
@@ -306,7 +306,7 @@ Building blocks:
 | | Does |
 |---|---|
 | `Map(fn)` or a bare `fn` in a chain | one in, one out (return `None` to drop) |
-| `Filter(pred)` or a `Pred` in a chain | keep items where the condition holds |
+| `Filter(pred)` or a `Predicate` in a chain | keep items where the condition holds |
 | `FlatMap(fn)` | one in, many out |
 | `Take(n)` | first n items, then stop |
 | `Scan(fn, initial)` | running total: yields `fn(total, item)` after each item |
@@ -523,7 +523,7 @@ Layout:
 ```
 factassessor/
   assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
-  pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Pred: the streaming runner
+  pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Predicate: the streaming runner
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
   claim_filters/     atoms -> the factual claims
     _base.py         ClaimFilter (role)

@@ -38,7 +38,7 @@ Everything is a **step**: it takes an async stream of items and yields an async 
 `>>` ("then"). On plain numbers:
 
 ```python
-from factassessor import Filter, FlatMap, Map, Pred, Scan, Take, TakeUntil, collect, once
+from factassessor import Filter, FlatMap, Map, Predicate, Scan, Take, TakeUntil, collect, once
 
 async def numbers():
     for n in range(10):
@@ -58,11 +58,11 @@ await collect((Filter(lambda n: n % 2 == 0) >> Map(lambda n: n * 10) >> Take(3))
 
 `once(x)` is a one-item stream (the usual way to feed a chain); `collect(stream)` gathers a stream into a list.
 
-**Conditions and shorthand.** A `Pred` is a condition that combines with `&` (and), `|` (or), `~` (not). In a chain a
-`Pred` filters and a plain function transforms, so you rarely write `Filter(...)` / `Map(...)`:
+**Conditions and shorthand.** A `Predicate` is a condition that combines with `&` (and), `|` (or), `~` (not). In a chain a
+`Predicate` filters and a plain function transforms, so you rarely write `Filter(...)` / `Map(...)`:
 
 ```python
-even, big = Pred(lambda n: n % 2 == 0), Pred(lambda n: n > 5)
+even, big = Predicate(lambda n: n % 2 == 0), Predicate(lambda n: n > 5)
 await collect(Filter(even & big)(numbers()))                        # [6, 8]
 await collect((~even >> (lambda n: n * 10))(numbers()))             # [10, 30, 50, 70, 90]
 await collect((Scan(lambda t, n: t + n, 0) >> TakeUntil(lambda t: t >= 10))(numbers()))   # [0, 1, 3, 6, 10]
@@ -195,7 +195,7 @@ Components are steps, so they chain with the building blocks. A condition filter
 atoms after the claim filter, search hits after the searcher.
 
 ```python
-long_enough = Pred(lambda atom: len(atom.text) > 15)
+long_enough = Predicate(lambda atom: len(atom.text) > 15)
 atomizer_chain = LLMAtomizer() >> LayaClaimFilter(threshold=0.4) >> long_enough >> Take(8)
 await collect(atomizer_chain(once(text)))                # the atoms worth checking
 
@@ -273,7 +273,7 @@ For the Nepal text: 2 sentences, 4 claims, 17 passages, 11 sources; 10 supports 
 
 ## 7. Writing your own
 
-- **A function or a `Pred`**: drop it straight into a chain (sync or async). Enough for most things.
+- **A function or a `Predicate`**: drop it straight into a chain (sync or async). Enough for most things.
 - **A role subclass**: implement its one method; streaming, concurrency, and chaining come from the base.
 
 ```python

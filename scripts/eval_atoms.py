@@ -40,6 +40,7 @@ from factassessor import (
     LayaJudge, LLMAtomizer, OpenAlexResolver, SearxngSearcher, Step, Take, Verify, WeightedPolicy, collect, not_blocked,
     once,
 )
+from factassessor.judges import DecisionAPIJudge
 from factassessor.laya import LayaRunner
 from factassessor.rankers import HybridRanker
 from factassessor.resolvers import locations
@@ -233,6 +234,16 @@ class CachedCrawler(Crawler):
 
 # --- runs ---------------------------------------------------------------------------------------------------------
 
+def make_judge(args: argparse.Namespace) -> Any:
+    """`--judge laya` (local, the default) or `--judge decision` (OpenRouter's Decisions API, e.g. Jev), with the
+    same passages per page and ranker either way."""
+    ranker = HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None
+    if args.judge == "decision":
+        return DecisionAPIJudge(model=args.judge_model, passages_per_page=args.passages, ranker=ranker)
+    return LayaJudge(passages_per_page=args.passages, ranker=ranker,
+                     runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None)
+
+
 def _load(path: Path, default: Any) -> Any:
     return json.loads(gzip.decompress(path.read_bytes())) if path.exists() else default
 
@@ -318,9 +329,7 @@ async def live(args: argparse.Namespace) -> None:
 
     atomizer = LLMAtomizer(args.atomizer, source_query=not args.no_source_query)
     claim_filter = LayaClaimFilter()
-    judge = LayaJudge(passages_per_page=args.passages,
-                      runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None,
-                      ranker=HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None)
+    judge = make_judge(args)
     searcher = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type,
                                hedge_after=None) >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
     base_resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
@@ -328,34 +337,38 @@ async def live(args: argparse.Namespace) -> None:
     verify = Verify(TimedSearch(searcher, hits), TimedCrawler(base_crawler), TimedJudge(judge, pages),
                     WeightedPolicy(strong=args.strong), timeout=args.timeout,
                     resolver=TimedResolver(base_resolver) if base_resolver else None,
-                    pages_per_claim=TOP_K if args.overfetch else None)
+                    pages_per_claim=TOP_K * (1 if args.no_source_query else 2) if args.overfetch else None)
     await judge.judge("warm-up", [{"url": "u", "title": "", "snippet": "warm-up"}])  # load Laya before timing
     _write_meta(run_dir, args)
+    slots = asyncio.Semaphore(args.parallel)  # answers at once; > 1 contaminates per-answer latency (flagged)
+    todo = [a for a in answers if a["id"] not in done]
 
-    for n, answer in enumerate(answers, 1):
-        if answer["id"] in done:
-            continue
-        t0 = time.perf_counter()
-        ours = await atomizer.atomize(answer["text"])  # timed only: scoring uses the labelled atoms
-        t1 = time.perf_counter()
-        kept = await collect(claim_filter(_stream(ours)))
-        t2 = time.perf_counter()
-        answer["source_query"] = ours[0].source_query if ours else None  # from the same atomizer call
-        searches_cached = all(a["text"] in hits for a in answer["atoms"])  # an earlier run searched them: not live
-        atoms, verify_s = await verify_answer(verify, answer)
-        done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind", "source_query")}, "atoms": atoms,
-                              "time": {"atomize": t1 - t0, "filter": t2 - t1, "verify": verify_s,
-                                       "total": t1 - t0 + t2 - t1 + verify_s},
-                              "our_atoms": len(ours), "our_kept": len(kept), "searches_cached": searches_cached}
-        queries = [a["text"] for a in answer["atoms"]] + ([answer["source_query"]] if answer["source_query"] else [])
-        await fill_pages(hits, pages, base_resolver, base_crawler, queries)
-        _save(run_dir / "hits.json.gz", hits)
-        _save(run_dir / "pages.json.gz", pages)
-        _save(run_dir / "results.json.gz", list(done.values()))
-        t = done[answer["id"]]["time"]
-        s = sum(a["verdict"] == "supported" for a in atoms)
-        print(f"[{n:3d}/{len(answers)}] {answer['id']}: {len(atoms)} atoms, {s} supported; atomize {t['atomize']:.1f}s "
-              f"filter {t['filter']:.2f}s verify {t['verify']:.1f}s = {t['total']:.1f}s", flush=True)
+    async def one(n: int, answer: dict[str, Any]) -> None:
+        async with slots:
+            t0 = time.perf_counter()
+            ours = await atomizer.atomize(answer["text"])  # timed only: scoring uses the labelled atoms
+            t1 = time.perf_counter()
+            kept = await collect(claim_filter(_stream(ours)))
+            t2 = time.perf_counter()
+            answer["source_query"] = ours[0].source_query if ours else None  # from the same atomizer call
+            searches_cached = all(a["text"] in hits for a in answer["atoms"])  # an earlier run searched them: not live
+            atoms, verify_s = await verify_answer(verify, answer)
+            done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind", "source_query")}, "atoms": atoms,
+                                  "time": {"atomize": t1 - t0, "filter": t2 - t1, "verify": verify_s,
+                                           "total": t1 - t0 + t2 - t1 + verify_s},
+                                  "our_atoms": len(ours), "our_kept": len(kept),
+                                  "searches_cached": searches_cached or args.parallel > 1}
+            queries = [a["text"] for a in answer["atoms"]] + ([answer["source_query"]] if answer["source_query"] else [])
+            await fill_pages(hits, pages, base_resolver, base_crawler, queries)
+            _save(run_dir / "hits.json.gz", hits)  # synchronous dumps: no other answer mutates the dicts meanwhile
+            _save(run_dir / "pages.json.gz", pages)
+            _save(run_dir / "results.json.gz", list(done.values()))
+            t = done[answer["id"]]["time"]
+            s = sum(a["verdict"] == "supported" for a in atoms)
+            print(f"[{n:3d}/{len(answers)}] {answer['id']}: {len(atoms)} atoms, {s} supported; atomize {t['atomize']:.1f}s "
+                  f"filter {t['filter']:.2f}s verify {t['verify']:.1f}s = {t['total']:.1f}s", flush=True)
+
+    await asyncio.gather(*(one(n, a) for n, a in enumerate(todo, 1 + len(answers) - len(todo))))
 
     await base_crawler.aclose()
     if base_resolver:
@@ -373,9 +386,7 @@ async def replay(args: argparse.Namespace) -> None:
     run_dir = OUT / args.tag
     hits, pages = _load(run_dir / "hits.json.gz", {}), _load(run_dir / "pages.json.gz", {})
     live_results = _load(run_dir / "results.json.gz", [])
-    judge = LayaJudge(passages_per_page=args.passages,
-                      runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None,
-                      ranker=HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None)
+    judge = make_judge(args)
     source_queries = [r["source_query"] for r in live_results if r.get("source_query")]
     caps = {q: args.source_hits for q in source_queries} if args.source_hits else {}
     verify = Verify(CachedSearch(hits, caps), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120)
@@ -452,12 +463,15 @@ def main() -> None:
     lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
     lv.add_argument("--no-resolver", action="store_true")
     lv.add_argument("--no-source-query", action="store_true", help="claims search on their own only")
+    lv.add_argument("--parallel", type=int, default=1, help="answers at once (> 1: per-answer latency not comparable)")
     lv.add_argument("--overfetch", type=float, default=0.0,
                     help="keep this fraction more hits than pages (1.0: 10 hits for 5 pages); the first 5 readable are judged")
     lv.add_argument("--passages", type=int, default=1, help="passages per page for the judge")
     lv.add_argument("--strong", type=float, default=0.7)
     lv.add_argument("--timeout", type=float, default=15.0, help="per-claim deadline (the library default is 15s)")
     lv.add_argument("--laya-wait-ms", type=float, help="Laya's batch merge window (the runtime default is 5ms)")
+    lv.add_argument("--judge", default="laya", choices=["laya", "decision"], help="decision: OpenRouter's Decisions API (Jev)")
+    lv.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
     lv.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
     lv.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
     rp = sub.add_parser("replay", help="judge the cached evidence of --tag again, with another setup")
@@ -468,6 +482,8 @@ def main() -> None:
     rp.add_argument("--source-hits", type=int, help="use only the first N hits of each text's source query")
     rp.add_argument("--no-source-query", action="store_true", help="claims judged on their own hits only")
     rp.add_argument("--laya-wait-ms", type=float, help="Laya's batch merge window (the runtime default is 5ms)")
+    rp.add_argument("--judge", default="laya", choices=["laya", "decision"], help="decision: OpenRouter's Decisions API (Jev)")
+    rp.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
     rp.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
     rp.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
     rp.add_argument("--parallel", type=int, default=4, help="answers judged at once (no network in a replay: Laya only)")

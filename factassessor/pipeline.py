@@ -7,7 +7,7 @@ item 1 can be three steps downstream while item 5 is still in the first. Nothing
 Closing a stream (a consumer breaking out, `Take(n)` reaching n, a timeout) cancels the unfinished work in
 every step feeding it.
 
-In a chain, a plain function is a `Map` and a `Pred` is a `Filter`, so `serper >> not_blocked() >> Take(5)`
+In a chain, a plain function is a `Map` and a `Predicate` is a `Filter`, so `serper >> not_blocked() >> Take(5)`
 reads as "search, keep unblocked hits, take five". Conditions combine with `&`, `|`, `~`; `>>` is only ever "then".
 """
 
@@ -215,10 +215,10 @@ class Take(Step):
             await _aclose(items)
 
 
-class Pred:
+class Predicate:
     """A condition that combines with `&` (and), `|` (or), `~` (not), sync or async. In a chain it's a `Filter`.
 
-        official = Pred(lambda hit: hit["url"].endswith((".gov", ".edu")))
+        official = Predicate(lambda hit: hit["url"].endswith((".gov", ".edu")))
         searcher = Serper() >> (not_blocked() & official) >> Take(5)
     """
 
@@ -229,47 +229,47 @@ class Pred:
     def __call__(self, item: Any) -> Any:
         return self.fn(item)
 
-    def __and__(self, other: Any) -> Pred:
+    def __and__(self, other: Any) -> Predicate:
         return _combine(self, as_pred(other), stop_on=False)
 
-    def __rand__(self, other: Any) -> Pred:
+    def __rand__(self, other: Any) -> Predicate:
         return _combine(as_pred(other), self, stop_on=False)
 
-    def __or__(self, other: Any) -> Pred:
+    def __or__(self, other: Any) -> Predicate:
         return _combine(self, as_pred(other), stop_on=True)
 
-    def __ror__(self, other: Any) -> Pred:
+    def __ror__(self, other: Any) -> Predicate:
         return _combine(as_pred(other), self, stop_on=True)
 
-    def __invert__(self) -> Pred:
+    def __invert__(self) -> Predicate:
         if not self.is_async:
-            return Pred(lambda item: not self.fn(item))
+            return Predicate(lambda item: not self.fn(item))
 
         async def negated(item: Any) -> bool:
             return not await self.fn(item)
 
-        return Pred(negated)
+        return Predicate(negated)
 
     def __rshift__(self, other: Any) -> Chain:
         return Chain(Filter(self), as_step(other))
 
 
-def as_pred(fn: Any) -> Pred:
-    return fn if isinstance(fn, Pred) else Pred(fn)
+def as_pred(fn: Any) -> Predicate:
+    return fn if isinstance(fn, Predicate) else Predicate(fn)
 
 
 def as_step(x: Any) -> Step:
-    """What `>>` accepts: a step as-is, a `Pred` as a `Filter`, any other callable as a `Map`."""
+    """What `>>` accepts: a step as-is, a `Predicate` as a `Filter`, any other callable as a `Map`."""
     if isinstance(x, Step):
         return x
-    if isinstance(x, Pred):
+    if isinstance(x, Predicate):
         return Filter(x)
     if callable(x):
         return Map(x)
-    raise TypeError(f"can't chain {x!r}: expected a Step, a Pred, or a function")
+    raise TypeError(f"can't chain {x!r}: expected a Step, a Predicate, or a function")
 
 
-def _combine(left: Pred, right: Pred, stop_on: bool) -> Pred:
+def _combine(left: Predicate, right: Predicate, stop_on: bool) -> Predicate:
     """`and` (stop_on=False) or `or` (stop_on=True), short-circuiting: `right` only runs if `left` doesn't decide."""
     if not (left.is_async or right.is_async):
 
@@ -277,14 +277,14 @@ def _combine(left: Pred, right: Pred, stop_on: bool) -> Pred:
             decided = bool(left.fn(item))
             return decided if decided == stop_on else bool(right.fn(item))
 
-        return Pred(combined_sync)
+        return Predicate(combined_sync)
 
     async def combined(item: Any) -> bool:
         if bool(await _maybe_await(left.fn(item))) == stop_on:
             return stop_on
         return bool(await _maybe_await(right.fn(item)))
 
-    return Pred(combined)
+    return Predicate(combined)
 
 
 async def last(stream: AsyncIterator[Any], default: Any = None) -> Any:
@@ -373,7 +373,7 @@ async def _in_order(items: AsyncIterator[Any], fn: Callable[[Any], list[Any]]) -
 
 
 def _is_async(fn: Any) -> bool:
-    if isinstance(fn, Pred):
+    if isinstance(fn, Predicate):
         return fn.is_async
     return inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(getattr(fn, "__call__", None))
 

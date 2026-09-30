@@ -171,3 +171,4 @@ def test_overfetch_keeps_more_hits_than_pages():
     fa = FactAssessor(top_k=4)  # default: today's behaviour, every kept hit is read
     _, _, take_hits = fa.searcher.step.steps
     assert take_hits.n == 4 and fa.verify.pages_per_claim is None
+    assert FactAssessor(top_k=4, overfetch=1.0, source_query=True).verify.pages_per_claim == 8  # own + source query's

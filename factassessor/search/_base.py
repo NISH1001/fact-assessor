@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
 
-from factassessor.pipeline import FlatMap, Pred, Step
+from factassessor.pipeline import FlatMap, Predicate, Step
 
 
 class SearchType(str, Enum):
@@ -23,10 +23,10 @@ class SearchType(str, Enum):
     SCIENCE = "science"
 
 # Removed after search, before crawling: social media and forums are mostly reposts, opinions, and comments (and
-# often crawl badly); video pages have no usable text. LinkedIn is kept as a primary source for people and orgs.
+# often crawl badly); video pages have no usable text; LinkedIn posts are the same, and its pages block crawlers.
 BLOCKED_DOMAINS = (
     "facebook.com", "fb.com", "instagram.com", "threads.net", "tiktok.com", "pinterest.com",
-    "twitter.com", "x.com", "reddit.com", "quora.com",
+    "twitter.com", "x.com", "reddit.com", "quora.com", "linkedin.com", "tumblr.com",
     "youtube.com", "youtu.be",
 )
 
@@ -45,10 +45,10 @@ class Searcher(Step, ABC):
         return FlatMap(hits)(queries)
 
 
-def not_blocked(domains: tuple[str, ...] = BLOCKED_DOMAINS) -> Pred:
+def not_blocked(domains: tuple[str, ...] = BLOCKED_DOMAINS) -> Predicate:
     """Hit condition: False for hits on `domains` or their subdomains (m.facebook.com). Use it in a chain
     (`SerperSearcher() >> not_blocked() >> Take(5)`) or combine it (`not_blocked() & official`)."""
-    return Pred(lambda hit: not is_blocked(hit["url"], domains))
+    return Predicate(lambda hit: not is_blocked(hit["url"], domains))
 
 
 def is_blocked(url: str, domains: tuple[str, ...] = BLOCKED_DOMAINS) -> bool:

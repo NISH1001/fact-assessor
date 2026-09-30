@@ -89,7 +89,8 @@ class FactAssessor:
         claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}
         self.verify = Verify(
             self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, resolver=resolver,
-            pages_per_claim=top_k if overfetch else None, **claims
+            pages_per_claim=top_k * (2 if source_query else 1) if overfetch else None,  # own hits + the source query's
+            **claims,
         )
         self._loop: asyncio.AbstractEventLoop | None = None  # background loop behind assess_sync()
         self._loop_thread: threading.Thread | None = None

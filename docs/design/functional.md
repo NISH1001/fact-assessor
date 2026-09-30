@@ -45,7 +45,7 @@ chain contain plain functions and conditions:
 | In a chain | Becomes | Example |
 |---|---|---|
 | a `Step` | itself | `SerperSearcher()` |
-| a `Pred` (a condition) | `Filter(pred)` | `not_blocked()`, `official & ~is_video` |
+| a `Predicate` (a condition) | `Filter(pred)` | `not_blocked()`, `official & ~is_video` |
 | any other callable | `Map(fn)` | `lambda hit: hit["url"]` |
 
 Why `>>` and not `>` or `|`: Python treats `a > b > c` as a chained comparison, `(a > b) and (b > c)`, which
@@ -106,18 +106,18 @@ This is the one piece of real machinery; every async `Map`/`FlatMap`/`Filter` go
   run it inline (`_in_order`), keeping input order and skipping the tasks. That's why
   `SerperSearcher() >> not_blocked() >> Take(5)` keeps Google's ranking.
 
-## 5. Conditions: `Pred` and `&`, `|`, `~`
+## 5. Conditions: `Predicate` and `&`, `|`, `~`
 
-`Pred` wraps a condition so it combines:
+`Predicate` wraps a condition so it combines:
 
 ```python
-official = Pred(lambda hit: hit["url"].endswith((".gov", ".edu")))
+official = Predicate(lambda hit: hit["url"].endswith((".gov", ".edu")))
 searcher = SerperSearcher() >> (not_blocked() & official) >> Take(5)
 ```
 
-`&` and `|` build a new `Pred` that **short-circuits** (the right side only runs if the left doesn't decide) and
+`&` and `|` build a new `Predicate` that **short-circuits** (the right side only runs if the left doesn't decide) and
 evaluates each side at most once. If either side is async, the combined condition is async; otherwise it stays a
-plain sync function (so it keeps the fast, ordered path in section 4). `~` negates. A `Pred` is a condition on
+plain sync function (so it keeps the fast, ordered path in section 4). `~` negates. A `Predicate` is a condition on
 **one item**; to run it over a stream, put it in a chain or wrap it in `Filter`.
 
 ## 6. Stopping early cancels work
@@ -192,7 +192,7 @@ seconds on network calls, crawling, and model passes. (A/B vs the pre-refactor c
 
 | File | What |
 |---|---|
-| `pipeline.py` | `Step`, `Chain`, `Map`, `FlatMap`, `Filter`, `Take`, `Scan`, `TakeUntil`, `Pred`, `as_step`, `_concurrently`, lifecycle walk |
+| `pipeline.py` | `Step`, `Chain`, `Map`, `FlatMap`, `Filter`, `Take`, `Scan`, `TakeUntil`, `Predicate`, `as_step`, `_concurrently`, lifecycle walk |
 | `atomizer.py`, `search/`, `crawlers/`, `judges/`, `gliner.py`, `verify.py` | roles and implementations |
 | `claim_filters/` | `ClaimFilter` (role: `score(atom)`), `LayaClaimFilter`, `GlinerClaimFilter` |
 | `assessor.py` | `FactAssessor`: default chain, `stream` / `assess` / `assess_sync`, lifecycle |

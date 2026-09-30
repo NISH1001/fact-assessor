@@ -89,7 +89,7 @@ them. Crawlers know about *fetching one URL* (HTTP or a browser) and turn what t
 ## The streaming engine
 
 `factassessor/pipeline.py`. A `Step` turns an async stream of items into an async stream of items; `a >> b` chains
-them. In a chain, a plain function is a `Map` and a `Pred` (a condition) is a `Filter`.
+them. In a chain, a plain function is a `Map` and a `Predicate` (a condition) is a `Filter`.
 
 | Step | Does |
 |---|---|

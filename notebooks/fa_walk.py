@@ -113,8 +113,8 @@ async def _():
 @app.cell
 def _(mo):
     mo.md("""
-    **Conditions and shorthand.** A `Pred` is a condition: combine with `&` (and), `|` (or), `~` (not). In a chain, a
-    `Pred` filters and a plain function transforms, so you rarely need to write `Filter(...)` / `Map(...)` at all.
+    **Conditions and shorthand.** A `Predicate` is a condition: combine with `&` (and), `|` (or), `~` (not). In a chain, a
+    `Predicate` filters and a plain function transforms, so you rarely need to write `Filter(...)` / `Map(...)` at all.
     `>>` always means "then".
     """)
     return
@@ -122,15 +122,15 @@ def _(mo):
 
 @app.cell
 async def _(Filter, collect, numbers):
-    from factassessor import Pred, Scan, TakeUntil
+    from factassessor import Predicate, Scan, TakeUntil
 
-    even, big = Pred(lambda n: n % 2 == 0), Pred(lambda n: n > 5)
-    # a Pred is a condition on ONE item; to run it over a stream, wrap it in Filter (or put it in a chain with >>)
+    even, big = Predicate(lambda n: n % 2 == 0), Predicate(lambda n: n > 5)
+    # a Predicate is a condition on ONE item; to run it over a stream, wrap it in Filter (or put it in a chain with >>)
     print("even & big      :", await collect(Filter(even & big)(numbers())))
     print("even | big      :", await collect(Filter(even | big)(numbers())))
     print("~even, then x10 :", await collect((~even >> (lambda n: n * 10))(numbers())))
     print("running totals until >= 10:", await collect((Scan(lambda total, n: total + n, 0) >> TakeUntil(lambda t: t >= 10))(numbers())))
-    return (Pred,)
+    return (Predicate,)
 
 
 @app.cell
@@ -447,8 +447,8 @@ def _(mo):
 
 
 @app.cell
-async def _(LLMAtomizer, LayaClaimFilter, Pred, Take, collect, mo, once, text):
-    long_enough = Pred(lambda atom: len(atom.text) > 15)
+async def _(LLMAtomizer, LayaClaimFilter, Predicate, Take, collect, mo, once, text):
+    long_enough = Predicate(lambda atom: len(atom.text) > 15)
     atomizer_chain = LLMAtomizer() >> LayaClaimFilter(threshold=0.4) >> long_enough >> Take(8)
     _chained = await collect(atomizer_chain(once(text)))
     mo.ui.table([{"atom": a.text, "claim_score": round(a.claim_score, 2)} for a in _chained], selection=None)
@@ -612,7 +612,7 @@ def _(mo):
 
     Two ways:
 
-    - **A function or a `Pred`**: drop it straight into a chain (sync or async). Enough for most things.
+    - **A function or a `Predicate`**: drop it straight into a chain (sync or async). Enough for most things.
     - **A `Step` subclass**: implement `__call__(items)` as an async generator. Use it when the step needs state
       across items, like this one that keeps at most one search hit per website.
     """)

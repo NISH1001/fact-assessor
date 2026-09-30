@@ -189,11 +189,11 @@ async def test_steps_start_and_stop_their_own_resources_once():
 
 # --- conditions: &, |, ~ -------------------------------------------------------------------------------
 
-from factassessor.pipeline import Pred, Scan, TakeUntil, last  # noqa: E402
+from factassessor.pipeline import Predicate, Scan, TakeUntil, last  # noqa: E402
 
 
 async def test_conditions_combine_with_and_or_not():
-    even, big = Pred(lambda n: n % 2 == 0), Pred(lambda n: n > 5)
+    even, big = Predicate(lambda n: n % 2 == 0), Predicate(lambda n: n > 5)
     assert await collect(Filter(even & big)(items(*range(10)))) == [6, 8]
     assert await collect(Filter(even | big)(items(*range(10)))) == [0, 2, 4, 6, 7, 8, 9]
     assert await collect(Filter(~even)(items(*range(5)))) == [1, 3]
@@ -207,23 +207,23 @@ async def test_conditions_mix_sync_and_async_and_short_circuit():
         calls.append(n)
         return n > 2
 
-    cond = Pred(lambda n: n % 2 == 0) & Pred(slow_check)
+    cond = Predicate(lambda n: n % 2 == 0) & Predicate(slow_check)
     assert sorted(await collect(Filter(cond)(items(1, 2, 3, 4)))) == [4]
     assert sorted(calls) == [2, 4]  # odd numbers never reached the async check
-    assert sorted(await collect(Filter(Pred(slow_check) | (lambda n: n == 0))(items(0, 1, 3)))) == [0, 3]
+    assert sorted(await collect(Filter(Predicate(slow_check) | (lambda n: n == 0))(items(0, 1, 3)))) == [0, 3]
 
 
 # --- bare functions and conditions in >> ---------------------------------------------------------------
 
 
 async def test_bare_functions_in_a_chain_act_as_map_and_conditions_as_filter():
-    pipeline = Map(lambda n: n + 1) >> (lambda n: n * 10) >> Pred(lambda n: n > 20) >> Take(2)
+    pipeline = Map(lambda n: n + 1) >> (lambda n: n * 10) >> Predicate(lambda n: n > 20) >> Take(2)
     assert await collect(pipeline(items(0, 1, 2, 3))) == [30, 40]
 
 
 async def test_a_chain_can_start_with_a_function_or_condition():
     assert await collect(((lambda n: n * 2) >> Take(2))(items(1, 2, 3))) == [2, 4]
-    assert await collect((Pred(lambda n: n > 1) >> Map(str))(items(1, 2, 3))) == ["2", "3"]
+    assert await collect((Predicate(lambda n: n > 1) >> Map(str))(items(1, 2, 3))) == ["2", "3"]
 
 
 # --- Scan, TakeUntil, last -----------------------------------------------------------------------------
@@ -261,8 +261,8 @@ def test_sync_conditions_evaluate_each_side_at_most_once():
         calls.append("left")
         return True
 
-    (Pred(left) | Pred(lambda n: True))(1)
-    (Pred(left) & Pred(lambda n: True))(1)
+    (Predicate(left) | Predicate(lambda n: True))(1)
+    (Predicate(left) & Predicate(lambda n: True))(1)
     assert calls == ["left", "left"]  # once per combined check, not twice
 
 
