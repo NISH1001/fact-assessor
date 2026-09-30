@@ -76,6 +76,7 @@ same method works.
 | `Resolver` (Protocol) | `resolve(url) -> list[str]` | `ArxivResolver`, `OpenAlexResolver`, `CompositeResolver` | `resolvers.py` |
 | `Crawler` | `crawl(url) -> page \| None` | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `FallbackCrawler` (waterfall), `NoCrawler` | `crawlers/` |
 | `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge` (default), `GlinerJudge`, `LLMJudge` | `judges/` |
+| `Ranker` (Protocol) | `top(claim, chunks, k) -> list[str]` | `BM25Ranker` (default), `EmbeddingRanker` (model2vec), `HybridRanker` | `rankers.py` |
 | `Policy` | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` | `verify.py` |
 
 Shared helpers, not roles: `extract.py` (document bytes -> text), `passages.py` (cleaning, normalization,
@@ -143,7 +144,8 @@ the full document, so it needs `min_copy_words` (300; bot-check pages are ~180);
 the crawler returns it. One hit's locations share `read_timeout` (8s). The page comes back under the hit's URL.
 Without a resolver, the crawler just crawls each hit's URL.
 
-**e. Passages** (inside `LayaJudge`). Claim and page text are put in one Unicode form (`normalize_text`: NFKC,
+**e. Passages** (inside the judge, through its `Ranker`: `BM25Ranker` by default; `HybridRanker` mixes in static
+embeddings to catch paraphrase). Claim and page text are put in one Unicode form (`normalize_text`: NFKC,
 minus signs as `-`, so `ha⁻¹` and `ha−1` match). The page is chunked with Laya's own tokenizer into windows that
 fit next to the claim (≤ 128 tokens, 25% overlap), and BM25 picks the top `passages_per_page` (1 today).
 
@@ -172,6 +174,7 @@ The 2x margin means one stray "refutation" (a related but different fact) doesn'
 | resolvers of a hit | `CompositeResolver`: `asyncio.gather` | all at once |
 | locations of a hit | `read_first`: one at a time, in order | deliberate: first that works |
 | Laya | one model and one thread per device per process; every request arriving within 5ms (any claim, page, or component) is merged into one batch | 32 rows per forward pass |
+| SearXNG | `SearxngSearcher(max_concurrent=4)`: its upstream engines suspend a client that bursts | 4 requests in flight |
 | browser | one shared headless browser | `max_concurrent_crawls` (10) pages at once, all claims |
 | plain HTTP | one shared connection pool | 20 at once |
 | OpenAlex | one client | 5 at once (OpenAlex asks for ≤ 10/s) |
@@ -251,6 +254,8 @@ fa = FactAssessor(
 - **A way to fetch**: subclass `Crawler`, implement `crawl(url)`, use `extract()` for the bytes, return None on
   failure. Combine with `FallbackCrawler`.
 - **A search backend**: subclass `Searcher`, implement `search(query)`; chain `>> not_blocked() >> Take(k)`.
+- **A passage ranker**: a class with `top(claim, chunks, k)` (best first; `k=None` for all, ranked), passed as
+  `ranker=` to any judge. `HybridRanker(alpha=)` already mixes BM25 with embeddings.
 - **A judge**: subclass `Judge`, implement `judge(claim, docs)` (snippets have `snippet`, pages have `text`); set
   `concurrency` if it can't take every claim at once.
 - **Caching, retries, hedging**: a wrapper with the same interface around the component, not code in `Verify`.
@@ -266,3 +271,7 @@ fa = FactAssessor(
 - **Landing pages** (repository portals) pass the word minimum with only an abstract.
 - **Hosts that block bots** (Cloudflare, some publishers) leave only the snippet.
 - **Single-detail edits** ("20 flights" when it was 72) tend to come out contested or unverified, not refuted.
+- **Long self-contained claims search badly.** The claim text is the web query; a claim that names its study in
+  full makes engines match the generic words ("2025", "study", "default"). A keyword step before the searcher is the
+  planned fix (the judge keeps the full claim). Shorter claims, like the eval set's own atoms, don't suffer from it.
+- **No overfetch yet**: a paywalled or blocked hit is lost rather than replaced by the next readable one.

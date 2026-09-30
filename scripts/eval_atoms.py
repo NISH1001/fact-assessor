@@ -377,14 +377,18 @@ async def replay(args: argparse.Namespace) -> None:
     source_queries = [r["source_query"] for r in live_results if r.get("source_query")]
     caps = {q: args.source_hits for q in source_queries} if args.source_hits else {}
     verify = Verify(CachedSearch(hits, caps), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120)
-    out = []
     start = time.perf_counter()
-    for r in live_results:
+    slots = asyncio.Semaphore(args.parallel)  # answers at once: several answers' passages fill Laya's batches
+
+    async def one(r: dict[str, Any]) -> dict[str, Any]:
         if args.no_source_query:
             r = {**r, "source_query": None}
-        atoms, verify_s = await verify_answer(verify, r)
-        out.append({**{k: r[k] for k in ("id", "pair", "kind")}, "atoms": atoms, "time": {"verify": verify_s}})
-    print(f"replayed {len(out)} answers in {time.perf_counter() - start:.0f}s")
+        async with slots:
+            atoms, verify_s = await verify_answer(verify, r)
+        return {**{k: r[k] for k in ("id", "pair", "kind")}, "atoms": atoms, "time": {"verify": verify_s}}
+
+    out = list(await asyncio.gather(*(one(r) for r in live_results)))
+    print(f"replayed {len(out)} answers in {time.perf_counter() - start:.0f}s ({args.parallel} at a time)")
     _write_meta(OUT / args.out, args)
     _save(OUT / args.out / "results.json.gz", out)
     report(out, args.out)
@@ -462,6 +466,7 @@ def main() -> None:
     rp.add_argument("--laya-wait-ms", type=float, help="Laya's batch merge window (the runtime default is 5ms)")
     rp.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
     rp.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
+    rp.add_argument("--parallel", type=int, default=4, help="answers judged at once (no network in a replay: Laya only)")
     rt = sub.add_parser("report", help="metrics and timings of a run")
     rt.add_argument("--tag", default="web")
     args = ap.parse_args()

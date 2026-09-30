@@ -48,7 +48,8 @@ text
 | Search | [Serper](https://serper.dev), social media and video sites filtered out | API, ~1s |
 | Resolve (optional) | `CompositeResolver(ArxivResolver(), OpenAlexResolver())`: a paper's full text from its free copies | network, ~0.2s/paper |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text; or `HTTPXCrawler` (HTML and PDF) | network, ~1s/page |
-| Evidence judge | `LayaJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages chunked with Laya's own tokenizer, best BM25 passage per page | local |
+| Rank passages | `Ranker`: which chunks of a page the judge sees. `BM25Ranker` (default, word overlap); `HybridRanker` adds 8M-parameter static embeddings for paraphrase (`fact-assessor[embed]`) | local, ms |
+| Evidence judge | `LayaJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages chunked with Laya's own tokenizer, the ranker's top passages per page | local |
 | Verdicts, score, graph | strong evidence weighed per side: `supported` / `refuted` / `contested` / `unverified` | local |
 
 Every box above is a swappable, chainable step (`SerperSearcher() >> not_blocked() >> Take(5)`), and the whole
@@ -280,7 +281,7 @@ streaming, concurrency, and chaining come for free.
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | none; `CompositeResolver(ArxivResolver(), OpenAlexResolver())` for papers |
 | `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `FallbackCrawler` |
-| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge()`; also `GlinerJudge`, `LLMJudge` |
+| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge()`; also `GlinerJudge`, `LLMJudge`. Each takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
 | `policy=` | `Policy` | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 
 A new crawler, for example, is just:
@@ -467,6 +468,10 @@ FactAssessor(searcher=DuckDuckGoSearcher() >> not_blocked() >> Take(5))         
 FactAssessor(searcher=SearxngSearcher("http://localhost:8080") >> not_blocked() >> Take(5))  # your own SearXNG
 ```
 
+`SearxngSearcher` keeps at most 4 requests in flight (`max_concurrent`): SearXNG's upstream engines suspend a client
+that bursts, and a text's 15 claims searching at once came back with almost no hits. The last claim of such a text
+waits ~3s for a slot; Serper needs no such cap.
+
 DuckDuckGo needs no setup but is slower (0.7–3.3s per query vs ~0.8s for Serper) and unofficial, so heavy use can
 get rate-limited. Public SearXNG instances don't work for this (none of 25 healthy ones served JSON in our check);
 run your own. A `settings.yml` that works:
@@ -520,6 +525,7 @@ factassessor/
     browser.py       Crawl4AICrawler (headless browser, JavaScript)
     plain_http.py    HTTPXCrawler (plain HTTP, fast; HTML and PDF)
   resolvers.py       Resolver (role, a Protocol): url -> where to read it in full; Arxiv, OpenAlex, Composite
+  rankers.py         Ranker (role, a Protocol): which chunks of a page the judge sees; BM25 (default), Embedding, Hybrid
   extract.py         document -> text: extract() (PDF or HTML, by type or bytes), pdf_text, html_text
   verify.py          Verify (per claim: snippets, resolve + crawl if needed, early exit), Policy (role), WeightedPolicy
   judges/            evidence -> stance per passage
@@ -538,20 +544,31 @@ Benchmarks: `scripts/compare_judges.py` compares judges on `data/judge_cases.jso
 claim filters on `data/claim_cases.json`, and `scripts/eval.py` is the end-to-end harness: synthetic texts
 (`data/eval_texts.jsonl`, built from `data/fact_pairs.json`), evidence recorded once (DuckDuckGo by default), and
 laya / gliner / llm runs on it, with a comparison and plots in `data/results/` (`uv run python scripts/eval.py --help`).
+`scripts/eval_atoms.py` scores a labelled long-form set atom by atom with the SciELF paper's metric (per-answer
+precision / recall / F1, macro-averaged; live run with cached evidence, then free replays of other judging settings),
+which is how the comparison against FactReasoner in [issue #1](https://github.com/NISH1001/fact-assessor/issues/1) is
+produced; that dataset is not in the repo.
 
 ## Roadmap
 
 - **Streaming atomizer**: emit claims while the LLM is still writing them (the pipeline already streams from there
   on), so the first verdict arrives ~1s sooner.
-- **Default crawler**: consider `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())` as the default once more
-  end-to-end runs confirm it's faster.
+- **Default crawler**: consider `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())` plus the resolvers as the
+  default once more end-to-end runs confirm it's faster.
+- **Overfetch**: keep more search hits than pages and take the first 5 that turn out readable (`Take` after the crawl
+  instead of after the search), so paywalled or blocked hits don't leave a claim short of evidence. Not built yet.
+- **Search queries for long claims**: a self-contained claim ("The 2025 Scientific Reports study of aboveground
+  biomass across Connecticut forests used 67 explanatory variables") is right for the judge but a poor web query
+  (engines match the generic words). A keyword step in front of the searcher, keeping numbers, names and technical
+  terms, is the planned fix; the judge still sees the full claim.
 - **Offline atomizer** (TODO): an `Atomizer` without an LLM, e.g. spaCy sentence/clause splitting plus coreference.
   An early prototype did this in ~5ms but kept multi-fact sentences together ("Nepal's 2017 earthquake of 7.8
   magnitude" is three facts), which let wrong details through; useful as a no-API fallback.
 - **GLiNER judge accuracy**: tune the label descriptions / instruction on the judge benchmark; try it on CUDA.
 - Per-detail checks in the judge (ask Laya about each date/number in a claim in the same forward pass), so a
   claim that is right except for one detail comes out refuted rather than contested.
-- Component-level wrappers: caching, retries, timeouts.
+- Component-level wrappers: retries and hedging (`Cache(step)` exists: a TTL cache around any step, used so a
+  text's claims share one search for the text's source query).
 - LLMAtomizer: keep opinions marked as opinions. Unwrapping hedges currently also strips "I think", so
   "I think pizza is the best food" becomes a plain claim; the default filter catches it, a custom one may not.
 
