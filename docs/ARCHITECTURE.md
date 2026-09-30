@@ -55,7 +55,7 @@ All passed between steps as plain dicts or pydantic models (`factassessor/schema
 
 | Name | Shape | Made by | Used by |
 |---|---|---|---|
-| atom | `Atom(id, text, span, source_query)`: `span` locates the claim in the input text; `source_query` (optional) is one search for the document the text came from, the same for every atom of a text | atomizer | filter, verify |
+| atom | `Atom(id, text, span, source_query)`: `span` is the sentence of the input text the claim was made from (found locally, `utils.locate`); `source_query` (optional) is one search for the document the text came from, the same for every atom of a text | atomizer | filter, verify |
 | hit | `{"url", "title", "snippet"}` | searcher | snippet judge, resolver, crawler |
 | page | `{"url", "title", "text"}`: clean plain text; `url` is always the **hit's** URL, even when the text came from a copy | crawler (via the read stage) | page judge |
 | evidence | `Evidence(url, title, text, source="snippet" \| "page", label, prob)`: one judged passage | judge | policy |
@@ -93,7 +93,8 @@ flight, so 100 requests become a few passes or calls. `FactAssessor()` gives the
 `LayaRunner`.
 
 Shared helpers, not roles: `extract.py` (document bytes -> text), `passages.py` (cleaning, normalization,
-word windows, chunking, BM25), `kg.py` (knowledge graph).
+word windows, chunking, BM25), `utils.py` (sentence spans; `locate`, the sentence a claim came from), `kg.py`
+(knowledge graph).
 
 **Who knows what.** Resolvers know about *documents* (DOIs, arXiv ids, where free copies live) and never fetch
 them. Crawlers know about *fetching one URL* (HTTP or a browser) and turn what they get into text with the shared

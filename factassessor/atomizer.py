@@ -7,7 +7,6 @@ Compose: `LLMAtomizer() >> DecisionClaimFilter() >> Take(8)`.
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -17,6 +16,7 @@ from pydantic_ai import Agent
 from factassessor.pipeline import FlatMap, Step
 from factassessor._llm import reasoning_off
 from factassessor.schema import Atom
+from factassessor.utils import locate, sentences
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +35,7 @@ never repeated is another claim's checked value: a date, measurement, or figure 
 of the other claims, so that if it is wrong only its own claim fails.
 - Unwrap hedges and attributions (it was believed that, reports say) and state the claim directly.
 - Keep every value exactly as written, even if you think it is wrong: we are checking the text, not correcting it.
-- Also return opinions, greetings, and questions as claims; a later step filters them.
-- source: copy the exact words from the text that the claim comes from."""
+- Also return opinions, greetings, and questions as claims; a later step filters them."""
 
 SOURCE_QUERY_RULE = """
 - source_query: one web search query to find the document the whole text was taken from (a paper, report, or \
@@ -45,12 +44,9 @@ instruments or datasets. No quotation marks and no numbers or results: they rare
 
 DEFAULT_MODEL = "openai:gpt-5.6-luna"
 
-_SENTENCE = re.compile(r"\S.*?(?:[.!?]+(?=\s|$)|$)", re.S)  # ends at .!? + space, so "7.8" stays whole
-
 
 class Claim(BaseModel):
-    text: str
-    source: str
+    text: str  # only the claim: a quote of its source words doubled the output tokens, and output is what the call's time goes on
 
 
 class Claims(BaseModel):
@@ -100,34 +96,10 @@ class LLMAtomizer(Atomizer):
             out = (await self.agent.run(text)).output
         except Exception as exc:  # best effort: an LLM outage degrades to sentence atoms, not a failed check
             logger.warning("atomizer LLM failed, falling back to sentences: %r", exc)
-            return [Atom(id=i, text=text[s:e], span=(s, e)) for i, (s, e) in enumerate(_sentences(text))]
+            return [Atom(id=i, text=text[s:e], span=(s, e)) for i, (s, e) in enumerate(sentences(text))]
         source_query = out.source_query.strip() or None if self.source_query else None
-        return [
-            Atom(id=i, text=c.text.strip(), span=_locate(c.source, text, hint=c.text), source_query=source_query)
+        return [  # span: the sentence the claim was made from, found here rather than quoted by the model
+            Atom(id=i, text=c.text.strip(), span=locate(c.text, text), source_query=source_query)
             for i, c in enumerate(out.atoms)
             if c.text.strip()
         ]
-
-
-def _sentences(text: str) -> list[tuple[int, int]]:
-    return [(m.start(), m.start() + len(m.group().rstrip())) for m in _SENTENCE.finditer(text)]
-
-
-def _locate(quote: str, text: str, hint: str = "") -> tuple[int, int]:
-    """Char span of `quote` in `text` (case/whitespace-insensitive); if the model paraphrased instead of
-    quoting, the sentence sharing the most words with the claim itself (`hint`), then with the quote."""
-    words = quote.split()
-    if words:
-        pattern = r"\s+".join(re.escape(w) for w in words)
-        if m := re.search(pattern, text, re.IGNORECASE):
-            return m.span()
-
-    def overlap(sentence: tuple[int, int], other: str) -> int:
-        return len(_words(text[sentence[0] : sentence[1]]) & _words(other))
-
-    sentences = _sentences(text) or [(0, len(text))]
-    return max(sentences, key=lambda se: (overlap(se, hint), overlap(se, quote)))
-
-
-def _words(text: str) -> set[str]:
-    return {w.lower() for w in re.findall(r"\w+", text)}

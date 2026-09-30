@@ -53,8 +53,10 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   | gpt-5-nano (minimal) | ~1.0s | unusable |
 
   Default reasoning made the Luna models slower *and* worse (it rewrote a greeting into a tautological "claim").
-- Structured output keyed by id / exact source quote, so a skipped or merged item only affects itself; spans are
-  recovered by locating the quote (case/whitespace-insensitive), falling back to the best-matching sentence.
+- The model returns claims only. It used to quote each claim's source words as well (spans by exact match): that
+  doubled the output, and output is what the call's time goes on (176-word answer, reasoning off: 707 tokens in,
+  742-1,282 out, 8.8-10.7s; 0 reasoning tokens). Dropped 2026-09-30; spans are now the best-matching sentence by
+  BM25 over the text's sentences (`utils.locate`), which is what the UI underlines and the graph links anyway.
 - On LLM failure: fall back to sentence atoms rather than failing the check.
 
 ## Check-worthiness filter (Laya)

@@ -17,7 +17,7 @@ from itertools import combinations
 from typing import Any
 from urllib.parse import urlparse
 
-from factassessor.atomizer import _sentences
+from factassessor.utils import sentences
 from factassessor.schema import CheckResult
 
 VERDICT_STYLE = {
@@ -34,7 +34,7 @@ def build(result: CheckResult, strong: float = 0.7, include_not_enough_info: boo
     nodes: dict[str, dict[str, Any]] = {}
     edges: dict[tuple[str, str, str], float] = {}
 
-    sentence_spans = _sentences(result.text) or [(0, len(result.text))]
+    sentence_spans = sentences(result.text) or [(0, len(result.text))]
     for i, (start, end) in enumerate(sentence_spans):
         nodes[f"sentence:{i}"] = {"id": f"sentence:{i}", "kind": "sentence", "label": result.text[start:end], "span": (start, end)}
 

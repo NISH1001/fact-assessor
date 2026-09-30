@@ -584,6 +584,7 @@ factassessor/
     decision.py      DecisionJudge (default): one decision per (claim, passage) on any runner
   kg.py              knowledge graph (kg.build, kg.to_mermaid), built on demand from a result
   passages.py        page cleaning, normalization, word windows and token-exact chunking, BM25
+  utils.py           sentence spans; locate(claim, text): the sentence a claim was made from
   schema.py          Atom, Evidence, AtomResult, CheckResult (fact_score computed from its atoms), stream events
 ```
 
