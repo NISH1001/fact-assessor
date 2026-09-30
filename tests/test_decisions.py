@@ -100,6 +100,15 @@ async def test_concurrent_callers_share_one_call():
     assert [x.answers["stance"].label for x in b] == ["supports"]
 
 
+async def test_without_merging_each_predict_call_is_packed_on_its_own():
+    bodies = []
+    r = runner(jev(bodies), merge=False, batch_size=2)
+    a, b = await asyncio.gather(r.predict([request("a 1903"), request("b"), request("c 1903")]), r.predict([request("d")]))
+    assert sorted(len(b["questions"]) for b in bodies) == [1, 1, 2]  # the first call's 3 as 2 + 1; the second's 1 alone
+    assert [x.answers["stance"].label for x in a] == ["supports", "not_enough_info", "supports"]
+    assert [x.answers["stance"].label for x in b] == ["not_enough_info"]
+
+
 async def test_string_states_are_sent_one_per_call():
     bodies = []
     q = {"kind": Question(type="choice", instructions="What kind of text is this?", criteria={"a": "x", "b": "y"})}

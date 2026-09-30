@@ -106,6 +106,16 @@ class Batcher:
             self._flush = asyncio.create_task(self._flush_after_wait())
         return list(await asyncio.gather(*futures))
 
+    async def alone(self, items: list[Any]) -> list[Any]:
+        """These items only, `take` per call, under the same in-flight cap: no merging with other callers."""
+        n = self.take or len(items) or 1
+
+        async def one(piece: list[Any]) -> list[Any]:
+            async with self._slots:
+                return await self.run(piece)
+
+        return [r for piece in await asyncio.gather(*(one(items[i : i + n]) for i in range(0, len(items), n))) for r in piece]
+
     async def _flush_after_wait(self) -> None:
         await asyncio.sleep(self.max_wait_ms / 1000)
         while self._pending:
@@ -154,6 +164,11 @@ class SystemOneRunner(DecisionRunner):
     request gets its own answers back. A single request goes out verbatim. Jev's window is 32k tokens: 40 requests
     of a 90-word passage plus a claim are ~6k. `cost` is the USD spent so far (`usage.cost`, summed).
 
+    What shares a call is the model's context, and it changes answers: on a 4-answer sample, 13% of passage labels
+    differed between one request per call and 40 mixed from every claim in flight. `merge=True` fills calls with
+    every caller's requests (most throughput); `merge=False` packs only the requests of one `predict` call (a
+    judge call: one claim's passages), still `max_concurrent` calls in flight. `batch_size=1` sends each alone.
+
     URL: `url`, else `OPENROUTER_DECISIONS_URL`, else OpenRouter. Key: `api_key`, else `OPENROUTER_API_KEY`
     (env or .env); a Laya server needs none.
     """
@@ -167,6 +182,7 @@ class SystemOneRunner(DecisionRunner):
         api_key: str | None = None,
         batch_size: int = 40,  # requests per call
         max_concurrent: int = 16,  # calls in flight
+        merge: bool = True,  # fill calls with every caller's requests, or pack one predict call at a time
         max_wait_ms: float = 5.0,  # how long a request waits for company
         timeout: float = 30.0,
     ) -> None:
@@ -174,6 +190,7 @@ class SystemOneRunner(DecisionRunner):
         self.url = url or os.environ.get("OPENROUTER_DECISIONS_URL", "").strip() or self.URL
         self.api_key = api_key
         self.batch_size = batch_size
+        self.merge = merge
         self.timeout = timeout
         self.cost = 0.0
         self._batch = Batcher(self._run, max_wait_ms, max_concurrent, take=batch_size)
@@ -201,7 +218,7 @@ class SystemOneRunner(DecisionRunner):
         if not requests:
             return []
         await self.aload()
-        return await self._batch.submit(requests)
+        return await (self._batch.submit(requests) if self.merge else self._batch.alone(requests))
 
     async def _run(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
         """One packed call for the dict-state requests; a string state can't be packed, so each goes alone."""
