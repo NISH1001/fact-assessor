@@ -107,9 +107,10 @@ class Batcher:
             self._flush = asyncio.create_task(self._flush_after_wait())
         return list(await asyncio.gather(*futures))
 
-    async def alone(self, items: list[Any]) -> list[Any]:
-        """These items only, `take` per call, under the same in-flight cap: no merging with other callers."""
-        n = self.take or len(items) or 1
+    async def alone(self, items: list[Any], take: int | None = None) -> list[Any]:
+        """These items only, `take` per call (the batcher's own when None), under the same in-flight cap: no
+        merging with other callers."""
+        n = take or self.take or len(items) or 1
 
         async def one(piece: list[Any]) -> list[Any]:
             async with self._slots:
