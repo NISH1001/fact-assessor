@@ -36,12 +36,10 @@ from pathlib import Path
 from typing import Any
 
 from factassessor import (
-    ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler, LayaClaimFilter,
-    LayaJudge, LLMAtomizer, OpenAlexResolver, SearxngSearcher, Step, Take, Verify, WeightedPolicy, collect, not_blocked,
-    once,
+    ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, FallbackCrawler,
+    HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, SearxngSearcher, Step, SystemOneRunner, Take, Verify,
+    WeightedPolicy, collect, not_blocked, once,
 )
-from factassessor.judges import DecisionAPIJudge
-from factassessor.laya import LayaRunner
 from factassessor.rankers import HybridRanker
 from factassessor.resolvers import locations
 
@@ -234,14 +232,19 @@ class CachedCrawler(Crawler):
 
 # --- runs ---------------------------------------------------------------------------------------------------------
 
-def make_judge(args: argparse.Namespace) -> Any:
-    """`--judge laya` (local, the default) or `--judge decision` (OpenRouter's Decisions API, e.g. Jev), with the
-    same passages per page and ranker either way."""
+def make_judge(args: argparse.Namespace) -> DecisionJudge:
+    """The same judge on `--judge laya` (local, the default) or `--judge decision` (Jev on OpenRouter: `--judge-model`,
+    `--batch-size` requests per call); the live run's claim filter shares the judge's runner."""
     ranker = HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None
     if args.judge == "decision":
-        return DecisionAPIJudge(model=args.judge_model, passages_per_page=args.passages, ranker=ranker)
-    return LayaJudge(passages_per_page=args.passages, ranker=ranker,
-                     runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None)
+        runner: Any = SystemOneRunner(model=args.judge_model, **({"batch_size": args.batch_size} if args.batch_size else {}))
+    else:
+        runner = LayaRunner(**({"max_wait_ms": args.laya_wait_ms} if args.laya_wait_ms else {}))
+    return DecisionJudge(runner, passages_per_page=args.passages, ranker=ranker)
+
+
+def _cost(judge: DecisionJudge) -> str:
+    return f"; API cost ${judge.runner.cost:.4f}" if hasattr(judge.runner, "cost") else ""
 
 
 def _load(path: Path, default: Any) -> Any:
@@ -328,8 +331,8 @@ async def live(args: argparse.Namespace) -> None:
     done = {r["id"]: r for r in _load(run_dir / "results.json.gz", [])}
 
     atomizer = LLMAtomizer(args.atomizer, source_query=not args.no_source_query)
-    claim_filter = LayaClaimFilter()
     judge = make_judge(args)
+    claim_filter = DecisionClaimFilter(judge.runner)  # timed only; the same model as the judge
     searcher = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type,
                                hedge_after=None) >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
     base_resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
@@ -338,7 +341,7 @@ async def live(args: argparse.Namespace) -> None:
                     WeightedPolicy(strong=args.strong), timeout=args.timeout,
                     resolver=TimedResolver(base_resolver) if base_resolver else None,
                     pages_per_claim=TOP_K * (1 if args.no_source_query else 2) if args.overfetch else None)
-    await judge.judge("warm-up", [{"url": "u", "title": "", "snippet": "warm-up"}])  # load Laya before timing
+    await judge.aload()  # the model (or the HTTP pool) before timing
     _write_meta(run_dir, args)
     slots = asyncio.Semaphore(args.parallel)  # answers at once; > 1 contaminates per-answer latency (flagged)
     todo = [a for a in answers if a["id"] not in done]
@@ -373,7 +376,9 @@ async def live(args: argparse.Namespace) -> None:
     await base_crawler.aclose()
     if base_resolver:
         await base_resolver.aclose()
+    await judge.aclose()
     report(list(done.values()), args.tag)
+    print(f"judge: {args.judge}{_cost(judge)}")
 
 
 async def _stream(items: list[Any]) -> Any:
@@ -387,11 +392,12 @@ async def replay(args: argparse.Namespace) -> None:
     hits, pages = _load(run_dir / "hits.json.gz", {}), _load(run_dir / "pages.json.gz", {})
     live_results = _load(run_dir / "results.json.gz", [])
     judge = make_judge(args)
+    await judge.aload()
     source_queries = [r["source_query"] for r in live_results if r.get("source_query")]
     caps = {q: args.source_hits for q in source_queries} if args.source_hits else {}
     verify = Verify(CachedSearch(hits, caps), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120)
     start = time.perf_counter()
-    slots = asyncio.Semaphore(args.parallel)  # answers at once: several answers' passages fill Laya's batches
+    slots = asyncio.Semaphore(args.parallel)  # answers at once: several answers' passages fill the runner's batches
 
     async def one(r: dict[str, Any]) -> dict[str, Any]:
         if args.no_source_query:
@@ -401,7 +407,8 @@ async def replay(args: argparse.Namespace) -> None:
         return {**{k: r[k] for k in ("id", "pair", "kind")}, "atoms": atoms, "time": {"verify": verify_s}}
 
     out = list(await asyncio.gather(*(one(r) for r in live_results)))
-    print(f"replayed {len(out)} answers in {time.perf_counter() - start:.0f}s ({args.parallel} at a time)")
+    await judge.aclose()
+    print(f"replayed {len(out)} answers in {time.perf_counter() - start:.0f}s ({args.parallel} at a time; judge {args.judge}{_cost(judge)})")
     _write_meta(OUT / args.out, args)
     _save(OUT / args.out / "results.json.gz", out)
     report(out, args.out)
@@ -469,9 +476,6 @@ def main() -> None:
     lv.add_argument("--passages", type=int, default=1, help="passages per page for the judge")
     lv.add_argument("--strong", type=float, default=0.7)
     lv.add_argument("--timeout", type=float, default=15.0, help="per-claim deadline (the library default is 15s)")
-    lv.add_argument("--laya-wait-ms", type=float, help="Laya's batch merge window (the runtime default is 5ms)")
-    lv.add_argument("--judge", default="laya", choices=["laya", "decision"], help="decision: OpenRouter's Decisions API (Jev)")
-    lv.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
     lv.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
     lv.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
     rp = sub.add_parser("replay", help="judge the cached evidence of --tag again, with another setup")
@@ -481,12 +485,14 @@ def main() -> None:
     rp.add_argument("--strong", type=float, default=0.7)
     rp.add_argument("--source-hits", type=int, help="use only the first N hits of each text's source query")
     rp.add_argument("--no-source-query", action="store_true", help="claims judged on their own hits only")
-    rp.add_argument("--laya-wait-ms", type=float, help="Laya's batch merge window (the runtime default is 5ms)")
-    rp.add_argument("--judge", default="laya", choices=["laya", "decision"], help="decision: OpenRouter's Decisions API (Jev)")
-    rp.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
     rp.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
     rp.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
-    rp.add_argument("--parallel", type=int, default=4, help="answers judged at once (no network in a replay: Laya only)")
+    rp.add_argument("--parallel", type=int, default=4, help="answers judged at once (a replay has no network: the judge's runner is the floor)")
+    for p in (lv, rp):
+        p.add_argument("--judge", default="laya", choices=["laya", "decision"], help="the judge's runner: local Laya, or Jev on OpenRouter")
+        p.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
+        p.add_argument("--batch-size", type=int, help="--judge decision: requests packed per call (the runner's default is 40; 1 sends each alone)")
+        p.add_argument("--laya-wait-ms", type=float, help="--judge laya: the batch merge window (the runtime default is 5ms)")
     rt = sub.add_parser("report", help="metrics and timings of a run")
     rt.add_argument("--tag", default="web")
     args = ap.parse_args()

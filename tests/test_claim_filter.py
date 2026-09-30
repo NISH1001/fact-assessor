@@ -1,4 +1,5 @@
-from factassessor import Atom, ClaimFilter, LayaClaimFilter, Take, collect
+from factassessor import Atom, ClaimFilter, DecisionClaimFilter, DecisionResponse, Take, collect
+from factassessor.claim_filters.decision import QUESTION
 from factassessor.pipeline import dropped
 
 ATOMS = [
@@ -10,13 +11,19 @@ ATOMS = [
 P_FACTUAL = {a.text: p for a, p in zip(ATOMS, [0.08, 0.83, 0.89, 0.45])}
 
 
-class FakeLaya:
+class FakeRunner:
+    batch_size = 32
+
     def __init__(self):
         self.requests = []
+        self.loaded = False
 
-    async def predict_batch(self, requests):
+    async def aload(self):
+        self.loaded = True
+
+    async def predict(self, requests):
         self.requests.extend(requests)
-        return [{"answers": {"kind": {"probabilities": {"factual_claim": P_FACTUAL[r["state"]["claim"]]}}}} for r in requests]
+        return [DecisionResponse(answers={"kind": {"probabilities": {"factual_claim": P_FACTUAL[r.state["claim"]]}}}) for r in requests]
 
 
 async def atoms():
@@ -25,7 +32,7 @@ async def atoms():
 
 
 async def test_drops_non_factual_and_scores_the_rest():
-    kept = await collect(LayaClaimFilter(threshold=0.4, runner=FakeLaya())(atoms()))
+    kept = await collect(DecisionClaimFilter(FakeRunner(), threshold=0.4)(atoms()))
     assert sorted((a.id, a.claim_score) for a in kept) == [(1, 0.83), (2, 0.89), (3, 0.45)]
 
 
@@ -33,21 +40,24 @@ async def test_dropped_atoms_are_reported_as_skipped():
     skipped = []
     token = dropped.set(skipped)
     try:
-        await collect(LayaClaimFilter(threshold=0.4, runner=FakeLaya())(atoms()))
+        await collect(DecisionClaimFilter(FakeRunner(), threshold=0.4)(atoms()))
     finally:
         dropped.reset(token)
     assert [(a.id, a.claim_score) for a in skipped] == [(0, 0.08)]
 
 
-async def test_one_laya_decision_per_atom_with_the_claim_as_state():
-    laya = FakeLaya()
-    await collect(LayaClaimFilter(runner=laya)(atoms()))
-    assert sorted(r["state"]["claim"] for r in laya.requests) == sorted(a.text for a in ATOMS)
+async def test_one_decision_per_atom_with_the_claim_as_state_and_the_kind_question():
+    runner = FakeRunner()
+    await collect(DecisionClaimFilter(runner)(atoms()))
+    assert sorted(r.state["claim"] for r in runner.requests) == sorted(a.text for a in ATOMS)
+    assert all(r.questions == QUESTION for r in runner.requests)
 
 
-async def test_chains_with_take():
-    kept = await collect((LayaClaimFilter(threshold=0.4, runner=FakeLaya()) >> Take(2))(atoms()))
-    assert len(kept) == 2
+async def test_chains_with_take_and_aload_reaches_the_runner():
+    runner = FakeRunner()
+    chain = DecisionClaimFilter(runner, threshold=0.4) >> Take(2)
+    await chain.aload()
+    assert runner.loaded and len(await collect(chain(atoms()))) == 2
 
 
 async def test_any_scoring_function_makes_a_claim_filter():

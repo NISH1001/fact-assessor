@@ -15,7 +15,7 @@ turns a stream of queries into a stream of hits; a crawler turns URLs into pages
 same shape, any step can follow any other, and a chain of steps is itself a step:
 
 ```python
-atoms    = LLMAtomizer() >> LayaClaimFilter() >> Take(8)          # a Step: texts -> the atoms worth checking
+atoms    = LLMAtomizer() >> DecisionClaimFilter() >> Take(8)          # a Step: texts -> the atoms worth checking
 searcher = SerperSearcher() >> not_blocked() >> Take(5)           # a Step: queries -> hits
 result   = await collect(searcher(once("NASA was founded in 1958.")))
 ```
@@ -170,10 +170,10 @@ one method:
 | Role | Implement | Step behaviour from the base | Implementations |
 |---|---|---|---|
 | `Atomizer` | `atomize(text) -> list[Atom]` | FlatMap: text → atoms | `LLMAtomizer` |
-| `ClaimFilter` | `score(atom) -> float` | Map: keeps atoms scoring ≥ threshold, reports the rest as skipped | `LayaClaimFilter`, `GlinerClaimFilter` |
+| `ClaimFilter` | `score(atom) -> float` | Map: keeps atoms scoring ≥ threshold, reports the rest as skipped | `DecisionClaimFilter`, `GlinerClaimFilter` |
 | `Searcher` | `search(query) -> list[hit]` | FlatMap: query → hits | `SerperSearcher`, `DuckDuckGoSearcher`, `SearxngSearcher` |
 | `Crawler` | `crawl(url) -> page or None` | Map: urls → pages, concurrent, finish order | `Crawl4AICrawler` |
-| `Judge` | `judge(claim, docs) -> list[Evidence]` | (called by `Verify`) | `LayaJudge`, `GlinerJudge`, `LLMJudge` |
+| `Judge` | `judge(claim, docs) -> list[Evidence]` | (called by `Verify`) | `DecisionJudge`, `GlinerJudge`, `LLMJudge` |
 | `Policy` | `settled(ev)`, `verdict(ev)` | (called by `Verify`) | `WeightedPolicy` |
 
 ```python
@@ -194,7 +194,7 @@ seconds on network calls, crawling, and model passes. (A/B vs the pre-refactor c
 |---|---|
 | `pipeline.py` | `Step`, `Chain`, `Map`, `FlatMap`, `Filter`, `Take`, `Scan`, `TakeUntil`, `Predicate`, `as_step`, `_concurrently`, lifecycle walk |
 | `atomizer.py`, `search/`, `crawlers/`, `judges/`, `gliner.py`, `verify.py` | roles and implementations |
-| `claim_filters/` | `ClaimFilter` (role: `score(atom)`), `LayaClaimFilter`, `GlinerClaimFilter` |
+| `claim_filters/` | `ClaimFilter` (role: `score(atom)`), `DecisionClaimFilter`, `GlinerClaimFilter` |
 | `assessor.py` | `FactAssessor`: default chain, `stream` / `assess` / `assess_sync`, lifecycle |
 | `schema.py` | data types; `CheckResult.fact_score` is computed from the atoms |
 | `kg.py` | knowledge graph, built on demand from a result |

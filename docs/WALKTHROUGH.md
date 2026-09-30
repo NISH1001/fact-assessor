@@ -88,14 +88,16 @@ Each component has a **role** (a base type) and implementations; to make your ow
 | Role | You implement | Built in |
 |---|---|---|
 | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
-| `ClaimFilter` | `score(atom)` → P(factual claim) | `LayaClaimFilter`, `GlinerClaimFilter` |
+| `ClaimFilter` | `score(atom)` → P(factual claim) | `DecisionClaimFilter`, `GlinerClaimFilter` |
 | `Searcher` | `search(query)` | `SerperSearcher` (default), `DuckDuckGoSearcher` (no key, used here), `SearxngSearcher` |
 | `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `FallbackCrawler` |
-| `Judge` | `judge(claim, docs)` | `LayaJudge`, `GlinerJudge`, `LLMJudge` |
+| `Judge` | `judge(claim, docs)` | `DecisionJudge`, `GlinerJudge`, `LLMJudge` |
 | `Policy` | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` |
 
-Model-backed components share their model automatically: `LayaClaimFilter` and `LayaJudge` use one copy of Laya,
-and `GlinerClaimFilter` and `GlinerJudge` one copy of GLiNER. Nothing to pass around.
+`DecisionClaimFilter` and `DecisionJudge` ask their model through a `DecisionRunner` (`LayaRunner()` by default,
+in-process; `SystemOneRunner()` for Jev over HTTP): `FactAssessor()` gives them one shared runner, and Laya's
+weights load once per process however many runners exist. `GlinerClaimFilter` and `GlinerJudge` share one copy
+of GLiNER the same way.
 
 ### 3a. `LLMAtomizer`: text → atoms
 
@@ -113,13 +115,13 @@ atoms = await LLMAtomizer().atomize(text)
 | Nepal's earthquake caused massive damage. | It was believed that Nepal's earthquake … caused massive damage. |
 | Nepal's earthquake killed 1 million people. | Total lives lost were 1 million people. |
 
-### 3b. `LayaClaimFilter`: atoms → factual claims
+### 3b. `DecisionClaimFilter`: atoms → factual claims
 
 Scores each atom's `claim_score` (P(it's a factual claim)); atoms below `threshold` (0.4) are dropped, as opinions,
 greetings, and questions:
 
 ```python
-claim_filter = LayaClaimFilter(threshold=0.4)
+claim_filter = DecisionClaimFilter(threshold=0.4)
 await claim_filter.score(atom)     # 0.92 for "Nepal's earthquake occurred in 2017.", ~0.05 for "I think this is sad."
 ```
 
@@ -165,14 +167,14 @@ The same 5 search hits through each crawler:
 
 On 20 fresh URLs: browser 16/20 in 4.8s, HTTPX 11/20 in 1.0s, fallback 16/20 in 2.9s.
 
-### 3e. `LayaJudge` + `WeightedPolicy`: evidence → verdict
+### 3e. `DecisionJudge` + `WeightedPolicy`: evidence → verdict
 
 The judge labels each passage *supports* / *refutes* / *not_enough_info* for a claim (pages are cut to their most
 relevant passage first); the policy weighs strong evidence (≥ 0.7) into one verdict and decides when there's enough
 to stop looking:
 
 ```python
-judge, policy = LayaJudge(), WeightedPolicy(strong=0.7, early_exit=0.9)
+judge, policy = DecisionJudge(), WeightedPolicy(strong=0.7, early_exit=0.9)
 evidence = await judge.judge(claim, hits[:5] + [page])
 policy.verdict(evidence)       # ("contested", 0.51)
 policy.settled(evidence)       # True if 2+ passages agree at >= 0.9 and none strongly disagree
@@ -182,12 +184,12 @@ The same evidence for "Nepal's earthquake occurred in 2017." (it was 2015) throu
 
 | judge | verdict | time | passage labels |
 |---|---|---|---|
-| `LayaJudge` | contested | 0.43s | refutes 0.96, refutes 0.58, supports 0.94, supports 0.95, refutes 0.75, not_enough_info 0.73 |
+| `DecisionJudge` | contested | 0.43s | refutes 0.96, refutes 0.58, supports 0.94, supports 0.95, refutes 0.75, not_enough_info 0.73 |
 | `LLMJudge` (gpt-6-luna) | **refuted** | 1.69s | refutes 1.00, refutes 0.99, not_enough_info 0.99, refutes 0.99, refutes 0.99, not_enough_info 0.95 |
 | `GlinerJudge` | unverified | 1.53s | every label below 0.5, so nothing counts as strong |
 
 Laya is fooled by pages about a *different*, real 2017 Nepal earthquake; the LLM judge isn't. On the 15-case judge
-benchmark: `LLMJudge` 15/15, `LayaJudge` 13/15, `GlinerJudge` 12/15; Laya is ~10x faster per pair.
+benchmark: `LLMJudge` 15/15, `DecisionJudge` 13/15, `GlinerJudge` 12/15; Laya is ~10x faster per pair.
 
 ## 4. Chaining components
 
@@ -196,7 +198,7 @@ atoms after the claim filter, search hits after the searcher.
 
 ```python
 long_enough = Predicate(lambda atom: len(atom.text) > 15)
-atomizer_chain = LLMAtomizer() >> LayaClaimFilter(threshold=0.4) >> long_enough >> Take(8)
+atomizer_chain = LLMAtomizer() >> DecisionClaimFilter(threshold=0.4) >> long_enough >> Take(8)
 await collect(atomizer_chain(once(text)))                # the atoms worth checking
 
 searcher_chain = searcher >> not_blocked() >> Take(5)   # drop social/video sites, keep the top 5
@@ -226,10 +228,10 @@ Two ways to give `FactAssessor` a claim filter:
 # 1. separate arguments: FactAssessor chains atomizer >> claim_filter >> Take(n_atoms) itself
 fa = FactAssessor(
     atomizer=LLMAtomizer(),
-    claim_filter=LayaClaimFilter(threshold=0.4),     # or GlinerClaimFilter(), or None for no filter
+    claim_filter=DecisionClaimFilter(threshold=0.4),     # or GlinerClaimFilter(), or None for no filter
     searcher=DuckDuckGoSearcher() >> not_blocked() >> Take(5),   # or SerperSearcher()
     crawler=Crawl4AICrawler(),
-    judge=LayaJudge(),                               # or LLMJudge(), GlinerJudge()
+    judge=DecisionJudge(),                               # or LLMJudge(), GlinerJudge()
 )
 
 # 2. a chain that already filters (section 4): say so with claim_filter=None

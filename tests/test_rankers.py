@@ -72,7 +72,7 @@ def test_few_chunks_come_back_as_they_are_and_embeddings_are_cached_per_chunk():
 
 
 async def test_judges_take_a_ranker():
-    from factassessor import LayaJudge
+    from factassessor import DecisionJudge
 
     r = BM25Ranker(k1=1.2)
-    assert LayaJudge(ranker=r).ranker is r
+    assert DecisionJudge(ranker=r).ranker is r

@@ -84,7 +84,7 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
     _pre = []
 
     _filter = {
-        "Laya (local, default)": ("LayaClaimFilter", "LayaClaimFilter(threshold=0.4)"),
+        "Laya (local, default)": ("DecisionClaimFilter", "DecisionClaimFilter(threshold=0.4)"),
         "GLiNER2.5-decide (ONNX, CPU)": ("GlinerClaimFilter", 'GlinerClaimFilter(model="2.5-decide", threshold=0.4)'),
         "None (check every atom)": (None, "None"),
     }[filter_choice.value]
@@ -114,7 +114,7 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
     _imports |= _crawl[0]
 
     _judge = {
-        "Laya (local, default)": ("LayaJudge", "LayaJudge()"),
+        "Laya (local, default)": ("DecisionJudge", "DecisionJudge()"),
         "GLiNER2.5-decide (ONNX, CPU)": ("GlinerJudge", 'GlinerJudge(model="2.5-decide")'),
         "LLM (gpt-6-luna, most accurate)": ("LLMJudge", 'LLMJudge("openai:gpt-6-luna")'),
     }[judge_choice.value]
@@ -139,7 +139,7 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
     )
     mo.md(
         f"**The code for this pipeline**\n\n```python\n{code}\n```\n\n"
-        "Model-backed parts share their models automatically: the Laya filter and Laya judge use one copy of Laya."
+        "The Laya filter and judge each run on a `LayaRunner`; the weights load once per process."
     )
     return
 
@@ -156,8 +156,8 @@ def _():
         GlinerClaimFilter,
         GlinerJudge,
         HTTPXCrawler,
-        LayaClaimFilter,
-        LayaJudge,
+        DecisionClaimFilter,
+        DecisionJudge,
         LLMAtomizer,
         LLMJudge,
         Predicate,
@@ -178,10 +178,10 @@ def _():
         """The filter or judge for a dropdown choice, built once."""
         if (kind, name) not in _cache:
             _cache[(kind, name)] = {
-                ("filter", "Laya (local, default)"): lambda: LayaClaimFilter(threshold=0.4),
+                ("filter", "Laya (local, default)"): lambda: DecisionClaimFilter(threshold=0.4),
                 ("filter", "GLiNER2.5-decide (ONNX, CPU)"): lambda: GlinerClaimFilter(threshold=0.4),
                 ("filter", "None (check every atom)"): lambda: None,
-                ("judge", "Laya (local, default)"): lambda: LayaJudge(),
+                ("judge", "Laya (local, default)"): lambda: DecisionJudge(),
                 ("judge", "GLiNER2.5-decide (ONNX, CPU)"): lambda: GlinerJudge(),
                 ("judge", "LLM (gpt-6-luna, most accurate)"): lambda: LLMJudge("openai:gpt-6-luna"),
             }[(kind, name)]()
@@ -222,7 +222,7 @@ async def _(component, filter_choice, judge_choice, mo):
     with mo.status.spinner(title="Loading models…"):
         for _part in _parts:
             if _part is not None:
-                await (_part.start() if hasattr(_part, "start") else _part.aload())
+                await _part.aload()
     mo.md(f"✅ Filter **{filter_choice.value}** and judge **{judge_choice.value}** ready ({_time.perf_counter() - _t:.1f}s)")
     return
 
@@ -331,8 +331,8 @@ def _(mo):
     FactAssessor(n_atoms=8, top_k=3, claim_threshold=0.5, crawl_timeout=2.0, search_hedge_after=1.0)
     ```
 
-    **3. Swap components.** Pass any implementation of a role; everything else stays default. Model-backed
-    components share their models automatically:
+    **3. Swap components.** Pass any implementation of a role; everything else stays default. The filter and the
+    judge take a decision runner (Laya by default) and share loaded weights:
 
     ```python
     FactAssessor(judge=LLMJudge("openai:gpt-6-luna"))                     # most accurate judge
@@ -346,7 +346,7 @@ def _(mo):
     is_forum = Predicate(lambda hit: "reddit.com" in hit["url"] or "quora.com" in hit["url"])
 
     FactAssessor(
-        claim_filter=LayaClaimFilter(threshold=0.5) >> Predicate(lambda atom: len(atom.text) > 15),
+        claim_filter=DecisionClaimFilter(threshold=0.5) >> Predicate(lambda atom: len(atom.text) > 15),
         searcher=SerperSearcher(num=20) >> (not_blocked() & ~is_forum) >> Take(5),
     )
     ```
@@ -377,10 +377,10 @@ def _(mo):
     | Role | Implement | Built in |
     |---|---|---|
     | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
-    | `ClaimFilter` | `score(atom) -> P(claim)` | `LayaClaimFilter`, `GlinerClaimFilter` |
+    | `ClaimFilter` | `score(atom) -> P(claim)` | `DecisionClaimFilter`, `GlinerClaimFilter` |
     | `Searcher` | `search(query)` | `SerperSearcher`, `DuckDuckGoSearcher`, `SearxngSearcher` |
     | `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `FallbackCrawler` |
-    | `Judge` | `judge(claim, docs)` | `LayaJudge`, `GlinerJudge`, `LLMJudge` |
+    | `Judge` | `judge(claim, docs)` | `DecisionJudge`, `GlinerJudge`, `LLMJudge` |
     | `Policy` | `settled(ev)`, `verdict(ev)` | `WeightedPolicy` |
     """)
     return

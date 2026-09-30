@@ -31,7 +31,7 @@ are checked concurrently, and most of the work is I/O that overlaps.
 ```
 text
  └─ LLMAtomizer ──────── one LLM call: atomic, self-contained claims ("Total lives lost…" → "The Nepal earthquake killed…")
-     └─ LayaClaimFilter ─ Laya, local: drop opinions, greetings, questions
+     └─ DecisionClaimFilter ─ Laya, local: drop opinions, greetings, questions
          └─ search ───── Serper (Google), every claim in parallel; slow requests are hedged
              └─ judge ── Laya, local: does each snippet support / refute the claim?
                  ├─ settled → done (no crawling)
@@ -44,12 +44,12 @@ text
 | Step | What does it | Where it runs |
 |---|---|---|
 | Atomize + decontextualize | `LLMAtomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning as low as the model allows) | API, ~2s |
-| Claim filter | `LayaClaimFilter`: [Laya](https://github.com/NandhaKishorM/laya) `choice` decision: is this a factual claim? | local (MPS / CUDA / CPU) |
+| Claim filter | `DecisionClaimFilter`: one `choice` decision per atom (is this a factual claim?) on a decision runner, [Laya](https://github.com/NandhaKishorM/laya) by default | local (MPS / CUDA / CPU) |
 | Search | [Serper](https://serper.dev), social media and video sites filtered out | API, ~1s |
 | Resolve (optional) | `CompositeResolver(ArxivResolver(), OpenAlexResolver())`: a paper's full text from its free copies | network, ~0.2s/paper |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text; or `HTTPXCrawler` (HTML and PDF) | network, ~1s/page |
 | Rank passages | `Ranker`: which chunks of a page the judge sees. `BM25Ranker` (default, word overlap); `HybridRanker` adds 8M-parameter static embeddings for paraphrase (`fact-assessor[embed]`) | local, ms |
-| Evidence judge | `LayaJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages chunked with Laya's own tokenizer, the ranker's top passages per page | local |
+| Evidence judge | `DecisionJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages cut into 90-word windows, the ranker's top passages per page, one decision each on the same runner | local |
 | Verdicts, score, graph | strong evidence weighed per side: `supported` / `refuted` / `contested` / `unverified` | local |
 
 Every box above is a swappable, chainable step (`SerperSearcher() >> not_blocked() >> Take(5)`), and the whole
@@ -57,8 +57,11 @@ thing streams: a claim starts searching the moment it's found, each page is judg
 and results come out as each claim settles. See [Compose your own pipeline](#compose-your-own-pipeline).
 
 Laya is a non-autoregressive decision model (a Jev-style encoder that classifies instead of generating), so the
-filter and the judge are single forward passes. Every Laya request that arrives within a few milliseconds, from
-any claim or page, is merged into one batch. The Laya filter and judge share one loaded model automatically.
+filter and the judge are single forward passes. They ask it through a **decision runner** (`DecisionRunner`), the
+one place a model is wired in: `LayaRunner` (the default) merges every request that arrives within a few
+milliseconds, from any claim or page, into one batch on the local GPU; `SystemOneRunner` sends the same requests
+to TypeSafe's Jev on OpenRouter instead (no GPU). `FactAssessor()` gives the filter and the judge one shared
+`LayaRunner`; see [Decision runners](#decision-runners-the-model-behind-the-filter-and-the-judge).
 
 **Latency** (M-series Mac, MPS, warm): ~4–6s for a 2–5 claim paragraph, most of it network. The atomizer call,
 search, and crawling dominate; Laya passes take 40–150ms each. The first call in a fresh process also loads Laya
@@ -245,7 +248,7 @@ All keyword arguments to `FactAssessor`:
 | `max_concurrent_claims` | the judge's | claims checked at once; a claim's `timeout` starts when it gets its turn. Laya and LLM judges: no limit; `GlinerJudge`: 3. `None` = no limit |
 | `max_concurrent_crawls` | 10 | pages the browser crawler loads at once (shared by all claims) |
 | `search_timeout` | 5 | seconds per Serper request |
-| `laya_model` | `english` | Laya checkpoint for the default filter and judge: `english`, `multilingual`, `typed-decisions` |
+| `laya_model` | `english` | Laya checkpoint of the default runner (shared by the filter and the judge): `english`, `multilingual`, `typed-decisions` |
 | `serper_api_key` | `SERPER_API_KEY` | Serper key (from `.env` or the environment if not given) |
 
 ### Compose your own pipeline
@@ -256,13 +259,13 @@ transforms it. Conditions combine with `&` (and), `|` (or), `~` (not).
 
 ```python
 from urllib.parse import urlparse
-from factassessor import Crawl4AICrawler, FactAssessor, LayaClaimFilter, Predicate, SerperSearcher, Take, not_blocked
+from factassessor import Crawl4AICrawler, FactAssessor, DecisionClaimFilter, Predicate, SerperSearcher, Take, not_blocked
 
 official = Predicate(lambda hit: urlparse(hit["url"]).netloc.endswith((".gov", ".edu")))   # a condition
 long_enough = Predicate(lambda atom: len(atom.text) > 15)
 
 fa = FactAssessor(
-    claim_filter=LayaClaimFilter(threshold=0.5) >> long_enough,
+    claim_filter=DecisionClaimFilter(threshold=0.5) >> long_enough,
     searcher=SerperSearcher(num=20) >> (not_blocked() & official) >> Take(5),
     crawler=Crawl4AICrawler(timeout=4.0),
 )
@@ -282,11 +285,11 @@ streaming, concurrency, and chaining come for free.
 | Argument | Role | You implement | Default |
 |---|---|---|---|
 | `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer()` |
-| `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `LayaClaimFilter(threshold=0.4)` |
+| `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | none; `CompositeResolver(ArxivResolver(), OpenAlexResolver())` for papers |
 | `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `FallbackCrawler` |
-| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge()`; also `GlinerJudge`, `LLMJudge`. Each takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
+| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()`; also `GlinerJudge`, `LLMJudge`. Each takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
 | `policy=` | `Policy` | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 
 A new crawler, for example, is just:
@@ -331,19 +334,19 @@ Every built-in option, one line per role. Mix freely; anything not passed keeps 
 ```python
 from factassessor import (
     FactAssessor, LLMAtomizer,                                      # atomizer
-    LayaClaimFilter, GlinerClaimFilter,                             # claim filter
+    DecisionClaimFilter, GlinerClaimFilter,                             # claim filter
     SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, Take,  # searcher
     Crawl4AICrawler, HTTPXCrawler, FallbackCrawler,                 # crawler
-    LayaJudge, GlinerJudge, LLMJudge,                               # judge
+    DecisionJudge, GlinerJudge, LLMJudge,                               # judge
     WeightedPolicy,                                                 # policy
 )
 
 FactAssessor(
     atomizer=LLMAtomizer("openai:gpt-6-luna"),                       # any pydantic-ai model
-    claim_filter=LayaClaimFilter(threshold=0.4),                     # or GlinerClaimFilter(), or None (no filter)
+    claim_filter=DecisionClaimFilter(threshold=0.4),                     # or GlinerClaimFilter(), or None (no filter)
     searcher=SerperSearcher() >> not_blocked() >> Take(5),           # or DuckDuckGoSearcher(), SearxngSearcher(url)
     crawler=Crawl4AICrawler(timeout=2.5),                            # or HTTPXCrawler(), FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())
-    judge=LayaJudge(),                                               # or GlinerJudge(), LLMJudge()
+    judge=DecisionJudge(),                                               # or GlinerJudge(), LLMJudge()
     policy=WeightedPolicy(strong=0.7, early_exit=0.9),
 )
 ```
@@ -375,22 +378,47 @@ it just crawls those locations in order (`fact-assessor[pdf]` for PDFs):
 
 ```python
 from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, FallbackCrawler, HTTPXCrawler,
-                          HybridRanker, LayaJudge, OpenAlexResolver)
+                          HybridRanker, DecisionJudge, OpenAlexResolver)
 
 FactAssessor(
     source_query=True,                          # the atomizer also writes one search for the text's source document
     resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver()),   # papers: free full-text copies first
     crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()),        # plain HTTP (HTML and PDF), browser only if needed
-    judge=LayaJudge(passages_per_page=3),       # 3 passages per page: +0.10 F1 on the paper eval, ~3s more per text
+    judge=DecisionJudge(passages_per_page=3),       # 3 passages per page: +0.10 F1 on the paper eval, ~3s more per text
 )
 
-LayaJudge(passages_per_page=3, ranker=HybridRanker())   # BM25 + 8M static embeddings (fact-assessor[embed]); measured:
+DecisionJudge(passages_per_page=3, ranker=HybridRanker())   # BM25 + 8M static embeddings (fact-assessor[embed]); measured:
                                                         # no gain over BM25 at top-3 on the paper eval, kept as an option
 ```
 
 `source_query`: a claim about a detail inside a paper rarely finds the paper by itself, while the whole text usually
 does; the atomizer writes that query in the same call as the atoms (no added latency), every claim searches with it
 too, and it is searched once per text (`FactAssessor` wraps its searcher in `Cache`).
+
+### Decision runners: the model behind the filter and the judge
+
+`DecisionClaimFilter` and `DecisionJudge` don't know which model answers them. They build a request (a `state`
+such as `{"evidence": passage, "claim": claim}` and a typed `question` with its options) and hand it to a
+`DecisionRunner`: one method, `predict(requests) -> responses`, with probabilities per option. Batching is the
+runner's job: it merges the requests of every claim, page and component in flight and sends them in full batches.
+
+```python
+from factassessor import DecisionClaimFilter, DecisionJudge, FactAssessor, LayaRunner, SystemOneRunner
+
+laya = LayaRunner()                       # in-process Laya (the default): 32-row passes on the local GPU
+jev = SystemOneRunner()                   # TypeSafe's Jev on OpenRouter (OPENROUTER_API_KEY): no GPU, ~0.5s a call,
+                                          # 40 requests packed per call, 16 calls in flight, $0.042 per 1M input tokens
+FactAssessor(claim_filter=DecisionClaimFilter(laya), judge=DecisionJudge(jev, passages_per_page=3))
+FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/systemone", model="english")))  # a remote `python -m laya.serve`
+```
+
+| Runner | Model | Where | Batching |
+|---|---|---|---|
+| `LayaRunner(model="english")` (default) | Laya: `english`, `multilingual` (~2.2x faster), `typed-decisions` | local GPU / CPU, one model per device per process | requests merged across callers, 32 rows per pass |
+| `SystemOneRunner(model="~typesafe/jev-latest")` | Jev (System One protocol), or a `laya.serve` server | OpenRouter, or any URL | 40 requests packed into one call, 16 calls in flight, 429s retried |
+
+A runner is a `Protocol`: anything with `batch_size` and `async predict(requests)` works, and
+`isinstance(x, DecisionRunner)` checks it. `factassessor.decisions` has the request and response models.
 
 ```
 search -> judge snippets -> resolve (every hit at once) -> crawl each hit's locations in order -> judge each page
@@ -444,7 +472,7 @@ FactAssessor(judge=LLMJudge(window_ms=20))         # batch requests arriving wit
 |---|---|---|
 | `LLMJudge` gpt-6-luna | **15/15** (3 of 4 runs; 14 in the other) | ~2.1s (API) |
 | `LLMJudge` gpt-5.6-luna | 14/15 | ~2.1s (API) |
-| `LayaJudge` (default, MPS) | 13/15 | 0.2s |
+| `DecisionJudge` (default, MPS) | 13/15 | 0.2s |
 | `GlinerJudge` fp32 (CPU) | 12/15 | 1.8s |
 | `GlinerJudge` int8 (CPU) | 7/15 | 1.0s |
 
@@ -454,7 +482,7 @@ sequence), so parallel is the default.
 Reproduce with `uv run --extra gliner python scripts/compare_judges.py`.
 
 **Claim filters** (`FactAssessor(claim_filter=GlinerClaimFilter())`, or `claim_filter=None` to check every atom;
-`scripts/compare_claim_filters.py`, 19 statements): `LayaClaimFilter` 17/19 in 0.22s,
+`scripts/compare_claim_filters.py`, 19 statements): `DecisionClaimFilter` 17/19 in 0.22s,
 `GlinerClaimFilter` 17/19 in 2.3s. Laya's misses keep two opinions (harmless: one extra search each); GLiNER's drop
 two real claims (they're never checked), so Laya stays the default.
 
@@ -525,9 +553,11 @@ factassessor/
   assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
   pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Predicate: the streaming runner
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
+  decisions.py       DecisionRunner (role, a Protocol), DecisionRequest / DecisionResponse, SystemOneRunner (Jev over HTTP), Batcher
+  laya.py            LayaRunner (default): in-process Laya, one model per device per process, micro-batching, batch cap
   claim_filters/     atoms -> the factual claims
     _base.py         ClaimFilter (role)
-    laya.py          LayaClaimFilter (default, local)
+    decision.py      DecisionClaimFilter (default): one decision per atom on any runner
     gliner.py        GlinerClaimFilter (optional extra)
   search/            query -> hits
     _base.py         Searcher (role), SearchType (general / science), not_blocked, hedging
@@ -545,13 +575,12 @@ factassessor/
   verify.py          Verify (per claim: snippets, resolve + crawl if needed, early exit), Policy (role), WeightedPolicy
   judges/            evidence -> stance per passage
     _base.py         Judge (role)
-    laya.py          LayaJudge (default, local)
+    decision.py      DecisionJudge (default): one decision per (claim, passage) on any runner
     gliner.py        GlinerJudge (optional extra)
     llm.py           LLMJudge: the judge as a pydantic-ai structured call (optionally batched)
   gliner.py          the GLiNER2.5-decide runtime (internal, optional extra): one ONNX model per process
   kg.py              knowledge graph (kg.build, kg.to_mermaid), built on demand from a result
-  laya.py            the Laya runtime (internal): one model per device per process, micro-batching, batch cap
-  passages.py        page cleaning, token-exact chunking, BM25
+  passages.py        page cleaning, normalization, word windows and token-exact chunking, BM25
   schema.py          Atom, Evidence, AtomResult, CheckResult (fact_score computed from its atoms), stream events
 ```
 

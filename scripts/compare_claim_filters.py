@@ -8,14 +8,14 @@ import json
 import time
 from pathlib import Path
 
-from factassessor import Atom, GlinerClaimFilter, LayaClaimFilter
+from factassessor import Atom, DecisionClaimFilter, GlinerClaimFilter
 
 CASES = [(c["text"], c["is_claim"]) for c in json.loads((Path(__file__).parent.parent / "data" / "claim_cases.json").read_text())]
 
 
 async def score(name, claim_filter):
     atoms = [Atom(id=i, text=text, span=(0, len(text))) for i, (text, _) in enumerate(CASES)]
-    await claim_filter.start()
+    await claim_filter.aload()
     await asyncio.gather(*(claim_filter.score(a) for a in atoms))  # warm up
     start = time.perf_counter()
     scores = await asyncio.gather(*(claim_filter.score(a) for a in atoms))
@@ -28,7 +28,7 @@ async def score(name, claim_filter):
 
 
 async def main():
-    await score("LayaClaimFilter", LayaClaimFilter())
+    await score("Laya (DecisionClaimFilter)", DecisionClaimFilter())
     await score("GlinerClaimFilter", GlinerClaimFilter())
 
 

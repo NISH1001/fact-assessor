@@ -10,7 +10,7 @@ import json
 import time
 from pathlib import Path
 
-from factassessor import LayaJudge, LLMJudge
+from factassessor import DecisionJudge, LLMJudge
 
 CASES = [(c["claim"], c["evidence"], c["label"]) for c in json.loads((Path(__file__).parent.parent / "data" / "judge_cases.json").read_text())]
 
@@ -30,7 +30,7 @@ async def score(name, judge):
 
 
 async def main():
-    await score("LayaJudge", LayaJudge())
+    await score("Laya (DecisionJudge)", DecisionJudge())
     for model in ("openai:gpt-5.6-luna", "openai:gpt-6-luna", "openai:gpt-5.4-mini", "openai:gpt-5.4-nano"):
         name = model.split(":")[1]
         await score(f"LLMJudge {name} (1 call)", LLMJudge(model, window_ms=20))

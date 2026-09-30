@@ -4,8 +4,8 @@ Status: **implemented** (2026-09-25), except the streaming atomizer. How the imp
 draft below:
 
 - Each component has a role (a base type you implement one method of) and implementations named after their
-  tool: `Atomizer`/`LLMAtomizer`, `Searcher`/`SerperSearcher`, `Crawler`/`Crawl4AICrawler`, `Judge`/`LayaJudge`,
-  `Policy`/`WeightedPolicy`, `ClaimFilter`/`LayaClaimFilter` (was `LayaCheckworthy`). There is no
+  tool: `Atomizer`/`LLMAtomizer`, `Searcher`/`SerperSearcher`, `Crawler`/`Crawl4AICrawler`, `Judge`/`DecisionJudge`,
+  `Policy`/`WeightedPolicy`, `ClaimFilter`/`DecisionClaimFilter` (was `LayaCheckworthy`). There is no
   separate `Search(...)` wrapper: a `Searcher` is itself a step, so `SerperSearcher() >> not_blocked() >> Take(5)`
   is a searcher. See [functional.md](functional.md) for the composition model.
 - `Aggregate` is not a step: `FactAssessor.stream` collects the results into a `CheckResult`, whose `fact_score`
@@ -21,7 +21,7 @@ draft below:
 Today every step except the atomizer, filter, and judge is a private method on `FactAssessor`, and the
 orchestration (per-atom concurrency, early exit, hedging) is hand-written around them. We want:
 
-1. **Every step swappable** behind a small interface, the way `Atomizer`, the atom filter, and `LayaJudge` already were.
+1. **Every step swappable** behind a small interface, the way `Atomizer`, the atom filter, and `DecisionJudge` already were.
 2. **Functional composition**: `Atomizer() >> Filter(...) >> Search(...) >> Verify(...) >> Aggregate()`.
 3. **Streaming**: an atom moves to the next step the moment it exists. Atom 1 can be judged while atom 4 is
    still being searched. The only point where everything waits is the final aggregation.
@@ -83,7 +83,7 @@ class Claim(BaseModel):
 | `Filter(pred)` (Map, may drop) | predicate | `async (Claim) -> bool` | `LayaCheckworthy(laya, threshold=0.4)` |
 | `Take(n)` | — | — | caps atoms per text (replaces `n_atoms`) |
 | `Search(searcher)` (Map) | `Searcher` | `async search(query) -> list[Hit]` | `SerperSearcher(blocked_domains=...)` |
-| `Verify(judge, crawler, policy)` (Map) | `Judge`, `Crawler`, `VerdictPolicy` | see below | `LayaJudge`, `Crawl4aiCrawler`, `WeightedPolicy` |
+| `Verify(judge, crawler, policy)` (Map) | `Judge`, `Crawler`, `VerdictPolicy` | see below | `DecisionJudge`, `Crawl4aiCrawler`, `WeightedPolicy` |
 | `Aggregate(graph=...)` (Fold) | graph builder | `(claims) -> dict` | source→atom support/refute graph + fact score |
 
 ```python
@@ -129,7 +129,7 @@ Each wrapper implements the same protocol as what it wraps, so pipelines never c
 
 ### Laya
 
-`LayaRunner` stays the one shared model with the micro-batcher. `LayaCheckworthy` and `LayaJudge` both take it.
+`LayaRunner` stays the one shared model with the micro-batcher. `LayaCheckworthy` and `DecisionJudge` both take it.
 Streaming puts more atoms in flight at once, which gives the micro-batcher more to merge.
 
 ## Public API
@@ -144,7 +144,7 @@ async for atom_result in fa.astream(text):   # new: each AtomResult the moment i
 
 # custom
 from factassessor.pipeline import Take
-from factassessor import Atomizer, Filter, LayaCheckworthy, Search, SerperSearcher, Hedged, Verify, LayaJudge, Crawl4aiCrawler, Aggregate, LayaRunner
+from factassessor import Atomizer, Filter, LayaCheckworthy, Search, SerperSearcher, Hedged, Verify, DecisionJudge, Crawl4aiCrawler, Aggregate, LayaRunner
 
 laya = LayaRunner()
 pipeline = (
@@ -152,7 +152,7 @@ pipeline = (
     >> Filter(LayaCheckworthy(laya))
     >> Take(8)
     >> Search(Hedged(SerperSearcher(), after=1.2))
-    >> Verify(judge=LayaJudge(laya), crawler=Crawl4aiCrawler(timeout=2.5))
+    >> Verify(judge=DecisionJudge(laya), crawler=Crawl4aiCrawler(timeout=2.5))
     >> Aggregate()
 )
 async with pipeline:                      # aload/aclose every component (browser, HTTP pool, Laya)
@@ -170,7 +170,7 @@ factassessor/
   search/            Searcher, SerperSearcher, SearxngSearcher, DuckDuckGoSearcher, DocumentSearcher
   crawlers/          Crawler, Crawl4AICrawler, HTTPXCrawler (+ resolvers), FallbackCrawler
   wrappers.py        Hedged, Timeout, Retry
-  judges/            Judge, LayaJudge, GlinerJudge, LLMJudge (+ passages.py for chunking/BM25/cleaning)
+  judges/            Judge, DecisionJudge, GlinerJudge, LLMJudge (+ passages.py for chunking/BM25/cleaning)
   verify.py          Verify step, VerdictPolicy, WeightedPolicy
   aggregate.py       Aggregate step, fact score, graph
   laya.py            LayaRunner

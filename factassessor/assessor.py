@@ -1,11 +1,14 @@
 """FactAssessor: the ready-made fact-checking pipeline, and the facade that runs any pipeline.
 
     atomizer >> claim_filter              searcher (per claim)                crawler (per hit)
-    LLMAtomizer >> LayaClaimFilter        SerperSearcher >> not_blocked()     Crawl4AICrawler
+    LLMAtomizer >> DecisionClaimFilter    SerperSearcher >> not_blocked()     Crawl4AICrawler
                 >> Take(n_atoms)                         >> Take(top_k)
-                    \\                                  judge: LayaJudge   policy: WeightedPolicy
+                    \\                                  judge: DecisionJudge   policy: WeightedPolicy
                      `-> Verify(searcher, crawler, judge, policy) -> results -> fact score
                                                             (knowledge graph: kg.build(result), on demand)
+
+The default filter and judge share one `LayaRunner` (the local model, loaded once, one batch queue); pass
+`claim_filter=DecisionClaimFilter(runner)` / `judge=DecisionJudge(runner, ...)` to put either on another runner.
 
 Everything streams: a claim is verified the moment the atomizer emits it, each page is judged the moment its
 crawl lands, and results come out as they settle. `assess` is `stream` read to the end.
@@ -22,9 +25,10 @@ from typing import Any
 
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
 from factassessor.atomizer import LLMAtomizer
-from factassessor.claim_filters import ClaimFilter, LayaClaimFilter
+from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
 from factassessor.crawlers import Crawl4AICrawler
-from factassessor.judges import Judge, LayaJudge
+from factassessor.judges import DecisionJudge, Judge
+from factassessor.laya import LayaRunner
 from factassessor.pipeline import Cache, Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
@@ -38,7 +42,7 @@ _DEFAULT: Any = object()  # "build the default" (so claim_filter=None can mean "
 class FactAssessor:
     """Pass components to replace any part (`atomizer=`, `claim_filter=`, `searcher=`, `crawler=`, `judge=`,
     `policy=`); the other arguments configure the defaults and are ignored for a component you pass yourself.
-    Model-backed components share their models automatically (one Laya, one GLiNER per process)."""
+    The default filter and judge share one Laya runner (one model, one batch queue)."""
 
     def __init__(
         self,
@@ -70,9 +74,8 @@ class FactAssessor:
         policy: Policy | None = None,
     ) -> None:
         self.atomizer = atomizer or LLMAtomizer(atomizer_model, source_query=source_query)
-        self.claim_filter = (
-            LayaClaimFilter(claim_threshold, model=laya_model, device=device) if claim_filter is _DEFAULT else claim_filter
-        )
+        laya = LayaRunner(laya_model, device) if claim_filter is _DEFAULT or judge is None else None  # shared
+        self.claim_filter = DecisionClaimFilter(laya, threshold=claim_threshold) if claim_filter is _DEFAULT else claim_filter
         self.atoms = (  # text -> the atoms worth checking
             self.atomizer >> self.claim_filter >> Take(n_atoms) if self.claim_filter else self.atomizer >> Take(n_atoms)
         )
@@ -84,7 +87,7 @@ class FactAssessor:
             >> Take(candidates)
         )
         self.crawler = crawler or Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
-        self.judge = judge or LayaJudge(model=laya_model, device=device)
+        self.judge = judge or DecisionJudge(laya)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf)
         claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}
         self.verify = Verify(

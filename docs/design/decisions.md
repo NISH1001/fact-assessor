@@ -75,9 +75,9 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   frozen evidence) at 1/3 the judge time (3.2s vs 9.9s for 12 claims, no early exit).
 - On MPS the cost is ~pairs × tokens (≈42ms/pair at 290 tokens, 24 at 128, 17 at 64). **fp16/bf16: no gain.**
   Merging micro-batches barely matters (compute-bound). Fewer/shorter pairs is the lever.
-- Chunking uses Laya's own tokenizer to an exact budget (max_len − head_max_len − claim − margin) so Laya never
-  silently truncates. The judge keeps a private tokenizer copy under a lock: HF fast tokenizers aren't thread-safe
-  ("Already borrowed").
+- Chunking used Laya's own tokenizer to an exact budget (max_len − head_max_len − claim − margin) until the
+  decision-runner refactor (2026-09-30); `DecisionJudge` now cuts 90-word windows (about 128 tokens, well inside
+  Laya's ~300-token state budget), the same passages for every runner, and takes a token-exact cutter as `chunk=`.
 - Known gap: a claim right except for one detail ("occurred in 2017", real 2015) often comes out *contested* —
   pages mentioning the event in 2017 (anniversaries) read as support. Planned fix: per-detail Laya questions
   (dates/numbers/entities) in the same forward pass.
@@ -187,5 +187,7 @@ gpt-5.4-nano at 14/15 and 13-14/15. End to end the judge isn't the bottleneck (5
 Claim filters (19 cases): Laya 17/19 in 0.22s, GLiNER 17/19 in 2.3s; Laya's misses keep opinions, GLiNER's drop real
 claims, so Laya stays the default.
 
-Laya and GLiNER models are now process-wide (one per device / per model+variant), with the micro-batching queue per
-event loop, so components share models without being handed a runner and `assess_sync`'s background loop works.
+Laya's weights are process-wide (one Router per device) and GLiNER's per (model, variant). Since the
+decision-runner refactor (2026-09-30) the filter and the judge are handed a `DecisionRunner` (`FactAssessor`
+shares one `LayaRunner` between them); the runner's batch queue belongs to the event loop it first runs on, so
+use one runner per loop (`assess` or `assess_sync` on a given assessor, not both).

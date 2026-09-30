@@ -22,7 +22,7 @@ time out live are missing here too). All atoms are searched, since claim filters
 data/evidence/evidence.json.gz (gitignored: third-party page text). Resumes where it stopped.
 
 Variants (only the models differ):
-    laya    LayaClaimFilter + LayaJudge (the default pipeline)
+    laya    DecisionClaimFilter + DecisionJudge on Laya (the default pipeline)
     gliner  GlinerClaimFilter + GlinerJudge
     llm     no claim filter + LLMJudge (gpt-6-luna): everything after the atomizer is the LLM
 
@@ -54,7 +54,7 @@ from typing import Any
 
 import httpx
 
-from factassessor import Atom, Crawl4AICrawler, FactAssessor, LayaClaimFilter, LayaJudge, LLMJudge, SerperSearcher
+from factassessor import Atom, Crawl4AICrawler, DecisionClaimFilter, DecisionJudge, FactAssessor, LayaRunner, LLMJudge, SerperSearcher
 from factassessor._llm import reasoning_off
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.crawlers import Crawler, HTTPXCrawler
@@ -87,7 +87,7 @@ def use_dataset(name: str) -> None:
     if name == "paired":  # external data: never committed (tmp/ is gitignored)
         base = ROOT / "tmp" / "paired"
         TEXTS, EVIDENCE, RESULTS, KINDS = base / "texts.jsonl", base / "evidence.json.gz", base / "results", ("original", "corrupted")
-VARIANTS = {"laya": "LayaClaimFilter + LayaJudge", "laya-nofilter": "LayaJudge, no claim filter",
+VARIANTS = {"laya": "Laya filter + Laya judge", "laya-nofilter": "Laya judge, no claim filter",
             "gliner": "GlinerClaimFilter + GlinerJudge", "llm": "LLMJudge, no claim filter"}
 LLM_MODEL = "openai:gpt-5-nano"  # the cheapest OpenAI model ($0.05 in / $0.40 out per 1M tokens, Sept 2026): queries, LLM judge
 ATOMIZER_MODEL = "openai:gpt-6-luna"  # $0.10 / $0.50, reasoning off; gpt-5-nano returns whole sentences instead of atoms
@@ -485,9 +485,10 @@ def components(variant: str, llm_model: str = LLM_MODEL) -> tuple[Any, Any]:
         return GlinerClaimFilter(), GlinerJudge()
     if variant == "llm":
         return None, LLMJudge(llm_model, model_settings=llm_settings(llm_model))
+    laya = LayaRunner()  # one model, one batch queue for both
     if variant == "laya-nofilter":  # check every atom
-        return None, LayaJudge()
-    return LayaClaimFilter(), LayaJudge()
+        return None, DecisionJudge(laya)
+    return DecisionClaimFilter(laya), DecisionJudge(laya)
 
 
 async def warm_up(fa: FactAssessor, claim_filter: Any, judge: Any, text: str) -> dict[str, Any]:

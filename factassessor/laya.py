@@ -1,9 +1,10 @@
-"""Laya runtime, internal: shared by every Laya component (LayaClaimFilter, LayaJudge). Nobody passes it around.
+"""LayaRunner: in-process Laya on the local GPU, the default `DecisionRunner`.
 
 - The model (a laya `Router`) and the one thread it runs on are loaded once per device, per process, however many
-  components or assessors use them.
-- Requests are micro-batched per event loop: everything that arrives within `max_wait_ms` (from any claim, page,
-  or component) goes out in one `predict_batch`. `laya_runner(device)` returns this loop's runner.
+  runners or assessors use them. `model` picks the checkpoint: english (421M, 512 tokens), multilingual (322M,
+  1,024 tokens, ~2.2x faster), typed-decisions.
+- Requests are micro-batched (`decisions.Batcher`): everything that arrives within `max_wait_ms` from any claim,
+  page or component goes out in one `predict_batch`, and everything arriving during a pass forms the next one.
 
 Measured on MPS (docs/design/decisions.md): capping each forward pass at 32 rows costs no speed and holds GPU
 memory flat under load (400 pairs: 7.1 GB uncapped vs 2.0 GB); grouping rows by length avoids padding short
@@ -15,36 +16,26 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-import weakref
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+
+from factassessor.decisions import Batcher, DecisionRequest, DecisionResponse, DecisionRunner
 
 _routers: dict[str, Any] = {}  # device -> loaded laya.Router
 _threads: dict[str, ThreadPoolExecutor] = {}  # device -> the one thread that model runs on
 _process_lock = threading.Lock()
-_runners: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, LayaRunner]] = weakref.WeakKeyDictionary()
 
 
-def laya_runner(device: str = "auto") -> LayaRunner:
-    """This event loop's runner for `device` (call from async code). Every Laya component shares it."""
-    loop = asyncio.get_running_loop()
-    per_loop = _runners.setdefault(loop, {})
-    if device not in per_loop:
-        per_loop[device] = LayaRunner(device)
-    return per_loop[device]
+class LayaRunner(DecisionRunner):
+    """Micro-batching front end to the process-wide Laya model for one device."""
 
-
-class LayaRunner:
-    """Micro-batching front end to the process-wide Laya model for one device and one event loop."""
-
-    def __init__(self, device: str = "auto", max_wait_ms: float = 5.0, batch_size: int = 32) -> None:
+    def __init__(self, model: str = "english", device: str = "auto", batch_size: int = 32, max_wait_ms: float = 5.0) -> None:
+        self.model = model  # Laya checkpoint: english | multilingual | typed-decisions
         self.device = device
-        self.max_wait_ms = max_wait_ms
         self.batch_size = batch_size  # rows per forward pass (Laya's own name): bounds GPU memory, free in speed
         self._router: Any = None
         self._lock = asyncio.Lock()
-        self._pending: list[tuple[list[dict[str, Any]], asyncio.Future[list[dict[str, Any]]]]] = []
-        self._flush: asyncio.Task[None] | None = None
+        self._batch = Batcher(self._run, max_wait_ms, max_concurrent=1)  # one GPU: passes run one after another
 
     @property
     def _thread(self) -> ThreadPoolExecutor:
@@ -54,59 +45,30 @@ class LayaRunner:
             return _threads[self.device]
 
     async def aload(self) -> None:
-        """Load the Router (once per process per device)."""
+        """Load the Router (once per process per device) and this checkpoint's weights."""
         async with self._lock:
             if self._router is None:
-                self._router = await asyncio.get_running_loop().run_in_executor(self._thread, _load_router, self.device)
+                loop = asyncio.get_running_loop()
+                self._router = await loop.run_in_executor(self._thread, _load_router, self.device)
+                await loop.run_in_executor(self._thread, self._router.load, self.model)
 
-    async def agent(self, model: str) -> Any:
-        """The loaded Laya Agent for a checkpoint: `.tok` is its tokenizer, `.cfg` its token limits."""
-        await self.aload()
-        return await asyncio.get_running_loop().run_in_executor(self._thread, self._router.load, model)
-
-    async def predict_batch(self, requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """`Router.predict_batch` for {"state", "questions", "model"} requests, micro-batched with every other
-        caller's requests on this loop into shared forward passes."""
+    async def predict(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
         if not requests:
             return []
         await self.aload()
-        future: asyncio.Future[list[dict[str, Any]]] = asyncio.get_running_loop().create_future()
-        self._pending.append((requests, future))
-        if self._flush is None:
-            self._flush = asyncio.create_task(self._flush_after_wait())
-        return await future
+        return await self._batch.submit(requests)
 
-    async def _flush_after_wait(self) -> None:
-        """One flush loop: wait `max_wait_ms` for the first requests to gather, run a pass on everything pending,
-        and while requests kept arriving during that pass, run again on all of them at once. Batches grow to
-        whatever lands while the model is busy (measured: forming a batch per wait window instead left the model
-        working through a backlog of 2-3-row passes, 14x slower than full ones)."""
-        await asyncio.sleep(self.max_wait_ms / 1000)
-        while self._pending:
-            batch, self._pending = self._pending, []
-            await self._run(batch)
-        self._flush = None
-
-    async def _run(self, batch: list[tuple[list[dict[str, Any]], asyncio.Future[list[dict[str, Any]]]]]) -> None:
-        merged = [r for requests, _ in batch for r in requests]
-        order = sorted(range(len(merged)), key=lambda i: _length(merged[i]))  # short rows with short rows
-        try:
-            ordered = await asyncio.get_running_loop().run_in_executor(
-                self._thread, lambda: self._router.predict_batch([merged[i] for i in order], batch_size=self.batch_size)
-            )
-        except Exception as exc:
-            for _, future in batch:
-                if not future.done():
-                    future.set_exception(exc)
-            return
-        results: list[dict[str, Any]] = [{}] * len(merged)
+    async def _run(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
+        """One `Router.predict_batch` on the model's thread (Laya cuts it into passes of `batch_size` rows)."""
+        rows = [{"state": r.state, "questions": {k: q.wire() for k, q in r.questions.items()}, "model": r.model or self.model} for r in requests]
+        order = sorted(range(len(rows)), key=lambda i: _length(rows[i]))  # short rows with short rows
+        ordered = await asyncio.get_running_loop().run_in_executor(
+            self._thread, lambda: self._router.predict_batch([rows[i] for i in order], batch_size=self.batch_size)
+        )
+        results: list[DecisionResponse] = [None] * len(rows)  # type: ignore[list-item]
         for position, i in enumerate(order):
-            results[i] = ordered[position]
-        start = 0
-        for requests, future in batch:
-            if not future.done():  # the caller may have been cancelled (e.g. a claim's timeout)
-                future.set_result(results[start : start + len(requests)])
-            start += len(requests)
+            results[i] = DecisionResponse.model_validate(ordered[position])
+        return results
 
 
 def _load_router(device: str) -> Any:
@@ -121,8 +83,8 @@ def _load_router(device: str) -> Any:
         return _routers.setdefault(device, router)
 
 
-def _length(request: dict[str, Any]) -> int:
-    state = request.get("state")
+def _length(row: dict[str, Any]) -> int:
+    state = row["state"]
     return len(state) if isinstance(state, str) else len(json.dumps(state, default=str))
 
 

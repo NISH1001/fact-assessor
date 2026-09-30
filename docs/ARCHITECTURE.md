@@ -3,8 +3,8 @@
 How FactAssessor is put together: the roles, how data flows between them, what runs concurrently, and how
 failures and deadlines are handled. For the why behind each choice (benchmarks, trade-offs) see
 [design/decisions.md](design/decisions.md); for a guided tour with real output see [WALKTHROUGH.md](WALKTHROUGH.md).
-The next refactor, a model layer (`DecisionRunner`) under one judge and one claim filter, is specified in
-[design/decision-runners.md](design/decision-runners.md); this document describes the code as it is.
+The model layer (`DecisionRunner`) under the judge and the claim filter is designed in
+[design/decision-runners.md](design/decision-runners.md), with the build order at its end.
 
 ## Goals
 
@@ -15,7 +15,8 @@ The next refactor, a model layer (`DecisionRunner`) under one judge and one clai
 3. **Every step swappable** behind a small interface (a *role*). Concerns of one component (caching, retries,
    hedging, timeouts) live in that component or a wrapper around it, never in the orchestrator.
 4. **Local models for classification.** Laya (a non-autoregressive decision model) filters claims and judges
-   evidence in single forward passes; the only LLM call is the atomizer.
+   evidence in single forward passes; the only LLM call is the atomizer. The model sits behind one small role
+   (`DecisionRunner`), so the same filter and judge run on Jev over HTTP, or another model, with one argument.
 
 ## The pipeline
 
@@ -25,7 +26,7 @@ text
  ├─ 1. ATOMIZE    Atomizer: text -> atoms (atomic, self-contained claims)        LLMAtomizer: one LLM call
  │                (source_query=True: the same call also writes one search for the text's source document,
  │                 carried by every atom of the text)
- ├─ 2. FILTER     ClaimFilter: drop what isn't a factual claim; Take(n_atoms)     LayaClaimFilter
+ ├─ 2. FILTER     ClaimFilter: drop what isn't a factual claim; Take(n_atoms)     DecisionClaimFilter
  │
  └─ 3. VERIFY     per claim, every claim at once (Verify)
       │
@@ -73,16 +74,23 @@ same method works.
 | Role | Interface | Implementations | File |
 |---|---|---|---|
 | `Atomizer` | `atomize(text) -> list[Atom]` | `LLMAtomizer` (pydantic-ai; falls back to sentences if the LLM fails) | `atomizer.py` |
-| `ClaimFilter` | `score(atoms)` -> P(factual claim) | `LayaClaimFilter` (default), `GlinerClaimFilter` | `claim_filters/` |
+| `ClaimFilter` | `score(atoms)` -> P(factual claim) | `DecisionClaimFilter` (default), `GlinerClaimFilter` | `claim_filters/` |
 | `Searcher` | `search(query) -> list[hit]` | `SerperSearcher` (web or Google Scholar), `SearxngSearcher` (self-hosted; general or science engines), `DuckDuckGoSearcher`, `DocumentSearcher` (given documents: in-domain checks) | `search/` |
 | `Resolver` (Protocol) | `resolve(url) -> list[str]` | `ArxivResolver`, `OpenAlexResolver`, `CompositeResolver` | `resolvers.py` |
 | `Crawler` | `crawl(url) -> page \| None` | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `FallbackCrawler` (waterfall), `NoCrawler` | `crawlers/` |
-| `Judge` | `judge(claim, docs) -> list[Evidence]` | `LayaJudge` (default), `GlinerJudge`, `LLMJudge` | `judges/` |
+| `Judge` | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge` (default), `GlinerJudge`, `LLMJudge` | `judges/` |
 | `Ranker` (Protocol) | `top(claim, chunks, k) -> list[str]` | `BM25Ranker` (default), `EmbeddingRanker` (model2vec), `HybridRanker` | `rankers.py` |
 | `Policy` | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` | `verify.py` |
+| `DecisionRunner` (Protocol) | `predict(requests) -> responses` (a `state` and typed `questions` in, probabilities per option out); `batch_size` | `LayaRunner` (default; in-process), `SystemOneRunner` (Jev's System One protocol over HTTP: OpenRouter or a `laya.serve` server) | `decisions.py`, `laya.py` |
+
+The runner is the layer below the roles: `DecisionClaimFilter` and `DecisionJudge` are written once on top of it
+and never name a model; a runner never sees claims, pages or evidence, only requests. Batching is the runner's
+job (`decisions.Batcher`): the requests of every caller in flight are merged, cut at `batch_size` and capped in
+flight, so 100 requests become a few passes or calls. `FactAssessor()` gives the filter and the judge one shared
+`LayaRunner`.
 
 Shared helpers, not roles: `extract.py` (document bytes -> text), `passages.py` (cleaning, normalization,
-chunking, BM25), `laya.py` / `gliner.py` (model runtimes), `kg.py` (knowledge graph).
+word windows, chunking, BM25), `gliner.py` (the GLiNER runtime), `kg.py` (knowledge graph).
 
 **Who knows what.** Resolvers know about *documents* (DOIs, arXiv ids, where free copies live) and never fetch
 them. Crawlers know about *fetching one URL* (HTTP or a browser) and turn what they get into text with the shared
@@ -111,7 +119,7 @@ Two properties make the whole pipeline fast:
 
 **Lifecycle.** `aload()` / `aclose()` on any step walk everything reachable from it (`Step.parts()`: its attributes
 that are steps or have `aload` / `aclose`) and start or stop each once: the browser, HTTP pools, the OpenAlex
-client, the Laya model. `FactAssessor` exposes them as `aload` / `aclose` and `async with`.
+client, the model runners. `FactAssessor` exposes them as `aload` / `aclose` and `async with`.
 
 ## Verify, step by step
 
@@ -148,8 +156,10 @@ Without a resolver, the crawler just crawls each hit's URL.
 
 **e. Passages** (inside the judge, through its `Ranker`: `BM25Ranker` by default; `HybridRanker` mixes in static
 embeddings to catch paraphrase). Claim and page text are put in one Unicode form (`normalize_text`: NFKC,
-minus signs as `-`, so `ha⁻¹` and `ha−1` match). The page is chunked with Laya's own tokenizer into windows that
-fit next to the claim (≤ 128 tokens, 25% overlap), and BM25 picks the top `passages_per_page` (1 today).
+minus signs as `-`, so `ha⁻¹` and `ha−1` match). The page is cut into 90-word windows (about 128 Laya tokens, the
+size that measured best; 25% overlap; `DecisionJudge(chunk=...)` swaps the cutter), the text's own words, so every
+runner sees the same passages, and the ranker picks the top `passages_per_page` (1 by default; 3 measured +0.10 F1
+on the paper eval).
 
 **f. Judge.** Each page is judged the moment it lands; `Scan` keeps the running total of evidence, and
 `TakeUntil(policy.settled)` stops the claim as soon as it's settled.
@@ -175,7 +185,8 @@ The 2x margin means one stray "refutation" (a related but different fact) doesn'
 | the same query from several claims | `Cache` around the searcher | one real search per query per 10 minutes; the rest share it |
 | resolvers of a hit | `CompositeResolver`: `asyncio.gather` | all at once |
 | locations of a hit | `read_first`: one at a time, in order | deliberate: first that works |
-| Laya | one model and one thread per device per process; every request arriving within 5ms (any claim, page, or component) is merged into one batch | 32 rows per forward pass |
+| `LayaRunner` | one model and one thread per device per process; every request arriving within 5ms (any claim, page, or component) is merged into one pass, and everything arriving during a pass forms the next | 32 rows per forward pass |
+| `SystemOneRunner` (Jev) | requests merged across callers and packed 40 per HTTP call (one state, one question per request); 429s and 5xx retried with backoff | 16 calls in flight |
 | SearXNG | `SearxngSearcher(max_concurrent=4)`: its upstream engines suspend a client that bursts | 4 requests in flight |
 | browser | one shared headless browser | `max_concurrent_crawls` (10) pages at once, all claims |
 | plain HTTP | one shared connection pool | 20 at once |
@@ -234,7 +245,7 @@ needs 300. Words, not characters: links and markup leftovers inflate character c
 | search | Serper (web) | self-hosted SearXNG |
 | resolver | none | `CompositeResolver(ArxivResolver(), OpenAlexResolver())` |
 | crawler | `Crawl4AICrawler(timeout=2.5)` | `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())` |
-| judge / policy | `LayaJudge()`, `WeightedPolicy(strong=0.7, early_exit=0.9)` | same |
+| judge / policy | `DecisionJudge()`, `WeightedPolicy(strong=0.7, early_exit=0.9)` | same |
 
 ```python
 from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, FactAssessor, FallbackCrawler,
