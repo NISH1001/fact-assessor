@@ -62,8 +62,10 @@ class Verify(Step):
         once; its locations (`resolvers.locations`: a direct-PDF hit, the free copies, the hit's own page) are then
         crawled in order and the first readable one is judged, cited under the hit's URL. A copy claims to be the
         full document, so it needs `min_copy_words` (bot-check pages are shorter); the hit's own page is taken as the
-        crawler returns it. `read_timeout` caps one hit's locations together, so a hit with several blocked copies
-        can't eat the claim's `timeout`.
+        crawler returns it. A hit has no clock of its own: each fetch is bounded by the crawler's timeouts, a hit has
+        a handful of locations, and the claim's `timeout` caps the rest. (A per-hit deadline used to start when the
+        hit was handed to the crawler, so under load it timed the wait for a connection: with 6 texts checked at
+        once, 93% of crawls expired before starting and 571 of 1,667 claims lost pages that were readable.)
     concurrency: claims verified at once, like `Map(concurrency=)`. Default: the judge's `concurrency` (none for
         Laya and LLM judges, so every claim starts at once); None: no limit. A claim's `timeout` starts when it
         gets its slot, so claims waiting for a slow judge don't time out in the queue.
@@ -78,7 +80,6 @@ class Verify(Step):
         timeout: float = 15.0,
         concurrency: int | None | Any = _FROM_JUDGE,
         resolver: Resolver | None = None,
-        read_timeout: float = 8.0,
         min_copy_words: int = 300,
         pages_per_claim: int | None = None,
     ) -> None:
@@ -90,7 +91,6 @@ class Verify(Step):
         # overfetch: with more hits than this, the first `pages_per_claim` that turn out readable are judged and the
         # other crawls are cancelled, so a paywalled or blocked hit is replaced by the next one instead of lost
         self.pages_per_claim = pages_per_claim
-        self.read_timeout = read_timeout
         self.min_copy_words = min_copy_words
         self.judge = judge
         self.policy = policy or WeightedPolicy()
@@ -152,13 +152,9 @@ class Verify(Step):
         return url, locations(url, candidates)
 
     async def _read(self, source: tuple[str, list[str]]) -> dict[str, Any] | None:
-        """The first readable location, as the hit's page; None (dropped) if none is, or `read_timeout` runs out."""
+        """The first readable location, as the hit's page; None (dropped) if none is."""
         url, where = source
-        try:
-            async with asyncio.timeout(self.read_timeout):
-                return await read_first(self.crawler, url, where, self.min_copy_words)
-        except TimeoutError:
-            return None
+        return await read_first(self.crawler, url, where, self.min_copy_words)
 
 
 async def read_first(crawler: Any, url: str, where: list[str], min_copy_words: int = 300) -> dict[str, Any] | None:

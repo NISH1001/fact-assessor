@@ -108,6 +108,16 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   (reposts, opinions, comments; crawl badly) and youtube (no text). LinkedIn kept (primary source for people/orgs).
   Earlier versions kept twitter/x and reddit; blocked since 2026-09-25. LinkedIn and tumblr blocked since
   2026-09-30 (FactReasoner's list).
+- **No per-hit read deadline** (2026-09-30). `Verify` used to give one hit 8s for all its locations together,
+  measured from the moment the hit was handed to the crawler. The crawler caps connections (20 HTTP, 10 browser),
+  so under load that clock counted the wait for a connection: the first live eval at 6 answers in parallel
+  (~2,000 hits competing) had 93% of crawls expire unstarted (median crawl 8.3s, against 5.8s and 39% at the limit
+  when sequential), only 25% of claims judged any page (89% sequential), and 571 of 1,667 claims came back
+  unverified on snippets alone although the eval's after-the-fact cache held a readable page for every one of
+  them: F1 0.560 for a run whose replay on the same evidence scores higher. Each fetch already has the crawler's
+  limit (2.5s HTML, 8s PDF), a hit has a handful of locations, and the claim deadline caps the rest, so the per-hit
+  clock guarded nothing that wasn't guarded and was the only clock measuring the queue. Removed: under load a hit
+  waits its turn; latency stretches, evidence isn't dropped.
 - **Serper: the blocked hosts are excluded in the query too** (2026-09-30, `SerperSearcher(exclude=)`). Measured
   live: a plain query had 3 of its 10 hits blocked (reddit, facebook, youtube); the same query with 14 `-site:`
   operators had 0, for the same 1 credit, with the 7 shared hits in the same order and the freed slots filled by

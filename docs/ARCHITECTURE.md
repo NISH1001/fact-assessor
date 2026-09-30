@@ -158,7 +158,9 @@ tried when an earlier one's are all blocked. An ordinary page costs nothing: res
 **d. Crawl (the read stage).** Every hit is read at once; within one hit, `read_first` tries its locations **in
 order** and keeps the first readable one ("first that works", which is also polite to hosts). A copy claims to be
 the full document, so it needs `min_copy_words` (300; bot-check pages are ~180); the hit's own page is taken as
-the crawler returns it. One hit's locations share `read_timeout` (8s). The page comes back under the hit's URL.
+the crawler returns it. A hit has no clock of its own: each fetch has the crawler's limit, and the claim deadline
+caps the rest (a per-hit 8s clock used to count the wait for a crawler connection too, and under load it cancelled
+crawls before they started; see design/decisions.md). The page comes back under the hit's URL.
 Without a resolver, the crawler just crawls each hit's URL.
 
 **e. Passages** (inside the judge, through its `Ranker`: `BM25Ranker` by default; `HybridRanker` mixes in static
@@ -205,8 +207,7 @@ The 2x margin means one stray "refutation" (a related but different fact) doesn'
 
 | What | Default | On expiry |
 |---|---|---|
-| one claim | `timeout` 15s | decided on the evidence judged so far (snippets, pages that landed), `error="timeout"` |
-| one hit's locations together | `read_timeout` 8s | that hit adds no page |
+| one claim | `timeout` 15s | decided on the evidence judged so far (snippets, pages that landed), `error="timeout"`; crawls still queued or running are cancelled |
 | search request | 5s (Serper, SearXNG general); slow requests hedged after 1.2s | no hits |
 | browser page | `crawl_timeout` 2.5s | page dropped |
 | HTTP page | 2.5s total (1s to connect); 8s once the response is a PDF | page dropped |

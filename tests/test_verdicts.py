@@ -306,13 +306,28 @@ async def test_every_hit_is_resolved_at_once():
     assert asyncio.get_running_loop().time() - start < 0.35  # concurrently, not 0.6s
 
 
-async def test_a_hanging_source_gives_up_at_its_read_deadline():
+async def test_a_hit_waiting_behind_a_busy_crawler_is_still_read():
+    # 6 texts at once: 93% of crawls expired in a per-hit 8s clock that counted the wait for a connection, and 571
+    # claims lost readable pages. A hit now waits its turn; only the fetch and the claim deadline are timed.
+    class OneAtATime(PageCrawler):
+        def __init__(self, pages):
+            super().__init__(pages)
+            self.slot = asyncio.Semaphore(1)
+
+        async def crawl(self, url):
+            async with self.slot:  # like the real crawlers' connection cap
+                await asyncio.sleep(0.15)  # a fetch
+                return await super().crawl(url)
+
+    crawler, judge = OneAtATime({f"https://s{i}.org/copy": PAPER_TEXT for i in range(3)}), RecordingJudge()
+    result = await Verify(FakeSearcher(n=3), crawler, judge, resolver=Copies(), timeout=2).verify(ATOM)
+    assert result.error is None and sorted(p["url"] for p in judge.pages) == ["https://s0.org", "https://s1.org", "https://s2.org"]
+
+
+async def test_a_hanging_source_is_bounded_by_the_claim_deadline_only():
     crawler = PageCrawler({"https://s1.org/copy": PAPER_TEXT}, hang={"https://s0.org/copy"})
-    verify = Verify(FakeSearcher(n=2), crawler, RecordingJudge(), resolver=Copies(), read_timeout=0.2, timeout=2)
-    start = asyncio.get_running_loop().time()
-    result = await verify.verify(ATOM)
-    assert asyncio.get_running_loop().time() - start < 1 and result.error is None  # not the 2s claim timeout
-    assert result.verdict == "supported" and "https://s0.org" not in crawler.crawled  # its deadline was spent
+    result = await Verify(FakeSearcher(n=2), crawler, RecordingJudge(), resolver=Copies(), timeout=0.5).verify(ATOM)
+    assert result.error == "timeout" and result.verdict == "supported"  # decided on the page that did land
 
 
 async def test_no_resolver_is_the_crawler_on_each_hit_as_before():

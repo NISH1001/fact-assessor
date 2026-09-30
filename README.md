@@ -435,7 +435,8 @@ search -> judge snippets -> resolve (every hit at once) -> crawl each hit's loca
 
 A hit's locations are: the hit itself if it's a direct PDF, then the copies, then the hit's own page. Resolvers only
 propose; the crawl checks by fetching, so a 403 or a bot-check page moves on to the next. A copy needs 300 words
-(Wiley's and HAL's bot-check pages are ~180); one hit's locations share an 8s deadline (`read_timeout`). The page is
+(Wiley's and HAL's bot-check pages are ~180); each fetch has the crawler's own time limit, and the claim's deadline
+caps the rest. The page is
 cited under the hit's URL. Ordinary pages cost nothing extra: resolvers answer `[]` for them without a request.
 
 On that set, OpenAlex's copies recovered 87 of 162 failed pages that had a DOI; the rest have no free copy.
