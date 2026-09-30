@@ -40,6 +40,7 @@ from factassessor import (
     once,
 )
 from factassessor.laya import LayaRunner
+from factassessor.rankers import HybridRanker
 from factassessor.resolvers import locations
 
 OUT = Path("tmp/eval_atoms")
@@ -240,6 +241,30 @@ def _save(path: Path, data: Any) -> None:
     path.write_bytes(gzip.compress(json.dumps(data, ensure_ascii=False).encode()))
 
 
+def _write_meta(run_dir: Path, args: argparse.Namespace) -> None:
+    """When, which code, which settings: `meta.json` next to a run's results (appended per invocation)."""
+    import subprocess
+    import sys
+    from datetime import datetime, timezone
+
+    def git(*cmd: str) -> str:
+        try:
+            return subprocess.run(["git", *cmd], capture_output=True, text=True, check=True).stdout.strip()
+        except Exception:
+            return "unknown"
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    path = run_dir / "meta.json"
+    meta = json.loads(path.read_text()) if path.exists() else {"runs": []}
+    meta.setdefault("runs", []).append({
+        "when": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "commit": git("rev-parse", "--short", "HEAD") + (" (dirty)" if git("status", "--porcelain") else ""),
+        "argv": sys.argv[1:],
+        "args": {k: v for k, v in vars(args).items() if k != "cmd"},
+    })
+    path.write_text(json.dumps(meta, indent=1))
+
+
 def _atom_record(atom: dict[str, Any], result: Any, spans: dict[str, list[tuple[float, float]]], total: float) -> dict:
     return {**atom, "verdict": result.verdict, "confidence": result.confidence, "error": result.error,
             "evidence": [e.model_dump() for e in result.evidence],
@@ -293,7 +318,8 @@ async def live(args: argparse.Namespace) -> None:
     atomizer = LLMAtomizer(args.atomizer, source_query=not args.no_source_query)
     claim_filter = LayaClaimFilter()
     judge = LayaJudge(passages_per_page=args.passages,
-                      runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None)
+                      runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None,
+                      ranker=HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None)
     searcher = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type,
                                hedge_after=None) >> not_blocked() >> Take(TOP_K)
     base_resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
@@ -302,6 +328,7 @@ async def live(args: argparse.Namespace) -> None:
                     WeightedPolicy(strong=args.strong), timeout=args.timeout,
                     resolver=TimedResolver(base_resolver) if base_resolver else None)
     await judge.judge("warm-up", [{"url": "u", "title": "", "snippet": "warm-up"}])  # load Laya before timing
+    _write_meta(run_dir, args)
 
     for n, answer in enumerate(answers, 1):
         if answer["id"] in done:
@@ -345,7 +372,8 @@ async def replay(args: argparse.Namespace) -> None:
     hits, pages = _load(run_dir / "hits.json.gz", {}), _load(run_dir / "pages.json.gz", {})
     live_results = _load(run_dir / "results.json.gz", [])
     judge = LayaJudge(passages_per_page=args.passages,
-                      runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None)
+                      runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None,
+                      ranker=HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None)
     source_queries = [r["source_query"] for r in live_results if r.get("source_query")]
     caps = {q: args.source_hits for q in source_queries} if args.source_hits else {}
     verify = Verify(CachedSearch(hits, caps), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120)
@@ -357,6 +385,7 @@ async def replay(args: argparse.Namespace) -> None:
         atoms, verify_s = await verify_answer(verify, r)
         out.append({**{k: r[k] for k in ("id", "pair", "kind")}, "atoms": atoms, "time": {"verify": verify_s}})
     print(f"replayed {len(out)} answers in {time.perf_counter() - start:.0f}s")
+    _write_meta(OUT / args.out, args)
     _save(OUT / args.out / "results.json.gz", out)
     report(out, args.out)
 
@@ -421,6 +450,8 @@ def main() -> None:
     lv.add_argument("--strong", type=float, default=0.7)
     lv.add_argument("--timeout", type=float, default=15.0, help="per-claim deadline (the library default is 15s)")
     lv.add_argument("--laya-wait-ms", type=float, help="Laya's batch merge window (the runtime default is 5ms)")
+    lv.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
+    lv.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
     rp = sub.add_parser("replay", help="judge the cached evidence of --tag again, with another setup")
     rp.add_argument("--tag", default="web")
     rp.add_argument("--out", required=True)
@@ -429,6 +460,8 @@ def main() -> None:
     rp.add_argument("--source-hits", type=int, help="use only the first N hits of each text's source query")
     rp.add_argument("--no-source-query", action="store_true", help="claims judged on their own hits only")
     rp.add_argument("--laya-wait-ms", type=float, help="Laya's batch merge window (the runtime default is 5ms)")
+    rp.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
+    rp.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
     rt = sub.add_parser("report", help="metrics and timings of a run")
     rt.add_argument("--tag", default="web")
     args = ap.parse_args()

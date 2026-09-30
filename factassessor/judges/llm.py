@@ -21,7 +21,8 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
 from factassessor.judges._base import Judge
-from factassessor.passages import chunk, top_passages
+from factassessor.passages import chunk
+from factassessor.rankers import BM25Ranker, Ranker
 from factassessor._llm import reasoning_off
 from factassessor.schema import Evidence
 
@@ -56,7 +57,9 @@ class LLMJudge(Judge):
         max_pairs: int = 40,  # pairs per API call; bigger batches are split and sent concurrently
         passages_per_page: int = 1,
         passage_words: int = 200,
+        ranker: Ranker | None = None,  # which chunks of a page the judge sees; default BM25 (word overlap)
     ) -> None:
+        self.ranker = ranker or BM25Ranker()
         self.agent = Agent(
             model,
             output_type=Stances,
@@ -128,7 +131,7 @@ class LLMJudge(Judge):
             base = {"url": doc["url"], "title": doc.get("title", "")}
             if "text" in doc:
                 chunks = chunk(doc["text"], _words, max_tokens=self.passage_words, overlap=self.passage_words // 4)
-                passages += [{**base, "text": t, "source": "page"} for t in top_passages(claim, chunks, k=self.passages_per_page)]
+                passages += [{**base, "text": t, "source": "page"} for t in self.ranker.top(claim, chunks, self.passages_per_page)]
             elif doc.get("snippet"):
                 passages.append({**base, "text": doc["snippet"], "source": "snippet"})
         return passages

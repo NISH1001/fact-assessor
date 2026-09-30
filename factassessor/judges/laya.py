@@ -9,7 +9,8 @@ from typing import Any
 
 from factassessor.judges._base import Judge
 from factassessor.laya import laya_runner
-from factassessor.passages import chunk, normalize_text, top_passages
+from factassessor.passages import chunk, normalize_text
+from factassessor.rankers import BM25Ranker, Ranker
 from factassessor.schema import Evidence
 
 # Evidence-first state + this wording: 13/15 on our judge benchmark; claim-first variants topped out at 9/15.
@@ -38,12 +39,14 @@ class LayaJudge(Judge):
         passages_per_page: int = 1,
         passage_tokens: int | None = 128,
         runner: Any = None,  # tests inject a fake; normally the process's shared Laya runner for this device
+        ranker: Ranker | None = None,  # which chunks of a page the judge sees; default BM25 (word overlap)
     ) -> None:
         self.model = model
         self.device = device
         self._runner = runner
         self.passages_per_page = passages_per_page
         self.passage_tokens = passage_tokens
+        self.ranker = ranker or BM25Ranker()
         # HF fast tokenizers aren't thread-safe ("Already borrowed"): chunking gets its own copy, used under a lock,
         # so it never touches the tokenizer Laya is using on its own thread.
         self._tok: Any = None
@@ -116,4 +119,4 @@ class LayaJudge(Judge):
             if self.passage_tokens:
                 budget = min(budget, self.passage_tokens)
             chunks = chunk(text, self._tok, max_tokens=budget, overlap=budget // 4)
-        return top_passages(claim, chunks, k=self.passages_per_page)
+        return self.ranker.top(claim, chunks, self.passages_per_page)

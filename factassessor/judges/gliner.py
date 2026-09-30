@@ -11,7 +11,7 @@ from typing import Any
 
 from factassessor.gliner import GlinerModel, gliner_model
 from factassessor.judges._base import Judge
-from factassessor.passages import top_passages
+from factassessor.rankers import BM25Ranker, Ranker
 from factassessor.schema import Evidence
 
 STANCE = {  # (task, instruction, labels in logit order)
@@ -41,9 +41,11 @@ class GlinerJudge(Judge):
         # 20 claims of a long text shared it evenly and all 20 timed out. With a limit none did; 3 gave the first
         # verdict soonest (4.8s vs 7.0s at 5, 9.6s at 8; ~35s in total either way, recorded evidence).
         concurrency: int | None = 3,
+        ranker: Ranker | None = None,  # which chunks of a page the judge sees; default BM25 (word overlap)
     ) -> None:
         self.model, self.variant, self.threads = model, variant, threads
         self.concurrency = concurrency
+        self.ranker = ranker or BM25Ranker()
         self.passages_per_page = passages_per_page
         self.passage_tokens = passage_tokens
         self.batch_size = batch_size
@@ -83,7 +85,7 @@ class GlinerJudge(Judge):
             # most snippets are ~120 tokens, but some DuckDuckGo ones run to 3,000+: a batch pads every row to its
             # longest, so one of those made a 5-snippet call 9x slower. Cut those like pages; short ones stay whole.
             chunks = self.gliner.chunk(snippet, self.passage_tokens)
-            texts = [snippet] if len(chunks) <= 1 else top_passages(claim, chunks, k=1)
+            texts = [snippet] if len(chunks) <= 1 else self.ranker.top(claim, chunks, 1)
             return [{**base, "text": t, "source": "snippet"} for t in texts]
         chunks = self.gliner.chunk(doc["text"], self.passage_tokens)
-        return [{**base, "text": t, "source": "page"} for t in top_passages(claim, chunks, k=self.passages_per_page)]
+        return [{**base, "text": t, "source": "page"} for t in self.ranker.top(claim, chunks, self.passages_per_page)]

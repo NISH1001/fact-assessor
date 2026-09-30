@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -30,6 +31,7 @@ class SearxngSearcher(Searcher):
         categories: list[str] | None = None,
         engines: list[str] | None = None,
         search_type: SearchType | str = SearchType.GENERAL,
+        max_concurrent: int | None = 4,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.num = num
@@ -39,9 +41,19 @@ class SearxngSearcher(Searcher):
         self.categories, self.engines = categories, engines
         self.timeout = timeout
         self.hedge_after = hedge_after
+        # SearXNG's engines suspend a client that bursts ("Suspended: too many requests", CAPTCHAs): a text's 15 claims
+        # searching at once got mostly empty results. 4 in flight kept every engine answering over 1,700 searches.
+        self.max_concurrent = max_concurrent
+        self._slots = asyncio.Semaphore(max_concurrent) if max_concurrent else None
         self._http: httpx.AsyncClient | None = None
 
     async def search(self, query: str) -> list[dict[str, Any]]:
+        if self._slots is None:
+            return await self._search(query)
+        async with self._slots:
+            return await self._search(query)
+
+    async def _search(self, query: str) -> list[dict[str, Any]]:
         if self.hedge_after is None:
             return await self._request(query)
         return await hedged(lambda: self._request(query), self.hedge_after)

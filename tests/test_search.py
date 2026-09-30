@@ -277,3 +277,25 @@ async def test_searxng_science_type_maps_to_its_science_category():
     assert seen[0]["categories"] == "science"
     assert seen[1]["categories"] == "it"  # explicit categories win
     assert "categories" not in seen[2]  # GENERAL: SearXNG's own default
+
+
+async def test_searxng_limits_requests_in_flight():
+    # SearXNG's engines suspend a client that bursts: a text's 15 claims must not all search at once
+    import asyncio
+
+    running = peak = 0
+
+    async def handler(request):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.02)
+        running -= 1
+        return httpx.Response(200, json={"results": [{"url": "https://a.org", "title": "t", "content": "s"}]})
+
+    s = SearxngSearcher("http://searx", hedge_after=None, max_concurrent=3)
+    s._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    hits = await asyncio.gather(*(s.search(f"q{i}") for i in range(10)))
+    await s.stop()
+    assert all(len(h) == 1 for h in hits) and peak == 3
+    assert SearxngSearcher("http://searx").max_concurrent == 4  # the default that kept every engine answering
