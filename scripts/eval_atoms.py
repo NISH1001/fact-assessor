@@ -37,7 +37,7 @@ from typing import Any
 
 from factassessor import (
     ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, FallbackCrawler,
-    HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, Packing, SearxngSearcher, Step, SystemOneRunner, Take,
+    HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, SearxngSearcher, Step, SystemOneRunner, Take,
     Verify, WeightedPolicy, collect, not_blocked, once,
 )
 from factassessor.rankers import HybridRanker
@@ -492,7 +492,7 @@ def main() -> None:
     for p in (lv, rp):
         p.add_argument("--judge", default="laya", choices=["laya", "decision"], help="the judge's runner: local Laya, or Jev on OpenRouter")
         p.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
-        p.add_argument("--pack", default="call", choices=[p.value for p in Packing],
+        p.add_argument("--pack", default="call", choices=[p.value for p in DecisionPacking],
                        help="--judge decision: what shares a call: one claim's passages (call, the default), every claim in flight (all), nothing (none)")
         p.add_argument("--batch-size", type=int, help="--judge decision: requests packed per call (the runner's default is 40)")
         p.add_argument("--laya-wait-ms", type=float, help="--judge laya: the batch merge window (the runtime default is 5ms)")

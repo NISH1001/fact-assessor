@@ -27,7 +27,7 @@ class SearchType(str, Enum):
 # Ordered by how often they show up in web results, so a searcher that can only fit some keeps the leakiest.
 BLOCKED_DOMAINS = (
     "reddit.com", "youtube.com", "facebook.com", "quora.com", "twitter.com", "x.com", "linkedin.com",
-    "instagram.com", "pinterest.com", "tiktok.com", "tumblr.com", "youtu.be", "fb.com", "threads.net",
+    "instagram.com", "pinterest.com", "tiktok.com", "tumblr.com", "youtu.be", "fb.com", "threads.com", "threads.net",
 )
 
 

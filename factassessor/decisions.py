@@ -153,7 +153,7 @@ class Batcher:
 _FIELD = re.compile(r"`(\w+)`")  # a state field named in a question
 
 
-class Packing(StrEnum):
+class DecisionPacking(StrEnum):
     """What shares one System One call, and so one model context (it changes the answers; see `SystemOneRunner`)."""
 
     CALL = "call"  # one `predict` call (a judge call: one claim's passages), up to `batch_size` per call: the default
@@ -177,8 +177,8 @@ class SystemOneRunner(DecisionRunner):
 
     What shares a call is the model's context, and it changes answers (on a 4-answer sample, 13% of passage
     labels differed between one request per call and 40 mixed from every claim in flight; alone, Jev was less
-    sure of true claims). `packing` picks it: `Packing.CALL` (the default, one predict call per request),
-    `Packing.ALL` (every caller's requests in flight, more throughput, claims mixed), `Packing.NONE` (one request
+    sure of true claims). `packing` picks it: `DecisionPacking.CALL` (the default, one predict call per request),
+    `DecisionPacking.ALL` (every caller's requests in flight, more throughput, claims mixed), `DecisionPacking.NONE` (one request
     per call).
 
     URL: `url`, else `OPENROUTER_DECISIONS_URL`, else OpenRouter. Key: `api_key`, else `OPENROUTER_API_KEY`
@@ -194,15 +194,15 @@ class SystemOneRunner(DecisionRunner):
         api_key: str | None = None,
         batch_size: int = 40,  # requests per call
         max_concurrent: int = 16,  # calls in flight
-        packing: Packing | str = Packing.CALL,  # what shares a call: one predict call, every caller in flight, nothing
-        max_wait_ms: float = 5.0,  # Packing.ALL: how long a request waits for company
+        packing: DecisionPacking | str = DecisionPacking.CALL,  # what shares a call: one predict call, every caller in flight, nothing
+        max_wait_ms: float = 5.0,  # DecisionPacking.ALL: how long a request waits for company
         timeout: float = 30.0,
     ) -> None:
         self.model = model
         self.url = url or os.environ.get("OPENROUTER_DECISIONS_URL", "").strip() or self.URL
         self.api_key = api_key
         self.batch_size = batch_size
-        self.packing = Packing(packing)
+        self.packing = DecisionPacking(packing)
         self.timeout = timeout
         self.cost = 0.0
         self._batch = Batcher(self._run, max_wait_ms, max_concurrent, take=batch_size)
@@ -230,9 +230,9 @@ class SystemOneRunner(DecisionRunner):
         if not requests:
             return []
         await self.aload()
-        if self.packing is Packing.ALL:
+        if self.packing is DecisionPacking.ALL:
             return await self._batch.submit(requests)
-        return await self._batch.alone(requests, take=1 if self.packing is Packing.NONE else None)
+        return await self._batch.alone(requests, take=1 if self.packing is DecisionPacking.NONE else None)
 
     async def _run(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
         """One packed call for the dict-state requests; a string state can't be packed, so each goes alone."""
