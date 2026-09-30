@@ -3,7 +3,9 @@
 Async fact assessment: text → LLM atomizer → Laya filter → Serper → crawl4ai → Laya judge → verdicts, score, graph.
 See README.md for the pipeline, docs/ARCHITECTURE.md for how the pieces fit, docs/WALKTHROUGH.md for a guided tour (mirrors notebooks/fa_walk.py; keep them in
 sync), docs/design/decisions.md for measured trade-offs behind every choice, and
-docs/design/streaming-pipeline.md for the planned composable design (draft, awaiting review).
+docs/design/streaming-pipeline.md for the planned composable design (draft, awaiting review), and
+docs/design/decision-runners.md for the agreed model layer (DecisionRunner: Laya, Jev/System One, LLM, GLiNER behind
+one DecisionJudge and one DecisionClaimFilter; build order at the end, in progress).
 
 ## Conventions
 

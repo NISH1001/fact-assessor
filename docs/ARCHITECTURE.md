@@ -3,6 +3,8 @@
 How FactAssessor is put together: the roles, how data flows between them, what runs concurrently, and how
 failures and deadlines are handled. For the why behind each choice (benchmarks, trade-offs) see
 [design/decisions.md](design/decisions.md); for a guided tour with real output see [WALKTHROUGH.md](WALKTHROUGH.md).
+The next refactor, a model layer (`DecisionRunner`) under one judge and one claim filter, is specified in
+[design/decision-runners.md](design/decision-runners.md); this document describes the code as it is.
 
 ## Goals
 
