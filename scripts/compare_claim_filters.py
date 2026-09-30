@@ -1,4 +1,4 @@
-"""Accuracy and speed of claim filters on data/claim_cases.json.
+"""Accuracy and speed of the claim filter on data/claim_cases.json, per decision runner.
 
     uv run --extra gliner python scripts/compare_claim_filters.py
 """
@@ -8,7 +8,7 @@ import json
 import time
 from pathlib import Path
 
-from factassessor import Atom, DecisionClaimFilter, GlinerClaimFilter
+from factassessor import Atom, DecisionClaimFilter, GlinerRunner, LayaRunner
 
 CASES = [(c["text"], c["is_claim"]) for c in json.loads((Path(__file__).parent.parent / "data" / "claim_cases.json").read_text())]
 
@@ -28,8 +28,8 @@ async def score(name, claim_filter):
 
 
 async def main():
-    await score("Laya (DecisionClaimFilter)", DecisionClaimFilter())
-    await score("GlinerClaimFilter", GlinerClaimFilter())
+    await score("LayaRunner", DecisionClaimFilter(LayaRunner()))
+    await score("GlinerRunner", DecisionClaimFilter(GlinerRunner()))
 
 
 if __name__ == "__main__":

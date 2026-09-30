@@ -1,17 +1,17 @@
-"""GLiNER2.5-decide via ONNX (onnxruntime + tokenizers + numpy, no torch): the shared model, one per
-(model, variant) per process. Used by `GlinerClaimFilter` (claim_filters/gliner.py) and `GlinerJudge` (judges/gliner.py).
+"""GlinerRunner: GLiNER2.5-decide as a `DecisionRunner`, via ONNX (onnxruntime + tokenizers + numpy, no torch).
 
 GLiNER2.5-decide (fastino, Apache-2.0) is, like Laya, a non-autoregressive decision model: a task with labels in,
 one probability per label out, in a single encoder pass. Weights: the ONNX export at
 https://huggingface.co/nishparadox/gliner2.5-decide-onnx (`model="2.5-decide"`). Install `fact-assessor[gliner]`.
-Both classes share one loaded model per (model, variant) for the whole process.
+Every runner shares one loaded model per (model, variant) for the whole process (`gliner_model`).
 
 The input encoding reimplements that repo's `gliner_onnx.py` (which rebuilds gliner2's processor): the task prompt
 `( [P] "{task}: {instruction} [DESCRIPTION] label: desc ..." ( [L] l1 [L] l2 ... ) ) [SEP_TEXT] <words>`, each
 piece tokenized on its own, logits read at the `[L]` markers. We load the weights and tokenizer, not its code.
 
 Judge benchmark (15 cases, M-series Mac, CPU): fp32 12/15 at ~118ms/pair (Laya: 13/15), int8 7-8/15 at ~55ms/pair
-(too lossy), CoreML slower than CPU (only ~1/3 of the graph runs on it).
+(too lossy), CoreML slower than CPU (only ~1/3 of the graph runs on it). End to end on web passages it was far
+weaker than Laya (data/results/).
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from factassessor.passages import chunk
+from factassessor.decisions import Answer, DecisionRequest, DecisionResponse, DecisionRunner
 
 MODELS = {"2.5-decide": "nishparadox/gliner2.5-decide-onnx"}  # short names -> Hugging Face repos
 VARIANTS = {"fp32": "model.onnx", "fp16": "model_fp16.onnx", "int8": "model_int8.onnx"}
@@ -136,10 +136,6 @@ class GlinerModel:
                 ids = self._piece_ids[piece] = self.tok.encode(piece, add_special_tokens=False).ids
         return ids
 
-    def chunk(self, text: str, max_tokens: int) -> list[str]:
-        with self._tok_lock:
-            return chunk(text, _Offsets(self.tok), max_tokens=max_tokens, overlap=max_tokens // 4)
-
 
 _models: dict[tuple[str, str], GlinerModel] = {}
 _models_lock = threading.Lock()
@@ -152,12 +148,56 @@ def gliner_model(model: str = "2.5-decide", variant: str = "fp32", threads: int 
         return _models.setdefault((repo, variant), GlinerModel(repo, variant, threads))
 
 
-class _Offsets:
-    """Adapts a `tokenizers.Tokenizer` to the HF-style call `passages.chunk` expects (offset_mapping)."""
+class GlinerRunner(DecisionRunner):
+    """GLiNER2.5-decide answering decision requests on the CPU.
 
-    def __init__(self, tok: Any) -> None:
-        self.tok = tok
+    A request's state fields become one text, "field: value" in the state's order (the judge puts the evidence
+    first, then the claim: 12/15 vs 11/15 claim-first on the judge benchmark); each `choice` question is one
+    GLiNER task (its instructions without the backticks, its criteria as the labels), and a call's rows that share
+    a task go through the model together, padded, `batch_size` at a time.
 
-    def __call__(self, text: str, add_special_tokens: bool = False, return_offsets_mapping: bool = False) -> dict[str, Any]:
-        encoding = self.tok.encode(text, add_special_tokens=add_special_tokens)
-        return {"input_ids": encoding.ids, "offset_mapping": encoding.offsets}
+    `concurrency`: claims a judge on this runner takes at once. GLiNER does ~7 rows/s on CPU and a claim needs
+    ~10: with no limit, the 20 claims of a long text shared it evenly and all 20 timed out; with a limit none did,
+    and 3 gave the first verdict soonest (4.8s vs 7.0s at 5, 9.6s at 8; ~35s in total either way).
+    """
+
+    def __init__(
+        self,
+        model: str = "2.5-decide",  # a short name from MODELS or a Hugging Face repo with the same ONNX export
+        variant: str = "fp32",  # int8 is 2x faster but lost ~5/15 on the judge benchmark
+        threads: int | None = None,  # onnxruntime intra-op threads
+        batch_size: int = 16,
+        concurrency: int | None = 3,
+    ) -> None:
+        self.model, self.variant, self.threads = model, variant, threads
+        self.batch_size = batch_size
+        self.concurrency = concurrency
+        self._model: GlinerModel | None = None  # tests inject a fake
+
+    @property
+    def gliner(self) -> GlinerModel:
+        if self._model is None:
+            self._model = gliner_model(self.model, self.variant, self.threads)
+        return self._model
+
+    async def aload(self) -> None:
+        """Download (first time, ~1.75 GB for fp32) and load the ONNX model."""
+        await self.gliner.aload()
+
+    async def predict(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
+        if not requests:
+            return []
+        tasks: dict[tuple[Any, ...], tuple[dict[str, Any], list[tuple[int, str, str]]]] = {}  # a task -> its rows
+        for i, r in enumerate(requests):
+            text = r.state if isinstance(r.state, str) else " ".join(f"{k}: {v}" for k, v in r.state.items())
+            for key, q in r.questions.items():
+                task = {"task": key, "instruction": q.instructions.replace("`", ""), "labels": q.criteria}
+                tasks.setdefault((key, task["instruction"], tuple(q.criteria.items())), (task, []))[1].append((i, key, text))
+        answers: list[dict[str, Answer]] = [{} for _ in requests]
+
+        async def run(task: dict[str, Any], rows: list[tuple[int, str, str]]) -> None:
+            for (i, key, _), dist in zip(rows, await self.gliner.probabilities(task, [t for _, _, t in rows], self.batch_size)):
+                answers[i][key] = Answer(choice=max(dist, key=dist.__getitem__), probabilities=dist)
+
+        await asyncio.gather(*(run(task, rows) for task, rows in tasks.values()))
+        return [DecisionResponse(answers=a) for a in answers]

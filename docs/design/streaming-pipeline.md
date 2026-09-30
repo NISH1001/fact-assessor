@@ -170,7 +170,7 @@ factassessor/
   search/            Searcher, SerperSearcher, SearxngSearcher, DuckDuckGoSearcher, DocumentSearcher
   crawlers/          Crawler, Crawl4AICrawler, HTTPXCrawler (+ resolvers), FallbackCrawler
   wrappers.py        Hedged, Timeout, Retry
-  judges/            Judge, DecisionJudge, GlinerJudge, LLMJudge (+ passages.py for chunking/BM25/cleaning)
+  judges/            Judge, DecisionJudge (on any DecisionRunner) (+ passages.py for chunking/BM25/cleaning)
   verify.py          Verify step, VerdictPolicy, WeightedPolicy
   aggregate.py       Aggregate step, fact score, graph
   laya.py            LayaRunner

@@ -180,10 +180,10 @@ def _(mo):
     | Role | You implement | Used here |
     |---|---|---|
     | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
-    | `ClaimFilter` | `score(atom)` → P(factual claim) | `DecisionClaimFilter` (also `GlinerClaimFilter`) |
+    | `ClaimFilter` | `score(atom)` → P(factual claim) | `DecisionClaimFilter` (on any runner) |
     | `Searcher` | `search(query)` | `SerperSearcher` (default), `DuckDuckGoSearcher` (no key, used here), `SearxngSearcher` |
     | `Crawler` | `crawl(url)` | `Crawl4AICrawler` (also `HTTPXCrawler`, `FallbackCrawler`) |
-    | `Judge` | `judge(claim, docs)` | `DecisionJudge` (also `GlinerJudge`, `LLMJudge`) |
+    | `Judge` | `judge(claim, docs)` | `DecisionJudge` (on any runner: `LayaRunner`, `LLMRunner`, `GlinerRunner`, `SystemOneRunner`) |
     | `Policy` | `settled`, `verdict` | `WeightedPolicy` |
 
     `DecisionClaimFilter` and `DecisionJudge` ask their model through a `DecisionRunner` (`LayaRunner()` by default,
@@ -257,7 +257,7 @@ def _(mo):
         [
             mo.md("""
     **Other claim filters.** `ClaimFilter` is a role: any class with `score(atom)` works, and `FactAssessor(claim_filter=...)`
-    takes it. `GlinerClaimFilter` is the built-in alternative: 17/19 on `data/claim_cases.json` like Laya, but its misses
+    takes it. The same filter on `GlinerRunner()` is the built-in alternative: 17/19 on `data/claim_cases.json` like Laya, but its misses
     drop real claims (never checked) where Laya's keep opinions (one wasted search), and it's ~10x slower.
     """),
             compare_gliner_filter,
@@ -269,10 +269,10 @@ def _(mo):
 @app.cell
 async def _(DecisionClaimFilter, asyncio, atoms, compare_gliner_filter, mo, time):
     mo.stop(not compare_gliner_filter.value, mo.md("*Tick the box to score the same atoms with both filters.*"))
-    from factassessor import GlinerClaimFilter
+    from factassessor import GlinerRunner
 
     _scores, _times = {}, {}
-    for _name, _filter in (("Laya", DecisionClaimFilter()), ("GLiNER", GlinerClaimFilter())):
+    for _name, _filter in (("Laya", DecisionClaimFilter()), ("GLiNER", DecisionClaimFilter(GlinerRunner()))):
         await _filter.aload()
         _t = time.perf_counter()
         _scores[_name] = await asyncio.gather(*(_filter.score(a) for a in atoms))
@@ -397,14 +397,14 @@ async def _(atoms, mo, page, raw_hits):
 
 @app.cell
 def _(mo):
-    compare_llm = mo.ui.checkbox(label="LLMJudge (gpt-6-luna; calls the OpenAI API)")
-    compare_gliner_judge = mo.ui.checkbox(label="GlinerJudge (downloads ~1.75 GB the first time)")
+    compare_llm = mo.ui.checkbox(label="LLMRunner (gpt-6-luna; calls the OpenAI API)")
+    compare_gliner_judge = mo.ui.checkbox(label="GlinerRunner (downloads ~1.75 GB the first time)")
     mo.vstack(
         [
             mo.md("""
-    **Other judges.** `Judge` is a role (`judge(claim, docs)`). `LLMJudge` asks an LLM for structured verdicts (the most
-    accurate we measured: 15/15 vs Laya's 13/15, ~10x slower per pair); `GlinerJudge` runs GLiNER2.5-decide on CPU
-    (12/15). Tick to judge the same evidence with them:
+    **Other runners.** The judge asks its model through a `DecisionRunner`. `LLMRunner` asks an LLM to pick an option
+    per passage (the most accurate we measured: 15/15 vs Laya's 13/15, ~10x slower per pair); `GlinerRunner` runs
+    GLiNER2.5-decide on CPU (12/15). Tick to judge the same evidence with them:
     """),
             mo.hstack([compare_llm, compare_gliner_judge], justify="start"),
         ]
@@ -414,14 +414,14 @@ def _(mo):
 
 @app.cell
 async def _(atoms, compare_gliner_judge, compare_llm, judge, mo, page, policy, raw_hits, time):
-    from factassessor import GlinerJudge, LLMJudge
+    from factassessor import DecisionJudge, GlinerRunner, LLMRunner
 
     _docs = raw_hits[:5] + ([page] if page else [])
-    _judges = [("DecisionJudge", judge)]
+    _judges = [("Laya", judge)]
     if compare_llm.value:
-        _judges.append(("LLMJudge", LLMJudge()))
+        _judges.append(("LLM", DecisionJudge(LLMRunner())))
     if compare_gliner_judge.value:
-        _judges.append(("GlinerJudge", GlinerJudge()))
+        _judges.append(("GLiNER", DecisionJudge(GlinerRunner())))
     _rows = []
     for _name, _judge in _judges:
         await _judge.aload()
@@ -488,7 +488,7 @@ def _(mo):
     `crawler >> judge_page >> Scan(add, evidence) >> TakeUntil(policy.settled)`.
 
     As a step, `Verify` checks claims concurrently. By default every claim starts at once, which suits Laya and the LLM
-    judge. A slow judge sets how many claims it can take at once (`GlinerJudge` takes 3), and claims wait for a free slot;
+    judge. A slow runner sets how many claims a judge on it takes at once (`GlinerRunner`: 3), and claims wait for a free slot;
     a claim's timeout starts when it gets one. Override it with `Verify(..., concurrency=5)` or
     `FactAssessor(max_concurrent_claims=5)`; `None` means no limit.
     """)

@@ -23,8 +23,8 @@ data/evidence/evidence.json.gz (gitignored: third-party page text). Resumes wher
 
 Variants (only the models differ):
     laya    DecisionClaimFilter + DecisionJudge on Laya (the default pipeline)
-    gliner  GlinerClaimFilter + GlinerJudge
-    llm     no claim filter + LLMJudge (gpt-6-luna): everything after the atomizer is the LLM
+    gliner  the same filter and judge on GlinerRunner
+    llm     no claim filter + DecisionJudge on LLMRunner (gpt-6-luna): everything after the atomizer is the LLM
 
 Paired dataset (`--dataset paired`): pairs of an original passage (every sentence true) and a corrupted copy, read from
 a workbook sheet (`--sheet`). Corrupted sentences are found by diffing the pair: sentences changed from the original
@@ -54,7 +54,7 @@ from typing import Any
 
 import httpx
 
-from factassessor import Atom, Crawl4AICrawler, DecisionClaimFilter, DecisionJudge, FactAssessor, LayaRunner, LLMJudge, SerperSearcher
+from factassessor import Atom, Crawl4AICrawler, DecisionClaimFilter, DecisionJudge, FactAssessor, LayaRunner, LLMRunner, SerperSearcher
 from factassessor._llm import reasoning_off
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.crawlers import Crawler, HTTPXCrawler
@@ -88,7 +88,7 @@ def use_dataset(name: str) -> None:
         base = ROOT / "tmp" / "paired"
         TEXTS, EVIDENCE, RESULTS, KINDS = base / "texts.jsonl", base / "evidence.json.gz", base / "results", ("original", "corrupted")
 VARIANTS = {"laya": "Laya filter + Laya judge", "laya-nofilter": "Laya judge, no claim filter",
-            "gliner": "GlinerClaimFilter + GlinerJudge", "llm": "LLMJudge, no claim filter"}
+            "gliner": "GLiNER filter + GLiNER judge", "llm": "LLM judge, no claim filter"}
 LLM_MODEL = "openai:gpt-5-nano"  # the cheapest OpenAI model ($0.05 in / $0.40 out per 1M tokens, Sept 2026): queries, LLM judge
 ATOMIZER_MODEL = "openai:gpt-6-luna"  # $0.10 / $0.50, reasoning off; gpt-5-nano returns whole sentences instead of atoms
 TOP_K = 5
@@ -480,11 +480,12 @@ def llm_settings(model: str) -> dict[str, Any]:
 def components(variant: str, llm_model: str = LLM_MODEL) -> tuple[Any, Any]:
     """(claim_filter, judge) for a variant."""
     if variant == "gliner":
-        from factassessor import GlinerClaimFilter, GlinerJudge  # one shared GLiNER model
+        from factassessor import GlinerRunner  # one shared GLiNER model
 
-        return GlinerClaimFilter(), GlinerJudge()
+        gliner = GlinerRunner()
+        return DecisionClaimFilter(gliner), DecisionJudge(gliner)
     if variant == "llm":
-        return None, LLMJudge(llm_model, model_settings=llm_settings(llm_model))
+        return None, DecisionJudge(LLMRunner(llm_model, model_settings=llm_settings(llm_model)))
     laya = LayaRunner()  # one model, one batch queue for both
     if variant == "laya-nofilter":  # check every atom
         return None, DecisionJudge(laya)

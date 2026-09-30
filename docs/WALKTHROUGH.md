@@ -88,16 +88,15 @@ Each component has a **role** (a base type) and implementations; to make your ow
 | Role | You implement | Built in |
 |---|---|---|
 | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
-| `ClaimFilter` | `score(atom)` → P(factual claim) | `DecisionClaimFilter`, `GlinerClaimFilter` |
+| `ClaimFilter` | `score(atom)` → P(factual claim) | `DecisionClaimFilter` (on any runner) |
 | `Searcher` | `search(query)` | `SerperSearcher` (default), `DuckDuckGoSearcher` (no key, used here), `SearxngSearcher` |
 | `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `FallbackCrawler` |
-| `Judge` | `judge(claim, docs)` | `DecisionJudge`, `GlinerJudge`, `LLMJudge` |
+| `Judge` | `judge(claim, docs)` | `DecisionJudge` (on any runner: `LayaRunner`, `LLMRunner`, `GlinerRunner`, `SystemOneRunner`) |
 | `Policy` | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` |
 
 `DecisionClaimFilter` and `DecisionJudge` ask their model through a `DecisionRunner` (`LayaRunner()` by default,
 in-process; `SystemOneRunner()` for Jev over HTTP): `FactAssessor()` gives them one shared runner, and Laya's
-weights load once per process however many runners exist. `GlinerClaimFilter` and `GlinerJudge` share one copy
-of GLiNER the same way.
+weights load once per process however many runners exist; `GlinerRunner`s share one copy of GLiNER the same way.
 
 ### 3a. `LLMAtomizer`: text → atoms
 
@@ -184,12 +183,12 @@ The same evidence for "Nepal's earthquake occurred in 2017." (it was 2015) throu
 
 | judge | verdict | time | passage labels |
 |---|---|---|---|
-| `DecisionJudge` | contested | 0.43s | refutes 0.96, refutes 0.58, supports 0.94, supports 0.95, refutes 0.75, not_enough_info 0.73 |
-| `LLMJudge` (gpt-6-luna) | **refuted** | 1.69s | refutes 1.00, refutes 0.99, not_enough_info 0.99, refutes 0.99, refutes 0.99, not_enough_info 0.95 |
-| `GlinerJudge` | unverified | 1.53s | every label below 0.5, so nothing counts as strong |
+| `DecisionJudge()` (Laya) | contested | 0.43s | refutes 0.96, refutes 0.58, supports 0.94, supports 0.95, refutes 0.75, not_enough_info 0.73 |
+| `DecisionJudge(LLMRunner())` (gpt-6-luna) | **refuted** | 1.69s | refutes 1.00, refutes 0.99, not_enough_info 0.99, refutes 0.99, refutes 0.99, not_enough_info 0.95 |
+| `DecisionJudge(GlinerRunner())` | unverified | 1.53s | every label below 0.5, so nothing counts as strong |
 
-Laya is fooled by pages about a *different*, real 2017 Nepal earthquake; the LLM judge isn't. On the 15-case judge
-benchmark: `LLMJudge` 15/15, `DecisionJudge` 13/15, `GlinerJudge` 12/15; Laya is ~10x faster per pair.
+Laya is fooled by pages about a *different*, real 2017 Nepal earthquake; the LLM isn't. On the 15-case judge
+benchmark: LLM 15/15, Laya 13/15, GLiNER 12/15; Laya is ~10x faster per pair.
 
 ## 4. Chaining components
 
@@ -216,7 +215,7 @@ result = await Verify(searcher_chain, crawler, judge, policy).verify(atom)   # o
 ```
 
 As a step, `Verify` checks claims concurrently. By default every claim starts at once, which suits Laya and the LLM
-judge. A slow judge sets how many claims it can take at once (`GlinerJudge` takes 3), and claims wait for a free slot;
+judge. A slow runner sets how many claims a judge on it takes at once (`GlinerRunner`: 3), and claims wait for a free slot;
 a claim's timeout starts when it gets one. Override it with `Verify(..., concurrency=5)` or
 `FactAssessor(max_concurrent_claims=5)`; `None` means no limit.
 
@@ -228,10 +227,10 @@ Two ways to give `FactAssessor` a claim filter:
 # 1. separate arguments: FactAssessor chains atomizer >> claim_filter >> Take(n_atoms) itself
 fa = FactAssessor(
     atomizer=LLMAtomizer(),
-    claim_filter=DecisionClaimFilter(threshold=0.4),     # or GlinerClaimFilter(), or None for no filter
+    claim_filter=DecisionClaimFilter(threshold=0.4),     # or DecisionClaimFilter(GlinerRunner()), or None for no filter
     searcher=DuckDuckGoSearcher() >> not_blocked() >> Take(5),   # or SerperSearcher()
     crawler=Crawl4AICrawler(),
-    judge=DecisionJudge(),                               # or LLMJudge(), GlinerJudge()
+    judge=DecisionJudge(),                               # or DecisionJudge(LLMRunner()), DecisionJudge(GlinerRunner())
 )
 
 # 2. a chain that already filters (section 4): say so with claim_filter=None

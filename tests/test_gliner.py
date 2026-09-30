@@ -1,15 +1,20 @@
+import asyncio
+import threading
+import time
+
 import numpy as np
 
-from factassessor import Atom
-from factassessor.claim_filters.gliner import KIND, GlinerClaimFilter
-from factassessor.gliner import GlinerModel
-from factassessor.judges.gliner import LABELS, STANCE, GlinerJudge
+from factassessor import Atom, DecisionClaimFilter, DecisionJudge, DecisionRequest, DecisionRunner, GlinerRunner, Question
+from factassessor.claim_filters.decision import QUESTION as KIND
+from factassessor.gliner import GlinerModel, gliner_model
+from factassessor.judges.decision import QUESTION as STANCE
 
 CLAIM = "Marie Curie won the Nobel Prize in Physics."  # no year: the fake keys "supports" off "1903" in the evidence
+LABELS = list(STANCE["stance"].criteria)
 
 
 class WordPieces:
-    """Stands in for `tokenizers.Tokenizer`: one id per whitespace word, with char offsets."""
+    """Stands in for `tokenizers.Tokenizer`: one id per whitespace word."""
 
     def __init__(self):
         self.vocab = {}
@@ -45,13 +50,14 @@ def fake_model():
     return model
 
 
-def judge(**kwargs):
-    j = GlinerJudge(**kwargs)
-    j._model = fake_model()
-    j._session = j._model.session  # the tests below inspect the batches it ran
-    j._tok = j._model.tok
-    j._prompt_ids = j._model._prompt(STANCE)[0]
-    return j
+def runner(**kwargs):
+    r = GlinerRunner(**kwargs)
+    r._model = fake_model()
+    return r
+
+
+def judge(runner_kwargs=None, **kwargs):
+    return DecisionJudge(runner(**(runner_kwargs or {})), **kwargs)
 
 
 async def test_snippets_are_judged_and_labels_map_through_softmax():
@@ -64,37 +70,38 @@ async def test_snippets_are_judged_and_labels_map_through_softmax():
     assert [(e.url, e.source, e.label) for e in ev] == [("u1", "snippet", "supports"), ("u2", "snippet", "not_enough_info")]
     expected = float(np.exp(3) / (np.exp(3) + 2))
     assert abs(ev[0].prob - expected) < 1e-6
-    assert len(j._session.batches) == 1  # both pairs in one forward pass
+    assert len(j.runner.gliner.session.batches) == 1  # both pairs in one forward pass
+    assert isinstance(j.runner, DecisionRunner)
 
 
-async def test_each_row_is_prompt_then_sep_text_then_evidence_then_claim():
-    j = judge()
-    await j.judge(CLAIM, [{"url": "u", "title": "t", "snippet": "Curie won in 1903"}])
-    row = j._session.batches[0]["input_ids"][0].tolist()
-    prompt = j._prompt_ids
+async def test_each_row_is_the_question_as_a_task_then_the_state_fields_in_order():
+    r = runner()
+    [res] = await r.predict([DecisionRequest(state={"evidence": "Curie won in 1903", "claim": CLAIM}, questions=STANCE)])
+    assert res.answers["stance"].label == "supports"
+    session, tok = r.gliner.session, r.gliner.tok
+    row = session.batches[0]["input_ids"][0].tolist()
+    task = {"task": "stance", "instruction": "According to evidence, is claim true or false?", "labels": STANCE["stance"].criteria}
+    prompt, positions = r.gliner._prompt(task)  # the question's backticks dropped, its criteria as the labels
     assert row[: len(prompt)] == prompt
     words = row[len(prompt) + 1 :]  # after [SEP_TEXT]
-    evidence_word = j._tok.vocab["evidence"]  # the word splitter separates "evidence:" into "evidence" + ":"
-    claim_word = j._tok.vocab["claim"]
-    assert words.index(evidence_word) < words.index(claim_word)  # evidence first: 12/15 vs 11/15 claim-first
-    positions = j._session.batches[0]["label_positions"][0].tolist()
-    assert len(positions) == len(LABELS) and all(p < len(prompt) for p in positions)
+    assert words.index(tok.vocab["evidence"]) < words.index(tok.vocab["claim"])  # evidence first: 12/15 vs 11/15
+    assert session.batches[0]["label_positions"][0].tolist() == positions and len(positions) == len(LABELS)
 
 
 async def test_rows_are_padded_and_batches_capped():
-    j = judge(batch_size=2)
+    j = judge({"batch_size": 2})
     docs = [{"url": f"u{i}", "title": "t", "snippet": "word " * (i + 1)} for i in range(5)]
     await j.judge(CLAIM, docs)
-    assert [len(b["input_ids"]) for b in j._session.batches] == [2, 2, 1]
-    b = j._session.batches[0]
+    batches = j.runner.gliner.session.batches
+    assert [len(b["input_ids"]) for b in batches] == [2, 2, 1]
+    b = batches[0]
     assert (b["attention_mask"] * (b["input_ids"] == 0)).sum() == 0  # no attention on padding
 
 
 async def test_pages_are_cut_to_their_most_relevant_passage():
     filler = " ".join(f"filler{i}" for i in range(2000))
     page = {"url": "wiki", "title": "Marie Curie", "text": f"{filler} Curie won the Nobel Prize in Physics in 1903. {filler}"}
-    j = judge(passage_tokens=40)
-    ev = await j.judge(CLAIM, [page])
+    ev = await judge(passage_words=40).judge(CLAIM, [page])
     assert len(ev) == 1 and ev[0].source == "page" and ev[0].label == "supports" and "1903" in ev[0].text
     assert len(ev[0].text.split()) <= 40
 
@@ -102,37 +109,41 @@ async def test_pages_are_cut_to_their_most_relevant_passage():
 async def test_no_docs_skips_the_model():
     j = judge()
     assert await j.judge(CLAIM, []) == []
-    assert j._session.batches == []
+    assert j.runner.gliner.session.batches == []
 
 
-async def test_gliner_claim_filter_scores_p_factual_claim():
+async def test_the_claim_filter_scores_p_factual_claim():
     class KindSession:
         def run(self, outputs, feeds):
-            import numpy as np
-
             return [np.asarray([[2.0, 0.0, 0.0, 0.0]] * len(feeds["input_ids"]), dtype=np.float32)]
 
-    f = GlinerClaimFilter(threshold=0.4)
-    f._model = fake_model()
-    f._model.session = KindSession()
-    score = await f.score(Atom(id=0, text="NASA was founded in 1958.", span=(0, 25)))
+    r = runner()
+    r.gliner.session = KindSession()
+    score = await DecisionClaimFilter(r, threshold=0.4).score(Atom(id=0, text="NASA was founded in 1958.", span=(0, 25)))
     assert abs(score - float(np.exp(2) / (np.exp(2) + 3))) < 1e-6
-    assert list(KIND["labels"])[0] == "factual_claim"
+    assert list(KIND["kind"].criteria)[0] == "factual_claim"
 
 
-def test_judge_and_filter_share_one_model_per_model_and_variant():
-    from factassessor.gliner import gliner_model
+async def test_questions_sharing_a_task_share_forward_passes_and_others_do_not():
+    r = runner()
+    other = {"kind": Question(type="choice", instructions="What kind of statement is `claim`?", criteria={"a": "x", "b": "y", "c": "z"})}
+    res = await r.predict([
+        DecisionRequest(state={"evidence": "1903", "claim": CLAIM}, questions=STANCE),
+        DecisionRequest(state={"claim": "x"}, questions=other),
+        DecisionRequest(state={"evidence": "nope", "claim": CLAIM}, questions=STANCE),
+    ])
+    assert [len(b["input_ids"]) for b in r.gliner.session.batches] in ([2, 1], [1, 2])  # one pass per task
+    assert [x.answers["stance"].label for x in (res[0], res[2])] == ["supports", "not_enough_info"]
+    assert set(res[1].answers["kind"].probabilities) == {"a", "b", "c"}
 
-    assert GlinerJudge().gliner is GlinerClaimFilter().gliner is gliner_model("2.5-decide", "fp32")
-    assert GlinerJudge(variant="int8").gliner is not GlinerJudge().gliner
+
+def test_runners_share_one_model_per_model_and_variant():
+    assert GlinerRunner().gliner is GlinerRunner().gliner is gliner_model("2.5-decide", "fp32")
+    assert GlinerRunner(variant="int8").gliner is not GlinerRunner().gliner
 
 
 async def test_two_model_calls_run_at_once():
     # one caller left the CPU underused: 5.8 rows/s vs 7.4 with 2 callers x 7 intra-op threads (M3 Max, 14 cores)
-    import asyncio
-    import threading
-    import time
-
     class SlowSession(FakeSession):
         def __init__(self, tok):
             super().__init__(tok)
@@ -151,7 +162,8 @@ async def test_two_model_calls_run_at_once():
     model = GlinerModel("fake/repo", workers=2)
     model.tok = WordPieces()
     model.session = SlowSession(model.tok)
-    await asyncio.gather(model.probabilities(STANCE, ["evidence: a claim: b"]), model.probabilities(STANCE, ["evidence: c claim: d"]))
+    task = {"task": "stance", "instruction": "x", "labels": STANCE["stance"].criteria}
+    await asyncio.gather(model.probabilities(task, ["evidence: a claim: b"]), model.probabilities(task, ["evidence: c claim: d"]))
     assert model.session.peak == 2
 
 
@@ -170,19 +182,18 @@ async def test_long_snippets_are_cut_to_their_most_relevant_passage_too():
     filler = " ".join(f"filler{i}" for i in range(2000))
     long_hit = {"url": "ddg", "title": "", "snippet": f"{filler} Curie won the Nobel Prize in Physics in 1903. {filler}"}
     short_hit = {"url": "short", "title": "", "snippet": "Curie shared the 1903 Nobel Prize."}
-    j = judge(passage_tokens=40)
+    j = judge(passage_words=40)
     ev = await j.judge(CLAIM, [long_hit, short_hit])
     assert [(e.url, e.source, e.label) for e in ev] == [("ddg", "snippet", "supports"), ("short", "snippet", "supports")]
     assert len(ev[0].text.split()) <= 40 and "1903" in ev[0].text
     assert ev[1].text == short_hit["snippet"]  # short snippets stay whole
-    widest = max(len(b["input_ids"][0]) for b in j._session.batches)
-    assert widest == len(j._model._encode_row(j._prompt_ids, f"evidence: {ev[0].text} claim: {CLAIM}")) < 200
+    assert max(len(b["input_ids"][0]) for b in j.runner.gliner.session.batches) < 200
 
 
-def test_gliner_judge_takes_three_claims_at_once_by_default():
+def test_a_judge_on_gliner_takes_three_claims_at_once_by_default():
     # 20-claim text on recorded evidence: no limit -> 20 of 20 timed out; limit 3/5/8 -> 0 timed out, ~35s either
     # way, first verdict at 4.8s / 7.0s / 9.6s
     from factassessor import Verify
 
-    assert GlinerJudge().concurrency == 3 and GlinerJudge(concurrency=None).concurrency is None
-    assert Verify(searcher=None, crawler=None, judge=GlinerJudge()).concurrency == 3
+    assert DecisionJudge(GlinerRunner()).concurrency == 3 and DecisionJudge(GlinerRunner(concurrency=None)).concurrency is None
+    assert Verify(searcher=None, crawler=None, judge=DecisionJudge(GlinerRunner())).concurrency == 3

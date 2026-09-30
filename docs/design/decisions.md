@@ -147,7 +147,7 @@ The end-to-end eval had GLiNER decide nothing at the normal 15s per-claim timeou
   time), so claims shared the model evenly and all 20 timed out. `Verify(concurrency=)` (default: the judge's
   `concurrency`) makes claims wait for a slot, with the timeout starting at the slot. With any limit, 0 of 20 timed
   out and the text took ~35s; the limit set how soon verdicts arrive: first at 4.8s / 7.0s / 9.6s, half by
-  21.3s / 23.7s / 24.4s for 3 / 5 / 8. `GlinerJudge` takes 3. Laya and LLM judges keep no limit.
+  21.3s / 23.7s / 24.4s for 3 / 5 / 8. `GlinerRunner` sets 3; Laya, Jev and LLM runners keep no limit.
 
 Not causes (measured): page splitting (<0.05s a page), the shared tokenizer lock (<0.4s a text), event-loop
 blocking (<0.1s lag), and work left over from timed-out claims (none started after its claim timed out; the ~110s
@@ -155,7 +155,7 @@ text from the first eval run didn't reproduce).
 
 ## Alternative judge: GLiNER2.5-decide (ONNX)
 
-`GlinerJudge` on nishparadox/gliner2.5-decide-onnx, 15-case benchmark (`scripts/compare_judges.py`), M-series
+GLiNER (`GlinerRunner`) on nishparadox/gliner2.5-decide-onnx, 15-case benchmark (`scripts/compare_judges.py`), M-series
 Mac: fp32 on CPU 12/15 in 2.2s (Laya: 13/15 in 0.27s on MPS); int8 7/15 in 1.0s (the model card's "up to 0.18"
 accuracy loss shows); fp32 on CoreML is slower than CPU (CoreML takes only 1,288 of 3,592 graph nodes, so it
 keeps switching back to CPU). Wording: evidence-then-claim text 12/15 > claim-then-evidence 11/15 > claim in the
@@ -179,10 +179,12 @@ crawling often isn't what a check waits on, so the browser stays the default unt
 
 ## LLM judge, claim filters, shared models
 
-`LLMJudge` on the 15 judge cases, 4 runs each: gpt-6-luna 15/15 in 3 runs (14 in one), gpt-5.6-luna 14/15;
-~2.1-2.3s for 15 pairs either way. One batched call vs 15 parallel calls: 2.34s vs 2.07s median (gpt-6-luna),
-so parallel is the default and batching (`window_ms`) is opt-in for fewer calls. Single runs had gpt-5.4-mini and
-gpt-5.4-nano at 14/15 and 13-14/15. End to end the judge isn't the bottleneck (5.5s vs 5.3s with Laya).
+The LLM judge (then `LLMJudge` with a fact-checking prompt; now `DecisionJudge(LLMRunner())`, which renders any
+question generically) on the 15 judge cases, 4 runs each: gpt-6-luna 15/15 in 3 runs (14 in one), gpt-5.6-luna
+14/15; ~2.1-2.3s for 15 pairs either way. One batched call vs 15 parallel calls: 2.34s vs 2.07s median
+(gpt-6-luna); `LLMRunner` packs 40 items per call and merges concurrent callers (fewer calls and tokens for
+~0.3s). Single runs had gpt-5.4-mini and gpt-5.4-nano at 14/15 and 13-14/15. End to end the judge isn't the
+bottleneck (5.5s vs 5.3s with Laya). Re-measure with the generic prompt before relying on these numbers.
 
 Claim filters (19 cases): Laya 17/19 in 0.22s, GLiNER 17/19 in 2.3s; Laya's misses keep opinions, GLiNER's drop real
 claims, so Laya stays the default.

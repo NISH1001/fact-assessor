@@ -170,10 +170,10 @@ one method:
 | Role | Implement | Step behaviour from the base | Implementations |
 |---|---|---|---|
 | `Atomizer` | `atomize(text) -> list[Atom]` | FlatMap: text → atoms | `LLMAtomizer` |
-| `ClaimFilter` | `score(atom) -> float` | Map: keeps atoms scoring ≥ threshold, reports the rest as skipped | `DecisionClaimFilter`, `GlinerClaimFilter` |
+| `ClaimFilter` | `score(atom) -> float` | Map: keeps atoms scoring ≥ threshold, reports the rest as skipped | `DecisionClaimFilter` (on any runner) |
 | `Searcher` | `search(query) -> list[hit]` | FlatMap: query → hits | `SerperSearcher`, `DuckDuckGoSearcher`, `SearxngSearcher` |
 | `Crawler` | `crawl(url) -> page or None` | Map: urls → pages, concurrent, finish order | `Crawl4AICrawler` |
-| `Judge` | `judge(claim, docs) -> list[Evidence]` | (called by `Verify`) | `DecisionJudge`, `GlinerJudge`, `LLMJudge` |
+| `Judge` | `judge(claim, docs) -> list[Evidence]` | (called by `Verify`) | `DecisionJudge` (on any runner) |
 | `Policy` | `settled(ev)`, `verdict(ev)` | (called by `Verify`) | `WeightedPolicy` |
 
 ```python
@@ -194,7 +194,7 @@ seconds on network calls, crawling, and model passes. (A/B vs the pre-refactor c
 |---|---|
 | `pipeline.py` | `Step`, `Chain`, `Map`, `FlatMap`, `Filter`, `Take`, `Scan`, `TakeUntil`, `Predicate`, `as_step`, `_concurrently`, lifecycle walk |
 | `atomizer.py`, `search/`, `crawlers/`, `judges/`, `gliner.py`, `verify.py` | roles and implementations |
-| `claim_filters/` | `ClaimFilter` (role: `score(atom)`), `DecisionClaimFilter`, `GlinerClaimFilter` |
+| `claim_filters/` | `ClaimFilter` (role: `score(atom)`), `DecisionClaimFilter` (on any runner) |
 | `assessor.py` | `FactAssessor`: default chain, `stream` / `assess` / `assess_sync`, lifecycle |
 | `schema.py` | data types; `CheckResult.fact_score` is computed from the atoms |
 | `kg.py` | knowledge graph, built on demand from a result |

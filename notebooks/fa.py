@@ -85,7 +85,7 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
 
     _filter = {
         "Laya (local, default)": ("DecisionClaimFilter", "DecisionClaimFilter(threshold=0.4)"),
-        "GLiNER2.5-decide (ONNX, CPU)": ("GlinerClaimFilter", 'GlinerClaimFilter(model="2.5-decide", threshold=0.4)'),
+        "GLiNER2.5-decide (ONNX, CPU)": ("GlinerRunner", 'DecisionClaimFilter(GlinerRunner(model="2.5-decide"), threshold=0.4)'),
         "None (check every atom)": (None, "None"),
     }[filter_choice.value]
     if _filter[0]:
@@ -115,8 +115,8 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
 
     _judge = {
         "Laya (local, default)": ("DecisionJudge", "DecisionJudge()"),
-        "GLiNER2.5-decide (ONNX, CPU)": ("GlinerJudge", 'GlinerJudge(model="2.5-decide")'),
-        "LLM (gpt-6-luna, most accurate)": ("LLMJudge", 'LLMJudge("openai:gpt-6-luna")'),
+        "GLiNER2.5-decide (ONNX, CPU)": ("GlinerRunner", 'DecisionJudge(GlinerRunner(model="2.5-decide"))'),
+        "LLM (gpt-6-luna, most accurate)": ("LLMRunner", 'DecisionJudge(LLMRunner("openai:gpt-6-luna"))'),
     }[judge_choice.value]
     _imports.add(_judge[0])
 
@@ -153,13 +153,12 @@ def _():
         DuckDuckGoSearcher,
         FactAssessor,
         FallbackCrawler,
-        GlinerClaimFilter,
-        GlinerJudge,
+        GlinerRunner,
         HTTPXCrawler,
         DecisionClaimFilter,
         DecisionJudge,
         LLMAtomizer,
-        LLMJudge,
+        LLMRunner,
         Predicate,
         SearxngSearcher,
         SerperSearcher,
@@ -179,11 +178,11 @@ def _():
         if (kind, name) not in _cache:
             _cache[(kind, name)] = {
                 ("filter", "Laya (local, default)"): lambda: DecisionClaimFilter(threshold=0.4),
-                ("filter", "GLiNER2.5-decide (ONNX, CPU)"): lambda: GlinerClaimFilter(threshold=0.4),
+                ("filter", "GLiNER2.5-decide (ONNX, CPU)"): lambda: DecisionClaimFilter(GlinerRunner(), threshold=0.4),
                 ("filter", "None (check every atom)"): lambda: None,
                 ("judge", "Laya (local, default)"): lambda: DecisionJudge(),
-                ("judge", "GLiNER2.5-decide (ONNX, CPU)"): lambda: GlinerJudge(),
-                ("judge", "LLM (gpt-6-luna, most accurate)"): lambda: LLMJudge("openai:gpt-6-luna"),
+                ("judge", "GLiNER2.5-decide (ONNX, CPU)"): lambda: DecisionJudge(GlinerRunner()),
+                ("judge", "LLM (gpt-6-luna, most accurate)"): lambda: DecisionJudge(LLMRunner("openai:gpt-6-luna")),
             }[(kind, name)]()
         return _cache[(kind, name)]
 
@@ -335,8 +334,9 @@ def _(mo):
     judge take a decision runner (Laya by default) and share loaded weights:
 
     ```python
-    FactAssessor(judge=LLMJudge("openai:gpt-6-luna"))                     # most accurate judge
-    FactAssessor(claim_filter=GlinerClaimFilter(), judge=GlinerJudge())   # GLiNER for both (one shared model)
+    FactAssessor(judge=DecisionJudge(LLMRunner("openai:gpt-6-luna")))     # most accurate judge
+    gliner = GlinerRunner()
+    FactAssessor(claim_filter=DecisionClaimFilter(gliner), judge=DecisionJudge(gliner))   # GLiNER for both
     FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))   # fast fetch, browser if needed
     ```
 
@@ -377,10 +377,10 @@ def _(mo):
     | Role | Implement | Built in |
     |---|---|---|
     | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
-    | `ClaimFilter` | `score(atom) -> P(claim)` | `DecisionClaimFilter`, `GlinerClaimFilter` |
+    | `ClaimFilter` | `score(atom) -> P(claim)` | `DecisionClaimFilter` (on any runner) |
     | `Searcher` | `search(query)` | `SerperSearcher`, `DuckDuckGoSearcher`, `SearxngSearcher` |
     | `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `FallbackCrawler` |
-    | `Judge` | `judge(claim, docs)` | `DecisionJudge`, `GlinerJudge`, `LLMJudge` |
+    | `Judge` | `judge(claim, docs)` | `DecisionJudge` (on `LayaRunner`, `LLMRunner`, `GlinerRunner`, `SystemOneRunner`) |
     | `Policy` | `settled(ev)`, `verdict(ev)` | `WeightedPolicy` |
     """)
     return

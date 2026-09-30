@@ -74,14 +74,14 @@ same method works.
 | Role | Interface | Implementations | File |
 |---|---|---|---|
 | `Atomizer` | `atomize(text) -> list[Atom]` | `LLMAtomizer` (pydantic-ai; falls back to sentences if the LLM fails) | `atomizer.py` |
-| `ClaimFilter` | `score(atoms)` -> P(factual claim) | `DecisionClaimFilter` (default), `GlinerClaimFilter` | `claim_filters/` |
+| `ClaimFilter` | `score(atoms)` -> P(factual claim) | `DecisionClaimFilter` (one decision per atom, on any runner) | `claim_filters/` |
 | `Searcher` | `search(query) -> list[hit]` | `SerperSearcher` (web or Google Scholar), `SearxngSearcher` (self-hosted; general or science engines), `DuckDuckGoSearcher`, `DocumentSearcher` (given documents: in-domain checks) | `search/` |
 | `Resolver` (Protocol) | `resolve(url) -> list[str]` | `ArxivResolver`, `OpenAlexResolver`, `CompositeResolver` | `resolvers.py` |
 | `Crawler` | `crawl(url) -> page \| None` | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `FallbackCrawler` (waterfall), `NoCrawler` | `crawlers/` |
-| `Judge` | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge` (default), `GlinerJudge`, `LLMJudge` | `judges/` |
+| `Judge` | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge` (one decision per (claim, passage), on any runner) | `judges/` |
 | `Ranker` (Protocol) | `top(claim, chunks, k) -> list[str]` | `BM25Ranker` (default), `EmbeddingRanker` (model2vec), `HybridRanker` | `rankers.py` |
 | `Policy` | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` | `verify.py` |
-| `DecisionRunner` (Protocol) | `predict(requests) -> responses` (a `state` and typed `questions` in, probabilities per option out); `batch_size` | `LayaRunner` (default; in-process), `SystemOneRunner` (Jev's System One protocol over HTTP: OpenRouter or a `laya.serve` server) | `decisions.py`, `laya.py` |
+| `DecisionRunner` (Protocol) | `predict(requests) -> responses` (a `state` and typed `questions` in, probabilities per option out); `batch_size` | `LayaRunner` (default; in-process), `SystemOneRunner` (Jev's System One protocol over HTTP: OpenRouter or a `laya.serve` server), `LLMRunner` (any pydantic-ai chat model), `GlinerRunner` (ONNX, CPU) | `decisions.py`, `laya.py`, `gliner.py` |
 
 The runner is the layer below the roles: `DecisionClaimFilter` and `DecisionJudge` are written once on top of it
 and never name a model; a runner never sees claims, pages or evidence, only requests. Batching is the runner's
@@ -90,7 +90,7 @@ flight, so 100 requests become a few passes or calls. `FactAssessor()` gives the
 `LayaRunner`.
 
 Shared helpers, not roles: `extract.py` (document bytes -> text), `passages.py` (cleaning, normalization,
-word windows, chunking, BM25), `gliner.py` (the GLiNER runtime), `kg.py` (knowledge graph).
+word windows, chunking, BM25), `kg.py` (knowledge graph).
 
 **Who knows what.** Resolvers know about *documents* (DOIs, arXiv ids, where free copies live) and never fetch
 them. Crawlers know about *fetching one URL* (HTTP or a browser) and turn what they get into text with the shared
@@ -180,7 +180,7 @@ The 2x margin means one stray "refutation" (a related but different fact) doesn'
 
 | Level | How | Limit |
 |---|---|---|
-| claims | `Verify` is a `Map` over atoms | the judge's `concurrency` (none for Laya and LLM judges, 3 for GLiNER); `max_concurrent_claims` overrides. A claim's timeout starts when it gets its slot. |
+| claims | `Verify` is a `Map` over atoms | the judge's `concurrency`, taken from its runner (none for Laya, Jev and LLMs; 3 for GLiNER); `max_concurrent_claims` overrides. A claim's timeout starts when it gets its slot. |
 | hits of a claim | resolve and read are each a `Map` | all hits at once (`top_k`, plus the source query's) |
 | the same query from several claims | `Cache` around the searcher | one real search per query per 10 minutes; the rest share it |
 | resolvers of a hit | `CompositeResolver`: `asyncio.gather` | all at once |

@@ -245,7 +245,7 @@ All keyword arguments to `FactAssessor`:
 | `search_hedge_after` | 1.2 | if a search hasn't answered by then, send the same request again and use whichever reply comes first (fixes Serper's occasional 3s+ outliers; only slow searches cost a second credit; `None` turns it off) |
 | `blocked_domains` | social + video | hosts never used as evidence (subdomains included); `()` to allow all |
 | `timeout` | 15 | per-claim deadline; a claim still running then is decided on the evidence judged so far (`error="timeout"`) |
-| `max_concurrent_claims` | the judge's | claims checked at once; a claim's `timeout` starts when it gets its turn. Laya and LLM judges: no limit; `GlinerJudge`: 3. `None` = no limit |
+| `max_concurrent_claims` | the judge's | claims checked at once; a claim's `timeout` starts when it gets its turn. The judge takes it from its runner: no limit on Laya, Jev and LLMs; 3 on GLiNER. `None` = no limit |
 | `max_concurrent_crawls` | 10 | pages the browser crawler loads at once (shared by all claims) |
 | `search_timeout` | 5 | seconds per Serper request |
 | `laya_model` | `english` | Laya checkpoint of the default runner (shared by the filter and the judge): `english`, `multilingual`, `typed-decisions` |
@@ -285,11 +285,11 @@ streaming, concurrency, and chaining come for free.
 | Argument | Role | You implement | Default |
 |---|---|---|---|
 | `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer()` |
-| `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` |
+| `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` on Laya; `DecisionClaimFilter(runner)` for another model |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | none; `CompositeResolver(ArxivResolver(), OpenAlexResolver())` for papers |
 | `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `FallbackCrawler` |
-| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()`; also `GlinerJudge`, `LLMJudge`. Each takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
+| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()` on Laya; `DecisionJudge(LLMRunner())`, `DecisionJudge(SystemOneRunner())`, `DecisionJudge(GlinerRunner())` for other models. Takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
 | `policy=` | `Policy` | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 
 A new crawler, for example, is just:
@@ -334,19 +334,20 @@ Every built-in option, one line per role. Mix freely; anything not passed keeps 
 ```python
 from factassessor import (
     FactAssessor, LLMAtomizer,                                      # atomizer
-    DecisionClaimFilter, GlinerClaimFilter,                             # claim filter
+    DecisionClaimFilter,                                            # claim filter
     SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, Take,  # searcher
     Crawl4AICrawler, HTTPXCrawler, FallbackCrawler,                 # crawler
-    DecisionJudge, GlinerJudge, LLMJudge,                               # judge
+    DecisionJudge,                                                  # judge
+    LayaRunner, SystemOneRunner, LLMRunner, GlinerRunner,           # the model behind the filter and the judge
     WeightedPolicy,                                                 # policy
 )
 
 FactAssessor(
     atomizer=LLMAtomizer("openai:gpt-6-luna"),                       # any pydantic-ai model
-    claim_filter=DecisionClaimFilter(threshold=0.4),                     # or GlinerClaimFilter(), or None (no filter)
+    claim_filter=DecisionClaimFilter(threshold=0.4),                 # Laya; or DecisionClaimFilter(GlinerRunner()), or None (no filter)
     searcher=SerperSearcher() >> not_blocked() >> Take(5),           # or DuckDuckGoSearcher(), SearxngSearcher(url)
     crawler=Crawl4AICrawler(timeout=2.5),                            # or HTTPXCrawler(), FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())
-    judge=DecisionJudge(),                                               # or GlinerJudge(), LLMJudge()
+    judge=DecisionJudge(),                                           # Laya; or DecisionJudge(LLMRunner()), DecisionJudge(SystemOneRunner()), DecisionJudge(GlinerRunner())
     policy=WeightedPolicy(strong=0.7, early_exit=0.9),
 )
 ```
@@ -449,42 +450,44 @@ another Jev/Laya-style decision model, as ONNX from
 [nishparadox/gliner2.5-decide-onnx](https://huggingface.co/nishparadox/gliner2.5-decide-onnx); CPU, no torch):
 
 ```python
-from factassessor.judges import GlinerJudge     # needs fact-assessor[gliner]; downloads ~1.75 GB on first use
+from factassessor import DecisionJudge, GlinerRunner   # needs fact-assessor[gliner]; downloads ~1.75 GB on first use
 
-fa = FactAssessor(judge=GlinerJudge())            # variant="int8" is 2x faster but much less accurate
+fa = FactAssessor(judge=DecisionJudge(GlinerRunner()))   # variant="int8" is 2x faster but much less accurate
 ```
 
 GLiNER runs on CPU (~7 passages/s on an M3 Max; ONNX Runtime's CoreML path crashes or is slower), so
-`GlinerJudge` checks 3 claims at a time (`concurrency=3`), and the rest wait for a turn instead of timing out
-together. End to end on the synthetic set it's far behind Laya: 22% of all claims right vs 92%, at 14.3s per text
-vs 1.6s (`data/results/`).
+`GlinerRunner` sets `concurrency=3`: a judge on it checks 3 claims at a time, and the rest wait for a turn instead
+of timing out together. End to end on the synthetic set it's far behind Laya: 22% of all claims right vs 92%, at
+14.3s per text vs 1.6s (`data/results/`).
 
-**LLM judge** (`LLMJudge`, pydantic-ai structured output; default `openai:gpt-6-luna`, reasoning off). The most
-accurate judge we measured, ~10x slower per pair than Laya, which matters less than it sounds: pairs run in parallel
-alongside searching and crawling (a 3-claim check took 5.5s with it vs 5.3s with Laya).
+**LLM runner** (`LLMRunner`, pydantic-ai structured output; default `openai:gpt-6-luna`, reasoning off): the
+questions of a call become numbered items of one prompt, the model picks an option per item with a confidence.
+The most accurate judge we measured, ~10x slower per pair than Laya, which matters less than it sounds: pairs run
+in parallel alongside searching and crawling (a 3-claim check took 5.5s with it vs 5.3s with Laya).
 
 ```python
-FactAssessor(judge=LLMJudge())                     # needs OPENAI_API_KEY
-FactAssessor(judge=LLMJudge(window_ms=20))         # batch requests arriving within 20ms into one API call
+FactAssessor(judge=DecisionJudge(LLMRunner()))                    # needs OPENAI_API_KEY
+FactAssessor(judge=DecisionJudge(LLMRunner("openai:gpt-5.4-mini", batch_size=20)))   # 20 items per call
 ```
 
 | Judge (15-case benchmark, M-series Mac) | Correct | Time for 15 pairs |
 |---|---|---|
-| `LLMJudge` gpt-6-luna | **15/15** (3 of 4 runs; 14 in the other) | ~2.1s (API) |
-| `LLMJudge` gpt-5.6-luna | 14/15 | ~2.1s (API) |
-| `DecisionJudge` (default, MPS) | 13/15 | 0.2s |
-| `GlinerJudge` fp32 (CPU) | 12/15 | 1.8s |
-| `GlinerJudge` int8 (CPU) | 7/15 | 1.0s |
+| `LLMRunner` gpt-6-luna | **15/15** (3 of 4 runs; 14 in the other) | ~2.1s (API) |
+| `LLMRunner` gpt-5.6-luna | 14/15 | ~2.1s (API) |
+| `LayaRunner` (default, MPS) | 13/15 | 0.2s |
+| `GlinerRunner` fp32 (CPU) | 12/15 | 1.8s |
+| `GlinerRunner` int8 (CPU) | 7/15 | 1.0s |
 
-GLiNER's misses were all false "supports" (it let "NASA was founded in 1972" through). Batching the LLM judge into
-one call saves API calls but measured ~0.2s slower than parallel calls (one response writes every answer in
-sequence), so parallel is the default.
-Reproduce with `uv run --extra gliner python scripts/compare_judges.py`.
+GLiNER's misses were all false "supports" (it let "NASA was founded in 1972" through). The LLM numbers were
+measured with the judge's earlier fact-checking prompt; `LLMRunner` renders the same question and options for any
+decision, so re-run the benchmark before relying on them. It packs up to 40 items per call and merges concurrent
+callers (measured earlier: one packed call was ~0.2s slower than 15 parallel single calls, for a fraction of the
+tokens). Reproduce with `uv run --extra gliner python scripts/compare_judges.py`.
 
-**Claim filters** (`FactAssessor(claim_filter=GlinerClaimFilter())`, or `claim_filter=None` to check every atom;
-`scripts/compare_claim_filters.py`, 19 statements): `DecisionClaimFilter` 17/19 in 0.22s,
-`GlinerClaimFilter` 17/19 in 2.3s. Laya's misses keep two opinions (harmless: one extra search each); GLiNER's drop
-two real claims (they're never checked), so Laya stays the default.
+**Claim filters** (`FactAssessor(claim_filter=DecisionClaimFilter(GlinerRunner()))`, or `claim_filter=None` to
+check every atom; `scripts/compare_claim_filters.py`, 19 statements): on Laya 17/19 in 0.22s, on GLiNER 17/19 in
+2.3s. Laya's misses keep two opinions (harmless: one extra search each); GLiNER's drop two real claims (they're
+never checked), so Laya stays the default.
 
 **Check against your own documents (in-domain).** `DocumentSearcher` searches given documents instead of the web:
 the papers or reports a text was written from. It splits each
@@ -553,12 +556,13 @@ factassessor/
   assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
   pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Predicate: the streaming runner
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
-  decisions.py       DecisionRunner (role, a Protocol), DecisionRequest / DecisionResponse, SystemOneRunner (Jev over HTTP), Batcher
+  decisions.py       DecisionRunner (role, a Protocol), DecisionRequest / DecisionResponse, Batcher,
+                     SystemOneRunner (Jev over HTTP), LLMRunner (any chat model)
   laya.py            LayaRunner (default): in-process Laya, one model per device per process, micro-batching, batch cap
+  gliner.py          GlinerRunner (optional extra): GLiNER2.5-decide via ONNX, one model per (model, variant) per process
   claim_filters/     atoms -> the factual claims
     _base.py         ClaimFilter (role)
     decision.py      DecisionClaimFilter (default): one decision per atom on any runner
-    gliner.py        GlinerClaimFilter (optional extra)
   search/            query -> hits
     _base.py         Searcher (role), SearchType (general / science), not_blocked, hedging
     serper.py        SerperSearcher (Google web search, or Google Scholar)
@@ -576,9 +580,6 @@ factassessor/
   judges/            evidence -> stance per passage
     _base.py         Judge (role)
     decision.py      DecisionJudge (default): one decision per (claim, passage) on any runner
-    gliner.py        GlinerJudge (optional extra)
-    llm.py           LLMJudge: the judge as a pydantic-ai structured call (optionally batched)
-  gliner.py          the GLiNER2.5-decide runtime (internal, optional extra): one ONNX model per process
   kg.py              knowledge graph (kg.build, kg.to_mermaid), built on demand from a result
   passages.py        page cleaning, normalization, word windows and token-exact chunking, BM25
   schema.py          Atom, Evidence, AtomResult, CheckResult (fact_score computed from its atoms), stream events

@@ -1,8 +1,8 @@
-"""Accuracy and speed of evidence judges on data/judge_cases.json.
+"""Accuracy and speed of the evidence judge on data/judge_cases.json, per decision runner.
 
-    uv run --extra gliner python scripts/compare_judges.py        # LLM judges need OPENAI_API_KEY
+    uv run --extra gliner python scripts/compare_judges.py        # LLM runners need OPENAI_API_KEY
 
-Each case is one (claim, evidence snippet) pair with the expected label; every judge sees the same pairs.
+Each case is one (claim, evidence snippet) pair with the expected label; every runner sees the same pairs.
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import json
 import time
 from pathlib import Path
 
-from factassessor import DecisionJudge, LLMJudge
+from factassessor import DecisionJudge, GlinerRunner, LayaRunner, LLMRunner
 
 CASES = [(c["claim"], c["evidence"], c["label"]) for c in json.loads((Path(__file__).parent.parent / "data" / "judge_cases.json").read_text())]
 
@@ -30,17 +30,13 @@ async def score(name, judge):
 
 
 async def main():
-    await score("Laya (DecisionJudge)", DecisionJudge())
+    await score("LayaRunner", DecisionJudge(LayaRunner()))
     for model in ("openai:gpt-5.6-luna", "openai:gpt-6-luna", "openai:gpt-5.4-mini", "openai:gpt-5.4-nano"):
-        name = model.split(":")[1]
-        await score(f"LLMJudge {name} (1 call)", LLMJudge(model, window_ms=20))
-        await score(f"LLMJudge {name} (15 calls)", LLMJudge(model, window_ms=0))
+        await score(f"LLMRunner {model.split(':')[1]}", DecisionJudge(LLMRunner(model)))
     try:
-        from factassessor.judges import GlinerJudge
+        await score("GlinerRunner fp32", DecisionJudge(GlinerRunner(variant="fp32")))
     except ImportError:
-        print("GlinerJudge: install the extra first (uv sync --extra gliner)")
-        return
-    await score("GlinerJudge fp32", GlinerJudge(variant="fp32"))
+        print("GlinerRunner: install the extra first (uv sync --extra gliner)")
 
 
 if __name__ == "__main__":

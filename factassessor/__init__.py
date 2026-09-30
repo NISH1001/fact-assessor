@@ -8,12 +8,10 @@ from factassessor import kg  # noqa: E402
 from factassessor.assessor import FactAssessor
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
-from factassessor.claim_filters.gliner import GlinerClaimFilter
 from factassessor.crawlers import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler, NoCrawler
-from factassessor.decisions import Answer, DecisionRequest, DecisionResponse, DecisionRunner, Question, SystemOneRunner
+from factassessor.decisions import Answer, DecisionRequest, DecisionResponse, DecisionRunner, LLMRunner, Question, SystemOneRunner
+from factassessor.gliner import GlinerRunner
 from factassessor.judges import DecisionJudge, Judge
-from factassessor.judges.gliner import GlinerJudge
-from factassessor.judges.llm import LLMJudge
 from factassessor.laya import LayaRunner
 from factassessor.pipeline import Cache, Chain, Filter, FlatMap, Map, Predicate, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.rankers import BM25Ranker, EmbeddingRanker, HybridRanker, Ranker
@@ -47,16 +45,17 @@ __all__ = [
     "FactAssessor",
     # roles (base types) and their implementations
     "Atomizer", "LLMAtomizer",
-    "ClaimFilter", "DecisionClaimFilter", "GlinerClaimFilter",
+    "ClaimFilter", "DecisionClaimFilter",
     "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher", "DocumentSearcher", "SearchType",
     "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "FallbackCrawler", "NoCrawler",
     "Resolver", "ArxivResolver", "OpenAlexResolver", "CompositeResolver",
     "Ranker", "BM25Ranker", "EmbeddingRanker", "HybridRanker",
-    "Judge", "DecisionJudge", "GlinerJudge", "LLMJudge",
+    "Judge", "DecisionJudge",
     "Policy", "WeightedPolicy",
     "Verify",
     # decision runners (the model behind the claim filter and the judge) and their request/response types
-    "DecisionRunner", "LayaRunner", "SystemOneRunner", "DecisionRequest", "DecisionResponse", "Question", "Answer",
+    "DecisionRunner", "LayaRunner", "SystemOneRunner", "LLMRunner", "GlinerRunner",
+    "DecisionRequest", "DecisionResponse", "Question", "Answer",
     # composition
     "Step", "Chain", "Map", "FlatMap", "Filter", "Take", "Scan", "TakeUntil", "Cache", "Predicate", "once", "collect", "last",
     # helpers

@@ -1,4 +1,4 @@
-"""Shared LLM settings for the steps that call an LLM (atomizer, LLMJudge)."""
+"""Shared LLM settings for the components that call an LLM (the atomizer, `LLMRunner`)."""
 
 from __future__ import annotations
 
