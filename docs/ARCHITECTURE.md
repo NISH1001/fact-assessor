@@ -93,8 +93,8 @@ flight, so 100 requests become a few passes or calls. `FactAssessor()` gives the
 `LayaRunner`.
 
 Shared helpers, not roles: `extract.py` (document bytes -> text), `passages.py` (cleaning, normalization,
-word windows, chunking, BM25), `utils.py` (sentence spans; `locate`, the sentence a claim came from), `kg.py`
-(knowledge graph).
+word windows, chunking, BM25), `utils.py` (sentence spans; `locate(query, source)`, the sentence of a text that
+best matches a piece of it, how the atomizer finds where a claim came from), `kg.py` (knowledge graph).
 
 **Who knows what.** Resolvers know about *documents* (DOIs, arXiv ids, where free copies live) and never fetch
 them. Crawlers know about *fetching one URL* (HTTP or a browser) and turn what they get into text with the shared
