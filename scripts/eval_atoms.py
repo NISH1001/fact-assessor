@@ -37,8 +37,8 @@ from typing import Any
 
 from factassessor import (
     ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, FallbackCrawler,
-    HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, SearxngSearcher, Step, SystemOneRunner, Take,
-    Verify, WeightedPolicy, collect, not_blocked, once,
+    HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, SearxngSearcher, SerperSearcher, Step,
+    SystemOneRunner, Take, Verify, WeightedPolicy, collect, not_blocked, once,
 )
 from factassessor.rankers import HybridRanker
 from factassessor.resolvers import locations
@@ -125,10 +125,11 @@ def busy(intervals: list[tuple[float, float]]) -> float:
 
 class TimedSearch(Step):
     """The searcher, timed; hits cached by query. SearXNG's engines suspend bursts, so at most `slots` at once
-    (the wait counts as search time: it's what a self-hosted searcher costs)."""
+    (the wait counts as search time: it's what a self-hosted searcher costs). `save` runs after every search, so a
+    paid-for result is on disk before the answer it belongs to finishes."""
 
-    def __init__(self, inner: Step, cache: dict[str, list[dict[str, Any]]], slots: int = 4) -> None:
-        self.inner, self.cache, self._slots = inner, cache, asyncio.Semaphore(slots)
+    def __init__(self, inner: Step, cache: dict[str, list[dict[str, Any]]], slots: int = 4, save: Any = None) -> None:
+        self.inner, self.cache, self._slots, self.save = inner, cache, asyncio.Semaphore(slots), save
         self._inflight: dict[str, asyncio.Task[list[dict[str, Any]]]] = {}  # a text's claims share its source query
 
     async def __call__(self, queries: Any) -> Any:
@@ -158,6 +159,8 @@ class TimedSearch(Step):
         _record("search", got_slot, time.perf_counter())
         self.cache[q] = hits
         self._inflight.pop(q, None)
+        if self.save:
+            self.save()
         return hits
 
 
@@ -208,15 +211,16 @@ class TimedJudge:
 # --- replay components --------------------------------------------------------------------------------------------
 
 class CachedSearch(Step):
-    """Hits as the live run got them; `caps` limits how many a query gives back (fewer source-query hits)."""
+    """Hits as the live run got them; `limit` caps every query (a smaller overfetch than the run had, e.g. 5 of
+    its 10 hits) and `caps` single queries (fewer source-query hits)."""
 
-    def __init__(self, cache: dict[str, list[dict[str, Any]]], caps: dict[str, int] | None = None) -> None:
-        self.cache, self.caps = cache, caps or {}
+    def __init__(self, cache: dict[str, list[dict[str, Any]]], caps: dict[str, int] | None = None, limit: int | None = None) -> None:
+        self.cache, self.caps, self.limit = cache, caps or {}, limit
 
     async def __call__(self, queries: Any) -> Any:
         async for q in queries:
             hits = self.cache.get(q, [])
-            for hit in hits[: self.caps.get(q, len(hits))]:
+            for hit in hits[: min(self.caps.get(q, len(hits)), self.limit or len(hits))]:
                 yield hit
 
 
@@ -240,7 +244,7 @@ def make_judge(args: argparse.Namespace) -> DecisionJudge:
         runner: Any = SystemOneRunner(model=args.judge_model, packing=args.pack, **({"batch_size": args.batch_size} if args.batch_size else {}))
     else:
         runner = LayaRunner(**({"max_wait_ms": args.laya_wait_ms} if args.laya_wait_ms else {}))
-    return DecisionJudge(runner, passages_per_page=args.passages, ranker=ranker)
+    return DecisionJudge(runner, passages_per_page=args.passages, passage_words=args.passage_words, ranker=ranker)
 
 
 def _cost(judge: DecisionJudge) -> str:
@@ -333,11 +337,15 @@ async def live(args: argparse.Namespace) -> None:
     atomizer = LLMAtomizer(args.atomizer, source_query=not args.no_source_query)
     judge = make_judge(args)
     claim_filter = DecisionClaimFilter(judge.runner)  # timed only; the same model as the judge
-    searcher = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type,
-                               hedge_after=None) >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
+    if args.searcher == "serper":  # 10 results = 1 credit; blocked hosts excluded in the query, so all 10 are usable
+        base_search: Step = SerperSearcher(num=10, hedge_after=None, search_type=args.search_type)
+    else:
+        base_search = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type, hedge_after=None)
+    searcher = base_search >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
     base_resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
     base_crawler = FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler(timeout=2.5))
-    verify = Verify(TimedSearch(searcher, hits), TimedCrawler(base_crawler), TimedJudge(judge, pages),
+    save_hits = lambda: _save(run_dir / "hits.json.gz", hits)  # noqa: E731  # every paid search on disk at once
+    verify = Verify(TimedSearch(searcher, hits, save=save_hits), TimedCrawler(base_crawler), TimedJudge(judge, pages),
                     WeightedPolicy(strong=args.strong), timeout=args.timeout,
                     resolver=TimedResolver(base_resolver) if base_resolver else None,
                     pages_per_claim=TOP_K * (1 if args.no_source_query else 2) if args.overfetch else None)
@@ -395,7 +403,8 @@ async def replay(args: argparse.Namespace) -> None:
     await judge.aload()
     source_queries = [r["source_query"] for r in live_results if r.get("source_query")]
     caps = {q: args.source_hits for q in source_queries} if args.source_hits else {}
-    verify = Verify(CachedSearch(hits, caps), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120)
+    verify = Verify(CachedSearch(hits, caps, limit=args.hits), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120,
+                    pages_per_claim=args.pages_per_claim)
     start = time.perf_counter()
     slots = asyncio.Semaphore(args.parallel)  # answers at once: several answers' passages fill the runner's batches
 
@@ -465,6 +474,7 @@ def main() -> None:
     lv.add_argument("--limit", type=int, help="first N pairs")
     lv.add_argument("--sample", type=int, help="N random pairs (same ids as a full run, which then skips them)")
     lv.add_argument("--seed", type=int, default=0)
+    lv.add_argument("--searcher", default="searxng", choices=["searxng", "serper"], help="serper: Google via Serper, 1 credit per query")
     lv.add_argument("--searxng", default="http://localhost:8080")
     lv.add_argument("--search-type", default="general", choices=["general", "science"])
     lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
@@ -485,11 +495,14 @@ def main() -> None:
     rp.add_argument("--passages", type=int, default=1)
     rp.add_argument("--strong", type=float, default=0.7)
     rp.add_argument("--source-hits", type=int, help="use only the first N hits of each text's source query")
+    rp.add_argument("--hits", type=int, help="use only the first N hits of every query (5: the run's evidence without overfetch)")
+    rp.add_argument("--pages-per-claim", type=int, help="judge only the first N readable pages per claim (the live run's overfetch cap)")
     rp.add_argument("--no-source-query", action="store_true", help="claims judged on their own hits only")
     rp.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
     rp.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
     rp.add_argument("--parallel", type=int, default=4, help="answers judged at once (a replay has no network: the judge's runner is the floor)")
     for p in (lv, rp):
+        p.add_argument("--passage-words", type=int, default=90, help="words per page window (90 ~ 130 tokens on scientific text)")
         p.add_argument("--judge", default="laya", choices=["laya", "decision"], help="the judge's runner: local Laya, or Jev on OpenRouter")
         p.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
         p.add_argument("--pack", default="call", choices=[p.value for p in DecisionPacking],
