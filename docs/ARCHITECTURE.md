@@ -69,7 +69,10 @@ All passed between steps as plain dicts or pydantic models (`factassessor/schema
 ## Roles
 
 A role is a small interface. The built-in implementations are just the ones we measured best; anything with the
-same method works.
+same method works. `Judge`, `Policy`, `Resolver`, `Ranker` and `DecisionRunner` are `Protocol`s: any object with
+the method is one (`isinstance` checks structurally), no subclassing needed. `Atomizer`, `Searcher`, `Crawler`
+and `ClaimFilter` are `Step` base classes, because what they give you is the streaming adapter (`__call__`, `>>`,
+lifecycle) around your one method; no abstract base classes anywhere.
 
 | Role | Interface | Implementations | File |
 |---|---|---|---|
@@ -78,9 +81,9 @@ same method works.
 | `Searcher` | `search(query) -> list[hit]` | `SerperSearcher` (web or Google Scholar), `SearxngSearcher` (self-hosted; general or science engines), `DuckDuckGoSearcher`, `DocumentSearcher` (given documents: in-domain checks) | `search/` |
 | `Resolver` (Protocol) | `resolve(url) -> list[str]` | `ArxivResolver`, `OpenAlexResolver`, `CompositeResolver` | `resolvers.py` |
 | `Crawler` | `crawl(url) -> page \| None` | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `FallbackCrawler` (waterfall), `NoCrawler` | `crawlers/` |
-| `Judge` | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge` (one decision per (claim, passage), on any runner) | `judges/` |
+| `Judge` (Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge` (one decision per (claim, passage), on any runner) | `judges/` |
 | `Ranker` (Protocol) | `top(claim, chunks, k) -> list[str]` | `BM25Ranker` (default), `EmbeddingRanker` (model2vec), `HybridRanker` | `rankers.py` |
-| `Policy` | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` | `verify.py` |
+| `Policy` (Protocol) | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` | `verify.py` |
 | `DecisionRunner` (Protocol) | `predict(requests) -> responses` (a `state` and typed `questions` in, probabilities per option out); `batch_size` | `LayaRunner` (default; in-process), `SystemOneRunner` (Jev's System One protocol over HTTP: OpenRouter or a `laya.serve` server), `LLMRunner` (any pydantic-ai chat model), `GlinerRunner` (ONNX, CPU) | `decisions.py`, `laya.py`, `gliner.py` |
 
 The runner is the layer below the roles: `DecisionClaimFilter` and `DecisionJudge` are written once on top of it

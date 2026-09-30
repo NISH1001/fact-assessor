@@ -1,14 +1,13 @@
 """Atomizers: text -> self-contained atomic claims. A step: texts -> atoms.
 
 `Atomizer` is the role: implement `atomize(text)`. `LLMAtomizer` does it in one fast-LLM call.
-Compose: `LLMAtomizer() >> LayaCheckworthy() >> Take(8)`.
+Compose: `LLMAtomizer() >> DecisionClaimFilter() >> Take(8)`.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -59,11 +58,11 @@ class Claims(BaseModel):
     source_query: str = ""
 
 
-class Atomizer(Step, ABC):
+class Atomizer(Step):
     """Role: text -> atoms. Implement `atomize`; streaming, concurrency, and chaining come from here."""
 
-    @abstractmethod
-    async def atomize(self, text: str) -> list[Atom]: ...
+    async def atomize(self, text: str) -> list[Atom]:
+        raise NotImplementedError(f"{type(self).__name__}.atomize")
 
     def __call__(self, texts: AsyncIterator[str]) -> AsyncIterator[Atom]:
         async def atoms(text: str) -> AsyncIterator[Atom]:

@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
 from factassessor.pipeline import Map, Step
 
 
-class Crawler(Step, ABC):
+class Crawler(Step):
     """Role: url -> page. Implement `crawl` (never raise; None on failure). As a step, every url is crawled
     concurrently and pages come out in the order they finish, so each can be judged the moment it lands."""
 
-    @abstractmethod
-    async def crawl(self, url: str) -> dict[str, Any] | None: ...
+    async def crawl(self, url: str) -> dict[str, Any] | None:
+        raise NotImplementedError(f"{type(self).__name__}.crawl")
 
     def __call__(self, urls: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
         return Map(self.crawl)(urls)

@@ -1,7 +1,10 @@
 # Decision runners: the model layer (design, 2026-09-30)
 
-Status: agreed, not yet built. This is the plan for the next refactor; `ARCHITECTURE.md` describes the code as it
-is today and gets updated as each step lands.
+Status: built 2026-09-30 (steps 1-6; `ARCHITECTURE.md` describes the result). Two departures from the plan
+below: `LLMRunner` and `GlinerRunner` landed in one commit, and step 6 made `Judge` and `Policy` Protocols while
+`Atomizer`, `Searcher`, `Crawler` and `ClaimFilter` stayed `Step` base classes (without ABCs): what those four
+give an implementer is the streaming adapter around the one method, and a Protocol can't carry that without
+requiring `__call__` of every conforming object. Step 7 (the Jev replay, then the overfetch live run) is next.
 
 ## Why
 
@@ -154,7 +157,7 @@ No aliases and no compatibility shims: the project is alpha, and every rename is
 | 3 judge + filter | `factassessor/judges/decision.py` (`DecisionJudge`), `factassessor/claim_filters/decision.py` (`DecisionClaimFilter`) | `judges/__init__.py`, `claim_filters/__init__.py`, `assessor.py` (defaults: one shared `LayaRunner`), `verify.py` (nothing but names), `scripts/eval_atoms.py` (`make_judge` builds `DecisionJudge(runner=...)`), README, ARCHITECTURE, WALKTHROUGH, decisions.md, notebooks; tests renamed (`test_laya_judge.py` -> `test_decision_judge.py`, `test_claim_filter.py`) | `judges/laya.py`, `claim_filters/laya.py` (their bodies move) |
 | 4 LLM runner | `LLMRunner` in `decisions.py` (+ tests: prompt rendering, JSON parsing, batching per prompt) | `scripts/eval.py` (`llm` variant -> `DecisionJudge(LLMRunner(...))`), README judge table | `judges/llm.py`, `tests/test_llm_judge.py` |
 | 5 GLiNER runner | `GlinerRunner` in `gliner.py` (criteria -> labels) + tests | `scripts/eval.py` (`gliner` variant), `scripts/compare_judges.py`, `compare_claim_filters.py`, README | `judges/gliner.py`, `claim_filters/gliner.py`, their tests (cases move to the runner tests) |
-| 6 roles as Protocols | | `atomizer.py`, `claim_filters/_base.py`, `search/_base.py`, `crawlers/_base.py`, `judges/_base.py`, `verify.py` (`Policy`): each role becomes a `@runtime_checkable` Protocol with its one method; `Step` stays the mixin that gives `>>`, concrete classes keep inheriting it for chaining; ARCHITECTURE roles table | |
+| 6 roles as Protocols | `tests/test_roles.py` | `judges/_base.py` (`Judge`) and `verify.py` (`Policy`): `@runtime_checkable` Protocols with their one/two methods; `atomizer.py`, `claim_filters/_base.py`, `search/_base.py`, `crawlers/_base.py`: ABC and `abstractmethod` dropped, the role method raises `NotImplementedError` naming itself; ARCHITECTURE roles table | |
 | 7 eval | | `scripts/eval_atoms.py --judge laya \| decision \| llm`, `--judge-model`; replay of `web-42` on Jev | |
 
 What does not change: the pipeline (`Verify`'s chain, `FactAssessor.stream`), the data models in `schema.py`,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from enum import Enum
 from typing import Any
@@ -31,11 +30,11 @@ BLOCKED_DOMAINS = (
 )
 
 
-class Searcher(Step, ABC):
+class Searcher(Step):
     """Role: query -> hits. Implement `search`; streaming, concurrency, and chaining come from here."""
 
-    @abstractmethod
-    async def search(self, query: str) -> list[dict[str, Any]]: ...
+    async def search(self, query: str) -> list[dict[str, Any]]:
+        raise NotImplementedError(f"{type(self).__name__}.search")
 
     def __call__(self, queries: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
         async def hits(query: str) -> AsyncIterator[dict[str, Any]]:

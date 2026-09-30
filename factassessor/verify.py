@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from factassessor.pipeline import Map, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.resolvers import Resolver, locations
@@ -14,13 +13,12 @@ from factassessor.schema import Atom, AtomResult, Evidence, Verdict
 _FROM_JUDGE: Any = object()  # "use the judge's concurrency" (so concurrency=None can mean "no limit")
 
 
-class Policy(ABC):
+@runtime_checkable
+class Policy(Protocol):
     """Role: turns evidence into a verdict, and decides when there's enough evidence to stop looking."""
 
-    @abstractmethod
     def settled(self, evidence: list[Evidence]) -> bool: ...
 
-    @abstractmethod
     def verdict(self, evidence: list[Evidence]) -> tuple[Verdict, float]: ...
 
 

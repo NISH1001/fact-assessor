@@ -279,8 +279,10 @@ concurrent duplicates share the work in flight, failures aren't kept. `FactAsses
 text's claims share one search for the text's source query; `Cache(searcher_chain)` or `Cache(crawler)` work the same
 way by hand.
 
-What you can pass. Each component has a **role** (a base type): subclass it and implement one method, and
-streaming, concurrency, and chaining come for free.
+What you can pass. Each component has a **role**. `Judge`, `Policy`, `Resolver`, `Ranker` and `DecisionRunner` are
+Protocols: any object with the method works, no subclassing needed. `Atomizer`, `Searcher`, `Crawler` and
+`ClaimFilter` are `Step` base classes: subclass one, implement its method, and streaming, concurrency, and chaining
+come for free.
 
 | Argument | Role | You implement | Default |
 |---|---|---|---|
@@ -289,8 +291,8 @@ streaming, concurrency, and chaining come for free.
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | none; `CompositeResolver(ArxivResolver(), OpenAlexResolver())` for papers |
 | `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `FallbackCrawler` |
-| `judge=` | `Judge` | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()` on Laya; `DecisionJudge(LLMRunner())`, `DecisionJudge(SystemOneRunner())`, `DecisionJudge(GlinerRunner())` for other models. Takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
-| `policy=` | `Policy` | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
+| `judge=` | `Judge` (a Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()` on Laya; `DecisionJudge(LLMRunner())`, `DecisionJudge(SystemOneRunner())`, `DecisionJudge(GlinerRunner())` for other models. Takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
+| `policy=` | `Policy` (a Protocol) | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 
 A new crawler, for example, is just:
 

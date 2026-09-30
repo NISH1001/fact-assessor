@@ -7,7 +7,6 @@ and reports the rest as `skipped`.
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
 from factassessor.pipeline import Map, Step, report_dropped
@@ -23,16 +22,16 @@ KINDS = {
 }
 
 
-class ClaimFilter(Step, ABC):
+class ClaimFilter(Step):
     """Role: score atoms, keep the factual claims. Threshold is low on purpose: a dropped real claim is never
     checked, while a kept opinion only costs one extra search."""
 
     def __init__(self, threshold: float = 0.4) -> None:
         self.threshold = threshold
 
-    @abstractmethod
     async def score(self, atom: Atom) -> float:
         """P(atom is a factual claim), 0..1."""
+        raise NotImplementedError(f"{type(self).__name__}.score")
 
     def __call__(self, atoms: AsyncIterator[Atom]) -> AsyncIterator[Atom]:
         return Map(self._keep)(atoms)  # every atom scored concurrently
