@@ -28,6 +28,19 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   a query of quoted distinctive numbers found 0 of 8 on SearXNG. Same LLM call as atomization: no added latency.
 - Model: **`gpt-5.6-luna`, reasoning `none`** (~2s). Benchmarked on 3 decontextualization cases:
 
+## Passage selection (the paper eval: 100 answers, 1,667 labelled atoms, identical cached evidence)
+
+- **3 passages per page instead of 1: combined F1 0.513 -> 0.618, recall 0.391 -> 0.508, precision unchanged
+  (0.897 -> 0.902).** At top-1, 73 numeric true atoms had the fact on the page but in a chunk BM25 didn't rank
+  first; top-3 recovers them for ~3s more Laya time per 15-claim text (replay: 5s -> 8s per answer).
+- **The hybrid ranker (BM25 + model2vec `potion-base-8M` static embeddings) does not help at top-3**: alpha 0.5
+  F1 0.615 / recall 0.504; alpha 0.3 (more embedding weight) 0.606 / 0.493; BM25 0.618 / 0.508. Whenever the fact is
+  on the page, BM25's top 3 already holds it; the remaining misses are qualitative atoms with no literal statement
+  anywhere and passages Laya rejects. `BM25Ranker` stays the default; `HybridRanker` remains available (optional
+  extra `embed`, ~30 MB, sub-millisecond per claim once a page's chunks are cached).
+- Laya's batch merge window (5ms -> 50ms) changed nothing: identical verdicts, 1,190s vs 1,235s for the replay.
+  Replaying 4 answers at once was no faster than one at a time (1,293s vs 1,303s): Laya is saturated either way.
+
   | Model | Warm latency | Quality |
   |---|---|---|
   | gpt-5.6-luna (reasoning none) | ~1.7s | all correct |

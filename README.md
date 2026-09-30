@@ -271,6 +271,11 @@ result = await fa.assess("NASA was founded in 1958. The Eiffel Tower is 500 mete
 # unverified  The Eiffel Tower is 500 meters tall.   (no .gov/.edu sources)
 ```
 
+`Cache(step)` wraps any step or sub-chain in a TTL cache (10 minutes by default): the same input is processed once,
+concurrent duplicates share the work in flight, failures aren't kept. `FactAssessor` uses it around the searcher so a
+text's claims share one search for the text's source query; `Cache(searcher_chain)` or `Cache(crawler)` work the same
+way by hand.
+
 What you can pass. Each component has a **role** (a base type): subclass it and implement one method, and
 streaming, concurrency, and chaining come for free.
 
@@ -369,13 +374,23 @@ hit can be read in full (`async resolve(url) -> list[str]`, the `Resolver` proto
 it just crawls those locations in order (`fact-assessor[pdf]` for PDFs):
 
 ```python
-from factassessor import ArxivResolver, CompositeResolver, Crawl4AICrawler, FallbackCrawler, HTTPXCrawler, OpenAlexResolver
+from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, FallbackCrawler, HTTPXCrawler,
+                          HybridRanker, LayaJudge, OpenAlexResolver)
 
 FactAssessor(
-    resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver()),
-    crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()),
+    source_query=True,                          # the atomizer also writes one search for the text's source document
+    resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver()),   # papers: free full-text copies first
+    crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()),        # plain HTTP (HTML and PDF), browser only if needed
+    judge=LayaJudge(passages_per_page=3),       # 3 passages per page: +0.10 F1 on the paper eval, ~3s more per text
 )
+
+LayaJudge(passages_per_page=3, ranker=HybridRanker())   # BM25 + 8M static embeddings (fact-assessor[embed]); measured:
+                                                        # no gain over BM25 at top-3 on the paper eval, kept as an option
 ```
+
+`source_query`: a claim about a detail inside a paper rarely finds the paper by itself, while the whole text usually
+does; the atomizer writes that query in the same call as the atoms (no added latency), every claim searches with it
+too, and it is searched once per text (`FactAssessor` wraps its searcher in `Cache`).
 
 ```
 search -> judge snippets -> resolve (every hit at once) -> crawl each hit's locations in order -> judge each page
