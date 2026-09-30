@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
-from factassessor.pipeline import Map, Scan, Step, TakeUntil, collect, last, once
+from factassessor.pipeline import Map, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.resolvers import Resolver, locations
 from factassessor.schema import Atom, AtomResult, Evidence, Verdict
 
@@ -82,12 +82,16 @@ class Verify(Step):
         resolver: Resolver | None = None,
         read_timeout: float = 8.0,
         min_copy_words: int = 300,
+        pages_per_claim: int | None = None,
     ) -> None:
         if resolver is not None and not callable(getattr(crawler, "crawl", None)):
             raise TypeError("resolving needs a Crawler (crawl(url) -> page) to read each location")
         self.searcher = searcher
         self.crawler = crawler
         self.resolver = resolver
+        # overfetch: with more hits than this, the first `pages_per_claim` that turn out readable are judged and the
+        # other crawls are cancelled, so a paywalled or blocked hit is replaced by the next one instead of lost
+        self.pages_per_claim = pages_per_claim
         self.read_timeout = read_timeout
         self.min_copy_words = min_copy_words
         self.judge = judge
@@ -133,6 +137,8 @@ class Verify(Step):
             # crawl every hit at once -> judge each page as it lands -> running total of the evidence ->
             # stop at the first total that settles the claim (TakeUntil cancels the crawls still in flight)
             read = Map(self._resolve) >> Map(self._read) if self.resolver else self.crawler
+            if self.pages_per_claim is not None:
+                read = read >> Take(self.pages_per_claim)
             gather_evidence = read >> judge_page >> Scan(add, evidence) >> TakeUntil(self.policy.settled)
             evidence = await last(gather_evidence(_urls(hits)), default=evidence)
         verdict, confidence = self.policy.verdict(evidence)

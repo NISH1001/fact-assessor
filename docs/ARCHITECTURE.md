@@ -274,4 +274,7 @@ fa = FactAssessor(
 - **Long self-contained claims search badly.** The claim text is the web query; a claim that names its study in
   full makes engines match the generic words ("2025", "study", "default"). A keyword step before the searcher is the
   planned fix (the judge keeps the full claim). Shorter claims, like the eval set's own atoms, don't suffer from it.
-- **No overfetch yet**: a paywalled or blocked hit is lost rather than replaced by the next readable one.
+- **Overfetch is off by default** (`FactAssessor(overfetch=0.0)`): a paywalled or blocked hit is lost rather than
+  replaced by the next readable one. With `overfetch=1.0`, twice as many hits are kept and the crawl stage judges
+  the first `top_k` that turn out readable (`Verify(pages_per_claim=)`: `Take` after the crawl, cancelling the rest),
+  at the cost of up to 2x the crawl requests. Measured on the paper eval before it becomes the default.

@@ -14,6 +14,7 @@ crawl lands, and results come out as they settle. `assess` is `stream` read to t
 from __future__ import annotations
 
 import asyncio
+import math
 import threading
 import time
 from collections.abc import AsyncIterator
@@ -44,6 +45,7 @@ class FactAssessor:
         n_atoms: int = 5,
         top_k: int = 5,
         *,
+        overfetch: float = 0.0,  # 1.0: keep twice as many hits as pages; the first top_k readable ones are judged
         device: str = "auto",
         serper_api_key: str | None = None,
         laya_model: str = "english",  # Laya checkpoint: english | multilingual | typed-decisions
@@ -74,18 +76,20 @@ class FactAssessor:
         self.atoms = (  # text -> the atoms worth checking
             self.atomizer >> self.claim_filter >> Take(n_atoms) if self.claim_filter else self.atomizer >> Take(n_atoms)
         )
+        candidates = math.ceil(top_k * (1 + overfetch))  # hits kept per claim; pages read: top_k
         self.searcher = Cache(  # a query is searched once per 10 minutes: a text's claims share their source query
             searcher
-            or SerperSearcher(serper_api_key, num=2 * top_k, timeout=search_timeout, hedge_after=search_hedge_after)
+            or SerperSearcher(serper_api_key, num=2 * candidates, timeout=search_timeout, hedge_after=search_hedge_after)
             >> not_blocked(blocked_domains)  # over-fetched above so blocked hits don't leave us short
-            >> Take(top_k)
+            >> Take(candidates)
         )
         self.crawler = crawler or Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
         self.judge = judge or LayaJudge(model=laya_model, device=device)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf)
         claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}
         self.verify = Verify(
-            self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, resolver=resolver, **claims
+            self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, resolver=resolver,
+            pages_per_claim=top_k if overfetch else None, **claims
         )
         self._loop: asyncio.AbstractEventLoop | None = None  # background loop behind assess_sync()
         self._loop_thread: threading.Thread | None = None

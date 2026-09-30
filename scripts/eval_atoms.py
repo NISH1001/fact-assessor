@@ -29,6 +29,7 @@ import asyncio
 import contextvars
 import gzip
 import json
+import math
 import statistics
 import time
 from pathlib import Path
@@ -321,12 +322,13 @@ async def live(args: argparse.Namespace) -> None:
                       runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None,
                       ranker=HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None)
     searcher = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type,
-                               hedge_after=None) >> not_blocked() >> Take(TOP_K)
+                               hedge_after=None) >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
     base_resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
     base_crawler = FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler(timeout=2.5))
     verify = Verify(TimedSearch(searcher, hits), TimedCrawler(base_crawler), TimedJudge(judge, pages),
                     WeightedPolicy(strong=args.strong), timeout=args.timeout,
-                    resolver=TimedResolver(base_resolver) if base_resolver else None)
+                    resolver=TimedResolver(base_resolver) if base_resolver else None,
+                    pages_per_claim=TOP_K if args.overfetch else None)
     await judge.judge("warm-up", [{"url": "u", "title": "", "snippet": "warm-up"}])  # load Laya before timing
     _write_meta(run_dir, args)
 
@@ -450,6 +452,8 @@ def main() -> None:
     lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
     lv.add_argument("--no-resolver", action="store_true")
     lv.add_argument("--no-source-query", action="store_true", help="claims search on their own only")
+    lv.add_argument("--overfetch", type=float, default=0.0,
+                    help="keep this fraction more hits than pages (1.0: 10 hits for 5 pages); the first 5 readable are judged")
     lv.add_argument("--passages", type=int, default=1, help="passages per page for the judge")
     lv.add_argument("--strong", type=float, default=0.7)
     lv.add_argument("--timeout", type=float, default=15.0, help="per-claim deadline (the library default is 15s)")

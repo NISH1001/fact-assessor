@@ -159,3 +159,15 @@ def test_laya_components_share_one_runner_per_event_loop():
 
     a, b, c = asyncio.run(runners())
     assert a is b is c
+
+
+def test_overfetch_keeps_more_hits_than_pages():
+    # overfetch=1.0: search keeps 100% more hits than pages, the crawl stage keeps the first top_k readable pages
+    from factassessor import FactAssessor
+
+    fa = FactAssessor(top_k=4, overfetch=1.0)
+    _, _, take_hits = fa.searcher.step.steps
+    assert take_hits.n == 8 and fa.verify.pages_per_claim == 4
+    fa = FactAssessor(top_k=4)  # default: today's behaviour, every kept hit is read
+    _, _, take_hits = fa.searcher.step.steps
+    assert take_hits.n == 4 and fa.verify.pages_per_claim is None

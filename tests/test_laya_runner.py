@@ -47,6 +47,27 @@ async def test_callers_after_a_flush_start_a_new_batch():
     assert router.calls == [1, 1]
 
 
+async def test_requests_arriving_during_a_pass_form_one_next_batch():
+    # pages land one by one while the model is busy: they must merge into the next pass, not one pass each
+    import time
+
+    class Slow(FakeRouter):
+        def predict_batch(self, requests, batch_size=None):
+            time.sleep(0.05)  # a forward pass on the model's thread
+            return super().predict_batch(requests, batch_size)
+
+    router = Slow()
+    laya = runner(router)
+    first = asyncio.create_task(laya.predict_batch([{"state": "first"}]))
+    await asyncio.sleep(0.02)  # the first pass is running
+    later = []
+    for i in range(20):  # trickle in over ~40ms
+        later.append(asyncio.create_task(laya.predict_batch([{"state": f"r{i}"}])))
+        await asyncio.sleep(0.002)
+    await asyncio.gather(first, *later)
+    assert router.calls[0] == 1 and sum(router.calls) == 21 and len(router.calls) <= 3
+
+
 async def test_failure_reaches_every_caller_in_the_batch():
     laya = runner(FakeRouter(fail=True))
     results = await asyncio.gather(

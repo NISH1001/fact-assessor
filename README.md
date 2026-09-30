@@ -570,8 +570,9 @@ produced; that dataset is not in the repo.
   on), so the first verdict arrives ~1s sooner.
 - **Default crawler**: consider `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())` plus the resolvers as the
   default once more end-to-end runs confirm it's faster.
-- **Overfetch**: keep more search hits than pages and take the first 5 that turn out readable (`Take` after the crawl
-  instead of after the search), so paywalled or blocked hits don't leave a claim short of evidence. Not built yet.
+- **Overfetch as the default**: `FactAssessor(overfetch=1.0)` keeps twice as many hits as pages and judges the
+  first `top_k` that turn out readable (`Take` after the crawl, the rest cancelled), so paywalled or blocked hits
+  don't leave a claim short of evidence; off (`0.0`) until the paper eval measures it.
 - **Search queries for long claims**: a self-contained claim ("The 2025 Scientific Reports study of aboveground
   biomass across Connecticut forests used 67 explanatory variables") is right for the judge but a poor web query
   (engines match the generic words). A keyword step in front of the searcher, keeping numbers, names and technical

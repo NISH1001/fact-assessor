@@ -77,8 +77,17 @@ class LayaRunner:
         return await future
 
     async def _flush_after_wait(self) -> None:
+        """One flush loop: wait `max_wait_ms` for the first requests to gather, run a pass on everything pending,
+        and while requests kept arriving during that pass, run again on all of them at once. Batches grow to
+        whatever lands while the model is busy (measured: forming a batch per wait window instead left the model
+        working through a backlog of 2-3-row passes, 14x slower than full ones)."""
         await asyncio.sleep(self.max_wait_ms / 1000)
-        batch, self._pending, self._flush = self._pending, [], None
+        while self._pending:
+            batch, self._pending = self._pending, []
+            await self._run(batch)
+        self._flush = None
+
+    async def _run(self, batch: list[tuple[list[dict[str, Any]], asyncio.Future[list[dict[str, Any]]]]]) -> None:
         merged = [r for requests, _ in batch for r in requests]
         order = sorted(range(len(merged)), key=lambda i: _length(merged[i]))  # short rows with short rows
         try:

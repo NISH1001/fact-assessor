@@ -376,6 +376,19 @@ async def test_no_source_query_means_one_search_as_before():
     assert searcher.queries == ["claim"]
 
 
+async def test_pages_per_claim_keeps_the_first_readable_pages_and_cancels_the_rest():
+    # overfetch: 10 hits, 2 unreadable (paywall, 403) and 2 hanging; the judge sees exactly 3 pages and the claim
+    # doesn't wait for the hanging crawls (Take closes the stream upstream)
+    pages = {f"https://s{i}.org": PAPER_TEXT for i in range(10)}
+    del pages["https://s0.org"], pages["https://s1.org"]
+    crawler = PageCrawler(pages, hang={"https://s2.org", "https://s3.org"})
+    judge = RecordingJudge()
+    start = asyncio.get_running_loop().time()
+    result = await Verify(FakeSearcher(n=10), crawler, judge, pages_per_claim=3).verify(ATOM)
+    assert len(judge.pages) == 3 and asyncio.get_running_loop().time() - start < 1
+    assert result.verdict == "supported" and result.error is None
+
+
 async def test_a_failing_source_query_search_does_not_lose_the_claims_own_hits():
     class Flaky(Step):
         async def __call__(self, queries):

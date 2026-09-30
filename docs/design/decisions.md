@@ -38,6 +38,9 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   on the page, BM25's top 3 already holds it; the remaining misses are qualitative atoms with no literal statement
   anywhere and passages Laya rejects. `BM25Ranker` stays the default; `HybridRanker` remains available (optional
   extra `embed`, ~30 MB, sub-millisecond per claim once a page's chunks are cached).
+- **Judge threshold `strong` 0.7 -> 0.5 (top-3): combined F1 0.618 -> 0.643, but the corrupted split is flat
+  (0.589 -> 0.588) and 5 more false atoms pass (204 -> 199 of 249 caught).** The gain is on the all-true originals:
+  saying "supported" more readily, not catching more. 0.7 stays the default.
 - Laya's batch merge window (5ms -> 50ms) changed nothing: identical verdicts, 1,190s vs 1,235s for the replay.
   Replaying 4 answers at once was no faster than one at a time (1,293s vs 1,303s): Laya is saturated either way.
 
