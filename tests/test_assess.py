@@ -141,6 +141,7 @@ def test_default_pipeline_is_built_from_the_familiar_arguments():
     serper, block, take_hits = fa.searcher.step.steps  # under the Cache wrapper
     assert take_atoms.n == 8 and serper.num == 6 and take_hits.n == 3 and fa.crawler.timeout == 1.5
     assert block.pred({"url": "https://facebook.com/x"}) and not block.pred({"url": "https://example.com/x"})
+    assert serper.exclude == ("example.com",) and serper.query("q") == "q -site:example.com"  # the same list, in the query
 
 
 def test_claim_filter_none_means_no_filter():

@@ -130,7 +130,10 @@ client, the model runners. `FactAssessor` exposes them as `aload` / `aclose` and
 `factassessor/verify.py`, per claim:
 
 **a. Search.** The claim text is the query. `not_blocked()` drops social media, forums and video sites
-(`BLOCKED_DOMAINS`); the searcher over-fetches (`num = 2 * top_k`) so blocked hits don't leave it short.
+(`BLOCKED_DOMAINS`); the searcher over-fetches (`num = 2 * top_k`) so blocked hits don't leave it short. With
+Serper the same hosts are also excluded in the query itself (`-site:` operators, as many as fit under Google's
+32-word cap, leakiest first), so Google fills those slots with usable sources instead of hits we pay for and drop;
+`not_blocked()` stays as the guarantee.
 When the atom carries a `source_query` (the atomizer's search for the document the text came from), it is searched
 at the same time and its hits are appended after the claim's own, each URL once. A claim about a detail inside a
 paper rarely finds the paper by itself (about a quarter of claims on scientific passages); the whole text usually

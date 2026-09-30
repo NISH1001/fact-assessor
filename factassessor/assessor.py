@@ -82,8 +82,9 @@ class FactAssessor:
         candidates = math.ceil(top_k * (1 + overfetch))  # hits kept per claim; pages read: top_k
         self.searcher = Cache(  # a query is searched once per 10 minutes: a text's claims share their source query
             searcher
-            or SerperSearcher(serper_api_key, num=2 * candidates, timeout=search_timeout, hedge_after=search_hedge_after)
-            >> not_blocked(blocked_domains)  # over-fetched above so blocked hits don't leave us short
+            or SerperSearcher(serper_api_key, num=2 * candidates, timeout=search_timeout, hedge_after=search_hedge_after,
+                              exclude=blocked_domains)  # excluded in the query, so Google fills the slots with usable hits
+            >> not_blocked(blocked_domains)  # and dropped after search as the guarantee (over-fetched above)
             >> Take(candidates)
         )
         self.crawler = crawler or Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)

@@ -21,12 +21,13 @@ class SearchType(str, Enum):
     GENERAL = "general"
     SCIENCE = "science"
 
-# Removed after search, before crawling: social media and forums are mostly reposts, opinions, and comments (and
-# often crawl badly); video pages have no usable text; LinkedIn posts are the same, and its pages block crawlers.
+# Never used as evidence: social media and forums are mostly reposts, opinions, and comments (and often crawl
+# badly); video pages have no usable text; LinkedIn posts are the same, and its pages block crawlers. Dropped
+# after search by `not_blocked()`, and excluded in the query itself where the searcher can (`SerperSearcher`).
+# Ordered by how often they show up in web results, so a searcher that can only fit some keeps the leakiest.
 BLOCKED_DOMAINS = (
-    "facebook.com", "fb.com", "instagram.com", "threads.net", "tiktok.com", "pinterest.com",
-    "twitter.com", "x.com", "reddit.com", "quora.com", "linkedin.com", "tumblr.com",
-    "youtube.com", "youtu.be",
+    "reddit.com", "youtube.com", "facebook.com", "quora.com", "twitter.com", "x.com", "linkedin.com",
+    "instagram.com", "pinterest.com", "tiktok.com", "tumblr.com", "youtu.be", "fb.com", "threads.net",
 )
 
 

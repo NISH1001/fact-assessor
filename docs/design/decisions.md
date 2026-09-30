@@ -106,7 +106,14 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   bullets) took Wikipedia's Marie Curie page 276k → 84k chars and 441 → 101 chunks.
 - Blocked after search, before crawling: facebook, instagram, threads, tiktok, pinterest, twitter/x, reddit, quora
   (reposts, opinions, comments; crawl badly) and youtube (no text). LinkedIn kept (primary source for people/orgs).
-  Earlier versions kept twitter/x and reddit; blocked since 2026-09-25.
+  Earlier versions kept twitter/x and reddit; blocked since 2026-09-25. LinkedIn and tumblr blocked since
+  2026-09-30 (FactReasoner's list).
+- **Serper: the blocked hosts are excluded in the query too** (2026-09-30, `SerperSearcher(exclude=)`). Measured
+  live: a plain query had 3 of its 10 hits blocked (reddit, facebook, youtube); the same query with 14 `-site:`
+  operators had 0, for the same 1 credit, with the 7 shared hits in the same order and the freed slots filled by
+  PubMed Central, Britannica and a blog. Before, we crawled 7 pages where we had paid for 10. Google ignores words
+  past 32 and an operator counts as one, so as many exclusions as fit go after the claim, leakiest hosts first;
+  the claim is never cut. `not_blocked()` stays in the chain: Google honours `-site:` reliably, not as a guarantee.
 
 ## Latency
 

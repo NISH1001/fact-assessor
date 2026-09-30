@@ -30,7 +30,7 @@ async def test_search_sends_the_query_and_returns_hits_in_rank_order():
         seen["body"] = json.loads(request.content)
         return httpx.Response(200, json=SERPER_RESPONSE)
 
-    s = serper(handler, num=10)
+    s = serper(handler, num=10, exclude=())
     hits = await s.search("Marie Curie was born in Warsaw in 1867.")
     await s.stop()
     assert seen == {"key": "test-key", "body": {"q": "Marie Curie was born in Warsaw in 1867.", "num": 10}}
@@ -40,6 +40,32 @@ async def test_search_sends_the_query_and_returns_hits_in_rank_order():
         {"url": "https://www.nobelprize.org/curie", "title": "Nobel Prize", "snippet": "Awarded 1903."},
         {"url": "https://example.com/x", "title": "No snippet here", "snippet": ""},
     ]
+
+
+async def test_blocked_domains_are_excluded_in_the_query_itself_within_googles_word_cap():
+    from factassessor import BLOCKED_DOMAINS, SearchType
+
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content)["q"])
+        return httpx.Response(200, json=SERPER_RESPONSE)
+
+    s = serper(handler)
+    await s.search("Marie Curie was born in Warsaw in 1867.")  # 8 words: room for all 14 exclusions
+    assert sent[-1] == "Marie Curie was born in Warsaw in 1867. " + " ".join(f"-site:{d}" for d in BLOCKED_DOMAINS)
+    assert sent[-1].startswith("Marie Curie") and "-site:reddit.com" in sent[-1] and "-site:threads.net" in sent[-1]
+    long_claim = " ".join(f"w{i}" for i in range(25))  # 25 words: only 7 operators fit, the leakiest hosts first
+    await s.search(long_claim)
+    assert sent[-1] == long_claim + " " + " ".join(f"-site:{d}" for d in BLOCKED_DOMAINS[:7])
+    assert len(sent[-1].split()) == 32 and BLOCKED_DOMAINS[:4] == ("reddit.com", "youtube.com", "facebook.com", "quora.com")
+    await s.search(" ".join(f"w{i}" for i in range(40)))  # over the cap already: the claim is never cut
+    assert len(sent[-1].split()) == 40 and "-site:" not in sent[-1]
+    await s.stop()
+    scholar = serper(handler, search_type=SearchType.SCIENCE)
+    await scholar.search("secondary forest biomass")  # Google Scholar: no social sites there, query sent as is
+    assert sent[-1] == "secondary forest biomass"
+    await scholar.stop()
 
 
 async def test_serper_is_a_step_that_chains_with_filter_and_take():

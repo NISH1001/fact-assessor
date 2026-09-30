@@ -45,7 +45,7 @@ text
 |---|---|---|
 | Atomize + decontextualize | `LLMAtomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning as low as the model allows) | API, ~2s |
 | Claim filter | `DecisionClaimFilter`: one `choice` decision per atom (is this a factual claim?) on a decision runner, [Laya](https://github.com/NandhaKishorM/laya) by default | local (MPS / CUDA / CPU) |
-| Search | [Serper](https://serper.dev), social media and video sites filtered out | API, ~1s |
+| Search | [Serper](https://serper.dev); social media and video sites excluded in the query (`-site:`, so Google fills those slots) and filtered after | API, ~1s |
 | Resolve (optional) | `CompositeResolver(ArxivResolver(), OpenAlexResolver())`: a paper's full text from its free copies | network, ~0.2s/paper |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text; or `HTTPXCrawler` (HTML and PDF) | network, ~1s/page |
 | Rank passages | `Ranker`: which chunks of a page the judge sees. `BM25Ranker` (default, word overlap); `HybridRanker` adds 8M-parameter static embeddings for paraphrase (`fact-assessor[embed]`) | local, ms |
@@ -243,7 +243,7 @@ All keyword arguments to `FactAssessor`:
 | `strong_evidence` | 0.7 | min probability for a passage to count toward a verdict |
 | `crawl_timeout` | 2.5 | seconds per page (a hard limit; a page that takes longer is dropped and the claim goes on without it) |
 | `search_hedge_after` | 1.2 | if a search hasn't answered by then, send the same request again and use whichever reply comes first (fixes Serper's occasional 3s+ outliers; only slow searches cost a second credit; `None` turns it off) |
-| `blocked_domains` | social + video | hosts never used as evidence (subdomains included); `()` to allow all |
+| `blocked_domains` | social + video | hosts never used as evidence (subdomains included): dropped after search and, with Serper, excluded in the query; `()` to allow all |
 | `timeout` | 15 | per-claim deadline; a claim still running then is decided on the evidence judged so far (`error="timeout"`) |
 | `max_concurrent_claims` | the judge's | claims checked at once; a claim's `timeout` starts when it gets its turn. The judge takes it from its runner: no limit on Laya, Jev and LLMs; 3 on GLiNER. `None` = no limit |
 | `max_concurrent_crawls` | 10 | pages the browser crawler loads at once (shared by all claims) |
