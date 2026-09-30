@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 
 import httpx
 import pytest
@@ -40,7 +41,11 @@ def jev(bodies, cost=0.00001, fail_first=0):
         answers = {}
         for key, q in body["questions"].items():
             state = body["state"]
-            text = state[q["instructions"].split("`")[1]] if isinstance(state, dict) else state  # the field it reads
+            if isinstance(state, dict):  # the first backticked reference is the evidence field, maybe indexed
+                name, index = re.search(r"`(\w+)(?:\[(\d+)\])?`", q["instructions"]).groups()
+                text = state[name][int(index)] if index is not None else state[name]
+            else:
+                text = state
             answers[key] = answer("supports" if "1903" in text else "not_enough_info", 0.9)
         return httpx.Response(200, json={"answers": answers, "usage": {"cost": cost, "prompt_tokens": 100}})
 
@@ -66,22 +71,30 @@ async def test_one_request_goes_out_verbatim_as_layas_request():
     assert res.usage == {"cost": 0.00001, "prompt_tokens": 100}
 
 
-async def test_several_requests_are_packed_into_one_call_sharing_repeated_fields():
+async def test_a_claims_passages_are_packed_into_one_call_as_a_list():
     bodies = []
     r = runner(jev(bodies), batch_size=40)
     res = await r.predict([request("Curie shared the 1903 Nobel Prize."), request("Paris is in France."), request("Nobel 1903 again.")])
     assert len(bodies) == 1  # one HTTP call
     state, questions = bodies[0]["state"], bodies[0]["questions"]
-    assert state == {  # the claim once, every passage next to it
-        "evidence_1": "Curie shared the 1903 Nobel Prize.", "claim_1": CLAIM,
-        "evidence_2": "Paris is in France.", "evidence_3": "Nobel 1903 again.",
+    assert state == {  # the shared claim once, the passages as a list, field order kept (evidence first)
+        "evidence": ["Curie shared the 1903 Nobel Prize.", "Paris is in France.", "Nobel 1903 again."],
+        "claim": CLAIM,
     }
-    assert list(questions) == ["stance_1", "stance_2", "stance_3"]
-    assert questions["stance_2"]["instructions"] == "According to `evidence_2`, is `claim_1` true or false?"
-    assert questions["stance_2"]["criteria"] == STANCE["stance"].criteria
+    assert list(state) == ["evidence", "claim"] and list(questions) == ["stance_0", "stance_1", "stance_2"]
+    assert questions["stance_1"]["instructions"] == "According to `evidence[1]`, is `claim` true or false?"
+    assert questions["stance_1"]["criteria"] == STANCE["stance"].criteria
     assert [x.answers["stance"].label for x in res] == ["supports", "not_enough_info", "supports"]  # each its own answer
     assert [x.usage["cost"] for x in res] == pytest.approx([0.00001 / 3] * 3)  # the call's cost, shared out
     assert r.cost == pytest.approx(0.00001)
+
+
+async def test_a_field_that_differs_between_requests_becomes_a_list_too():
+    bodies = []
+    await runner(jev(bodies)).predict([request("a 1903", claim="Claim one."), request("b", claim="Claim two.")])
+    state, questions = bodies[0]["state"], bodies[0]["questions"]
+    assert state == {"evidence": ["a 1903", "b"], "claim": ["Claim one.", "Claim two."]}
+    assert questions["stance_1"]["instructions"] == "According to `evidence[1]`, is `claim[1]` true or false?"
 
 
 async def test_packs_are_cut_at_batch_size():
@@ -91,22 +104,22 @@ async def test_packs_are_cut_at_batch_size():
     assert len(res) == 5 and all(x.answers["stance"].label == "supports" for x in res)
 
 
-async def test_concurrent_callers_share_one_call():
+async def test_by_default_each_predict_call_is_packed_on_its_own():
     bodies = []
-    r = runner(jev(bodies))
-    a, b = await asyncio.gather(r.predict([request("a 1903"), request("b")]), r.predict([request("c 1903")]))
-    assert len(bodies) == 1 and len(bodies[0]["questions"]) == 3
-    assert [x.answers["stance"].label for x in a] == ["supports", "not_enough_info"]
-    assert [x.answers["stance"].label for x in b] == ["supports"]
-
-
-async def test_without_merging_each_predict_call_is_packed_on_its_own():
-    bodies = []
-    r = runner(jev(bodies), merge=False, batch_size=2)
+    r = runner(jev(bodies), batch_size=2)
     a, b = await asyncio.gather(r.predict([request("a 1903"), request("b"), request("c 1903")]), r.predict([request("d")]))
     assert sorted(len(b["questions"]) for b in bodies) == [1, 1, 2]  # the first call's 3 as 2 + 1; the second's 1 alone
     assert [x.answers["stance"].label for x in a] == ["supports", "not_enough_info", "supports"]
     assert [x.answers["stance"].label for x in b] == ["not_enough_info"]
+
+
+async def test_with_merge_concurrent_callers_share_one_call():
+    bodies = []
+    r = runner(jev(bodies), merge=True)
+    a, b = await asyncio.gather(r.predict([request("a 1903"), request("b")]), r.predict([request("c 1903")]))
+    assert len(bodies) == 1 and len(bodies[0]["questions"]) == 3
+    assert [x.answers["stance"].label for x in a] == ["supports", "not_enough_info"]
+    assert [x.answers["stance"].label for x in b] == ["supports"]
 
 
 async def test_string_states_are_sent_one_per_call():

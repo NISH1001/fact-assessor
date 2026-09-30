@@ -158,16 +158,17 @@ class SystemOneRunner(DecisionRunner):
     each), priced per input token ($0.042 per million for jev-1.13 at the time of writing, output free): a
     30,000-passage eval replay is about $0.50 and minutes instead of a 20-minute GPU queue.
 
-    One call carries one state and many questions, answered together, so `batch_size` requests are packed into
-    one call: their state fields are laid side by side (a field repeated with the same value, like the claim of a
-    judge call's passages, is sent once), each question's backticked field names are renamed to match, and every
-    request gets its own answers back. A single request goes out verbatim. Jev's window is 32k tokens: 40 requests
-    of a 90-word passage plus a claim are ~6k. `cost` is the USD spent so far (`usage.cost`, summed).
+    One call carries one state and many questions, answered together, and Jev's docs say to ask every question
+    about the same state in one request. So the requests of one `predict` call (a judge call: one claim, its
+    passages) are packed into one call, up to `batch_size`: a field with the same value in every request (the
+    claim) is sent once, a field that differs (the evidence) becomes a list, and each question names its own entry
+    (`evidence[2]`). Every request gets its own answers back; a single request goes out verbatim. Jev's window is
+    32k tokens: 40 passages of 90 words plus a claim are ~6k. `cost` is the USD spent so far (`usage.cost`, summed).
 
-    What shares a call is the model's context, and it changes answers: on a 4-answer sample, 13% of passage labels
-    differed between one request per call and 40 mixed from every claim in flight. `merge=True` fills calls with
-    every caller's requests (most throughput); `merge=False` packs only the requests of one `predict` call (a
-    judge call: one claim's passages), still `max_concurrent` calls in flight. `batch_size=1` sends each alone.
+    What shares a call is the model's context, and it changes answers (on a 4-answer sample, 13% of passage
+    labels differed between one request per call and 40 mixed from every claim in flight; alone, Jev was less
+    sure of true claims). `merge=True` fills calls with every caller's requests in flight instead (more
+    throughput, claims mixed); `batch_size=1` sends each request alone.
 
     URL: `url`, else `OPENROUTER_DECISIONS_URL`, else OpenRouter. Key: `api_key`, else `OPENROUTER_API_KEY`
     (env or .env); a Laya server needs none.
@@ -182,8 +183,8 @@ class SystemOneRunner(DecisionRunner):
         api_key: str | None = None,
         batch_size: int = 40,  # requests per call
         max_concurrent: int = 16,  # calls in flight
-        merge: bool = True,  # fill calls with every caller's requests, or pack one predict call at a time
-        max_wait_ms: float = 5.0,  # how long a request waits for company
+        merge: bool = False,  # True: fill calls with every caller's requests in flight, not one predict call at a time
+        max_wait_ms: float = 5.0,  # merge=True: how long a request waits for company
         timeout: float = 30.0,
     ) -> None:
         self.model = model
@@ -255,29 +256,26 @@ class SystemOneRunner(DecisionRunner):
 
 def pack(requests: list[DecisionRequest], model: str) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """One System One body for several requests, and per request its question keys -> the body's keys.
-    Fields are numbered per name (`evidence_1`, `evidence_2`; `claim_1` once for every request that shares it),
-    questions per request (`stance_1`, `stance_2`), and each question's backticked field names follow."""
+    A field with the same value in every request stays one value; a field that differs becomes a list with one
+    entry per request, and each question's backticked reference to it gets the request's index (`evidence[2]`,
+    Jev's own path syntax). Questions are keyed per request (`stance_0`, `stance_1`); field order is kept."""
     if len(requests) == 1:
         [r] = requests
         body = {"model": r.model or model, "state": r.state, "questions": {k: q.wire() for k, q in r.questions.items()}}
         return body, [{k: k for k in r.questions}]
+    fields = list(dict.fromkeys(f for r in requests for f in r.state))  # type: ignore[union-attr]  # dict states only
     state: dict[str, Any] = {}
-    keys: dict[tuple[str, str], str] = {}  # (field, value) -> its key in the packed state
-    counts: dict[str, int] = {}
+    for field in fields:
+        values = [r.state.get(field, "") for r in requests]  # type: ignore[union-attr]
+        state[field] = values[0] if all(v == values[0] for v in values) else values
+    listed = {f for f, v in state.items() if isinstance(v, list)}
     questions: dict[str, Any] = {}
     routes: list[dict[str, str]] = []
-    for i, r in enumerate(requests, 1):
-        renamed: dict[str, str] = {}
-        for field, value in r.state.items():  # type: ignore[union-attr]  # dict states only (see _run)
-            if (key := keys.get((field, str(value)))) is None:
-                counts[field] = counts.get(field, 0) + 1
-                key = keys[(field, str(value))] = f"{field}_{counts[field]}"
-                state[key] = value
-            renamed[field] = key
+    for i, r in enumerate(requests):
         route: dict[str, str] = {}
         for k, q in r.questions.items():
             route[k] = f"{k}_{i}"
-            instructions = _FIELD.sub(lambda m: f"`{renamed.get(m.group(1), m.group(1))}`", q.instructions)
+            instructions = _FIELD.sub(lambda m: f"`{m.group(1)}[{i}]`" if m.group(1) in listed else m.group(0), q.instructions)
             questions[route[k]] = {**q.wire(), "instructions": instructions}
         routes.append(route)
     return {"model": requests[0].model or model, "state": state, "questions": questions}, routes

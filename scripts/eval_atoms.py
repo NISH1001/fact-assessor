@@ -237,7 +237,7 @@ def make_judge(args: argparse.Namespace) -> DecisionJudge:
     `--batch-size` requests per call); the live run's claim filter shares the judge's runner."""
     ranker = HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None
     if args.judge == "decision":
-        packing = {"all": {}, "call": {"merge": False}, "none": {"batch_size": 1}}[args.pack]
+        packing = {"call": {}, "all": {"merge": True}, "none": {"batch_size": 1}}[args.pack]
         runner: Any = SystemOneRunner(model=args.judge_model, **packing, **({"batch_size": args.batch_size} if args.batch_size else {}))
     else:
         runner = LayaRunner(**({"max_wait_ms": args.laya_wait_ms} if args.laya_wait_ms else {}))
@@ -493,8 +493,8 @@ def main() -> None:
     for p in (lv, rp):
         p.add_argument("--judge", default="laya", choices=["laya", "decision"], help="the judge's runner: local Laya, or Jev on OpenRouter")
         p.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
-        p.add_argument("--pack", default="all", choices=["all", "call", "none"],
-                       help="--judge decision: what shares a call: every claim's passages in flight (all), one judge call's (call), nothing (none)")
+        p.add_argument("--pack", default="call", choices=["call", "all", "none"],
+                       help="--judge decision: what shares a call: one claim's passages (call, the default), every claim in flight (all), nothing (none)")
         p.add_argument("--batch-size", type=int, help="--judge decision: requests packed per call (the runner's default is 40)")
         p.add_argument("--laya-wait-ms", type=float, help="--judge laya: the batch merge window (the runtime default is 5ms)")
     rt = sub.add_parser("report", help="metrics and timings of a run")

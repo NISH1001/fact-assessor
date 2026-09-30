@@ -4,7 +4,10 @@ Status: built 2026-09-30 (steps 1-6; `ARCHITECTURE.md` describes the result). Tw
 below: `LLMRunner` and `GlinerRunner` landed in one commit, and step 6 made `Judge` and `Policy` Protocols while
 `Atomizer`, `Searcher`, `Crawler` and `ClaimFilter` stayed `Step` base classes (without ABCs): what those four
 give an implementer is the streaming adapter around the one method, and a Protocol can't carry that without
-requiring `__call__` of every conforming object. Step 7 (the Jev replay, then the overfetch live run) is next.
+requiring `__call__` of every conforming object. `SystemOneRunner` packs one `predict` call (one claim's
+passages) per request by default, as a list field with `evidence[i]` references (Jev's documented "batch every
+question about the same state"); `merge=True` mixes every caller in flight, which measured well on a 4-answer
+sample but isn't documented behaviour. Step 7 (the Jev replay, then the overfetch live run) is next.
 
 ## Why
 

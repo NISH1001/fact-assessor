@@ -410,7 +410,7 @@ from factassessor import DecisionClaimFilter, DecisionJudge, FactAssessor, LayaR
 
 laya = LayaRunner()                       # in-process Laya (the default): 32-row passes on the local GPU
 jev = SystemOneRunner()                   # TypeSafe's Jev on OpenRouter (OPENROUTER_API_KEY): no GPU, ~0.5s a call,
-                                          # 40 requests packed per call, 16 calls in flight, $0.042 per 1M input tokens
+                                          # a claim's passages in one call (up to 40), 16 calls in flight, $0.042 per 1M input tokens
 FactAssessor(claim_filter=DecisionClaimFilter(laya), judge=DecisionJudge(jev, passages_per_page=3))
 FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/systemone", model="english")))  # a remote `python -m laya.serve`
 ```
@@ -418,7 +418,7 @@ FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/sys
 | Runner | Model | Where | Batching |
 |---|---|---|---|
 | `LayaRunner(model="english")` (default) | Laya: `english`, `multilingual` (~2.2x faster), `typed-decisions` | local GPU / CPU, one model per device per process | requests merged across callers, 32 rows per pass |
-| `SystemOneRunner(model="~typesafe/jev-latest")` | Jev (System One protocol), or a `laya.serve` server | OpenRouter, or any URL | 40 requests packed into one call, 16 calls in flight, 429s retried |
+| `SystemOneRunner(model="~typesafe/jev-latest")` | Jev (System One protocol), or a `laya.serve` server | OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `merge=True` fills calls with every claim in flight instead |
 
 A runner is a `Protocol`: anything with `batch_size` and `async predict(requests)` works, and
 `isinstance(x, DecisionRunner)` checks it. `factassessor.decisions` has the request and response models.

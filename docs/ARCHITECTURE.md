@@ -190,7 +190,7 @@ The 2x margin means one stray "refutation" (a related but different fact) doesn'
 | resolvers of a hit | `CompositeResolver`: `asyncio.gather` | all at once |
 | locations of a hit | `read_first`: one at a time, in order | deliberate: first that works |
 | `LayaRunner` | one model and one thread per device per process; every request arriving within 5ms (any claim, page, or component) is merged into one pass, and everything arriving during a pass forms the next | 32 rows per forward pass |
-| `SystemOneRunner` (Jev) | requests merged across callers and packed 40 per HTTP call (one state, one question per request); 429s and 5xx retried with backoff | 16 calls in flight |
+| `SystemOneRunner` (Jev) | one claim's passages per HTTP call: one state with the passages as a list, one question per passage, up to 40 (`merge=True` fills calls with every caller's requests in flight instead); 429s and 5xx retried with backoff | 16 calls in flight |
 | SearXNG | `SearxngSearcher(max_concurrent=4)`: its upstream engines suspend a client that bursts | 4 requests in flight |
 | browser | one shared headless browser | `max_concurrent_crawls` (10) pages at once, all claims |
 | plain HTTP | one shared connection pool | 20 at once |
