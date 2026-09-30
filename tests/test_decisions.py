@@ -5,7 +5,7 @@ import re
 import httpx
 import pytest
 
-from factassessor.decisions import Answer, Batcher, DecisionRequest, DecisionResponse, DecisionRunner, Question, SystemOneRunner
+from factassessor.decisions import Answer, Batcher, DecisionRequest, DecisionResponse, DecisionRunner, Packing, Question, SystemOneRunner
 
 CLAIM = "Marie Curie won the Nobel Prize in Physics in 1903."
 STANCE = {
@@ -107,15 +107,16 @@ async def test_packs_are_cut_at_batch_size():
 async def test_by_default_each_predict_call_is_packed_on_its_own():
     bodies = []
     r = runner(jev(bodies), batch_size=2)
+    assert r.packing is Packing.CALL and SystemOneRunner(api_key="k", packing="none").packing is Packing.NONE
     a, b = await asyncio.gather(r.predict([request("a 1903"), request("b"), request("c 1903")]), r.predict([request("d")]))
     assert sorted(len(b["questions"]) for b in bodies) == [1, 1, 2]  # the first call's 3 as 2 + 1; the second's 1 alone
     assert [x.answers["stance"].label for x in a] == ["supports", "not_enough_info", "supports"]
     assert [x.answers["stance"].label for x in b] == ["not_enough_info"]
 
 
-async def test_with_merge_concurrent_callers_share_one_call():
+async def test_packing_all_lets_concurrent_callers_share_one_call():
     bodies = []
-    r = runner(jev(bodies), merge=True)
+    r = runner(jev(bodies), packing=Packing.ALL)
     a, b = await asyncio.gather(r.predict([request("a 1903"), request("b")]), r.predict([request("c 1903")]))
     assert len(bodies) == 1 and len(bodies[0]["questions"]) == 3
     assert [x.answers["stance"].label for x in a] == ["supports", "not_enough_info"]
@@ -141,7 +142,7 @@ async def test_calls_in_flight_are_capped():
         running -= 1
         return httpx.Response(200, json={"answers": {"stance": answer("refutes", 0.7)}})
 
-    res = await runner(handler, batch_size=1, max_concurrent=3).predict([request(f"p{i}") for i in range(9)])
+    res = await runner(handler, packing="none", max_concurrent=3).predict([request(f"p{i}") for i in range(9)])
     assert len(res) == 9 and all(x.answers["stance"].label == "refutes" for x in res) and peak == 3
 
 

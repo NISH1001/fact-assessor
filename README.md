@@ -418,7 +418,7 @@ FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/sys
 | Runner | Model | Where | Batching |
 |---|---|---|---|
 | `LayaRunner(model="english")` (default) | Laya: `english`, `multilingual` (~2.2x faster), `typed-decisions` | local GPU / CPU, one model per device per process | requests merged across callers, 32 rows per pass |
-| `SystemOneRunner(model="~typesafe/jev-latest")` | Jev (System One protocol), or a `laya.serve` server | OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `merge=True` fills calls with every claim in flight instead |
+| `SystemOneRunner(model="~typesafe/jev-latest")` | Jev (System One protocol), or a `laya.serve` server | OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
 
 A runner is a `Protocol`: anything with `batch_size` and `async predict(requests)` works, and
 `isinstance(x, DecisionRunner)` checks it. `factassessor.decisions` has the request and response models.

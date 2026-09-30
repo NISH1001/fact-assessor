@@ -18,6 +18,7 @@ import asyncio
 import os
 import re
 from collections.abc import Awaitable, Callable
+from enum import StrEnum
 from typing import Any, Literal, Protocol, runtime_checkable
 
 import httpx
@@ -151,6 +152,14 @@ class Batcher:
 _FIELD = re.compile(r"`(\w+)`")  # a state field named in a question
 
 
+class Packing(StrEnum):
+    """What shares one System One call, and so one model context (it changes the answers; see `SystemOneRunner`)."""
+
+    CALL = "call"  # one `predict` call (a judge call: one claim's passages), up to `batch_size` per call: the default
+    ALL = "all"  # every caller's requests in flight, `batch_size` per call: most throughput, claims mixed
+    NONE = "none"  # one request per call, exactly the request Laya gets
+
+
 class SystemOneRunner(DecisionRunner):
     """Jev's System One protocol over HTTP: OpenRouter's Jev by default, or a remote `python -m laya.serve`.
 
@@ -167,8 +176,9 @@ class SystemOneRunner(DecisionRunner):
 
     What shares a call is the model's context, and it changes answers (on a 4-answer sample, 13% of passage
     labels differed between one request per call and 40 mixed from every claim in flight; alone, Jev was less
-    sure of true claims). `merge=True` fills calls with every caller's requests in flight instead (more
-    throughput, claims mixed); `batch_size=1` sends each request alone.
+    sure of true claims). `packing` picks it: `Packing.CALL` (the default, one predict call per request),
+    `Packing.ALL` (every caller's requests in flight, more throughput, claims mixed), `Packing.NONE` (one request
+    per call).
 
     URL: `url`, else `OPENROUTER_DECISIONS_URL`, else OpenRouter. Key: `api_key`, else `OPENROUTER_API_KEY`
     (env or .env); a Laya server needs none.
@@ -183,15 +193,15 @@ class SystemOneRunner(DecisionRunner):
         api_key: str | None = None,
         batch_size: int = 40,  # requests per call
         max_concurrent: int = 16,  # calls in flight
-        merge: bool = False,  # True: fill calls with every caller's requests in flight, not one predict call at a time
-        max_wait_ms: float = 5.0,  # merge=True: how long a request waits for company
+        packing: Packing | str = Packing.CALL,  # what shares a call: one predict call, every caller in flight, nothing
+        max_wait_ms: float = 5.0,  # Packing.ALL: how long a request waits for company
         timeout: float = 30.0,
     ) -> None:
         self.model = model
         self.url = url or os.environ.get("OPENROUTER_DECISIONS_URL", "").strip() or self.URL
         self.api_key = api_key
         self.batch_size = batch_size
-        self.merge = merge
+        self.packing = Packing(packing)
         self.timeout = timeout
         self.cost = 0.0
         self._batch = Batcher(self._run, max_wait_ms, max_concurrent, take=batch_size)
@@ -219,7 +229,9 @@ class SystemOneRunner(DecisionRunner):
         if not requests:
             return []
         await self.aload()
-        return await (self._batch.submit(requests) if self.merge else self._batch.alone(requests))
+        if self.packing is Packing.ALL:
+            return await self._batch.submit(requests)
+        return await self._batch.alone(requests, take=1 if self.packing is Packing.NONE else None)
 
     async def _run(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
         """One packed call for the dict-state requests; a string state can't be packed, so each goes alone."""

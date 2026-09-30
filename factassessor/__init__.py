@@ -9,7 +9,7 @@ from factassessor.assessor import FactAssessor
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
 from factassessor.crawlers import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler, NoCrawler
-from factassessor.decisions import Answer, DecisionRequest, DecisionResponse, DecisionRunner, LLMRunner, Question, SystemOneRunner
+from factassessor.decisions import Answer, DecisionRequest, DecisionResponse, DecisionRunner, LLMRunner, Packing, Question, SystemOneRunner
 from factassessor.gliner import GlinerRunner
 from factassessor.judges import DecisionJudge, Judge
 from factassessor.laya import LayaRunner
@@ -54,7 +54,7 @@ __all__ = [
     "Policy", "WeightedPolicy",
     "Verify",
     # decision runners (the model behind the claim filter and the judge) and their request/response types
-    "DecisionRunner", "LayaRunner", "SystemOneRunner", "LLMRunner", "GlinerRunner",
+    "DecisionRunner", "LayaRunner", "SystemOneRunner", "Packing", "LLMRunner", "GlinerRunner",
     "DecisionRequest", "DecisionResponse", "Question", "Answer",
     # composition
     "Step", "Chain", "Map", "FlatMap", "Filter", "Take", "Scan", "TakeUntil", "Cache", "Predicate", "once", "collect", "last",
