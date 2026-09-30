@@ -39,6 +39,7 @@ from factassessor import (
     LayaJudge, LLMAtomizer, OpenAlexResolver, SearxngSearcher, Step, Take, Verify, WeightedPolicy, collect, not_blocked,
     once,
 )
+from factassessor.laya import LayaRunner
 from factassessor.resolvers import locations
 
 OUT = Path("tmp/eval_atoms")
@@ -291,7 +292,8 @@ async def live(args: argparse.Namespace) -> None:
 
     atomizer = LLMAtomizer(args.atomizer, source_query=not args.no_source_query)
     claim_filter = LayaClaimFilter()
-    judge = LayaJudge(passages_per_page=args.passages)
+    judge = LayaJudge(passages_per_page=args.passages,
+                      runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None)
     searcher = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type,
                                hedge_after=None) >> not_blocked() >> Take(TOP_K)
     base_resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
@@ -342,7 +344,8 @@ async def replay(args: argparse.Namespace) -> None:
     run_dir = OUT / args.tag
     hits, pages = _load(run_dir / "hits.json.gz", {}), _load(run_dir / "pages.json.gz", {})
     live_results = _load(run_dir / "results.json.gz", [])
-    judge = LayaJudge(passages_per_page=args.passages)
+    judge = LayaJudge(passages_per_page=args.passages,
+                      runner=LayaRunner(max_wait_ms=args.laya_wait_ms) if args.laya_wait_ms else None)
     source_queries = [r["source_query"] for r in live_results if r.get("source_query")]
     caps = {q: args.source_hits for q in source_queries} if args.source_hits else {}
     verify = Verify(CachedSearch(hits, caps), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120)
@@ -417,6 +420,7 @@ def main() -> None:
     lv.add_argument("--passages", type=int, default=1, help="passages per page for the judge")
     lv.add_argument("--strong", type=float, default=0.7)
     lv.add_argument("--timeout", type=float, default=15.0, help="per-claim deadline (the library default is 15s)")
+    lv.add_argument("--laya-wait-ms", type=float, help="Laya's batch merge window (the runtime default is 5ms)")
     rp = sub.add_parser("replay", help="judge the cached evidence of --tag again, with another setup")
     rp.add_argument("--tag", default="web")
     rp.add_argument("--out", required=True)
@@ -424,6 +428,7 @@ def main() -> None:
     rp.add_argument("--strong", type=float, default=0.7)
     rp.add_argument("--source-hits", type=int, help="use only the first N hits of each text's source query")
     rp.add_argument("--no-source-query", action="store_true", help="claims judged on their own hits only")
+    rp.add_argument("--laya-wait-ms", type=float, help="Laya's batch merge window (the runtime default is 5ms)")
     rt = sub.add_parser("report", help="metrics and timings of a run")
     rt.add_argument("--tag", default="web")
     args = ap.parse_args()
