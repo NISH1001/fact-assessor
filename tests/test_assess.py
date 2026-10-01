@@ -170,3 +170,36 @@ def test_overfetch_keeps_more_hits_than_pages():
     _, _, take_hits = fa.searcher.step.steps
     assert take_hits.n == 4 and fa.verify.pages_per_claim is None
     assert FactAssessor(top_k=4, overfetch=1.0, source_query=True).verify.pages_per_claim == 8  # own + source query's
+
+
+async def test_assess_many_returns_results_in_input_order_with_at_most_concurrency_texts_in_flight():
+    import pytest
+
+    fa = offline_assessor()
+    running = peak = 0
+    original = fa.assess
+
+    async def tracked(text):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        try:
+            await asyncio.sleep(0.02)
+            return await original(text)
+        finally:
+            running -= 1
+
+    fa.assess = tracked
+    texts = [TEXT, "NASA was founded in 1958.", TEXT, TEXT, "NASA was founded in 1958."]
+    results = await fa.assess_many(texts, concurrency=2)
+    assert [r.text for r in results] == texts and peak == 2
+    assert await fa.assess_many([]) == []
+    with pytest.raises(ValueError):
+        await fa.assess_many(texts, concurrency=0)
+
+
+def test_assess_many_sync_for_plain_scripts():
+    fa = offline_assessor()
+    results = fa.assess_many_sync([TEXT, TEXT], concurrency=2)
+    assert [r.fact_score for r in results] == [0.5, 0.5]
+    fa.close()

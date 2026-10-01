@@ -20,7 +20,7 @@ import asyncio
 import math
 import threading
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from typing import Any
 
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
@@ -147,6 +147,26 @@ class FactAssessor:
                 return event.result
         raise RuntimeError("stream ended without a result")
 
+    async def assess_many(self, texts: Iterable[str], concurrency: int = 3) -> list[CheckResult]:
+        """Fact-check several texts on this assessor, at most `concurrency` at once; results in input order.
+
+        One assessor shares its caches across texts (search results, pages, OpenAlex lookups: the texts' claims often
+        hit the same pages). The cap is admission control: every text in flight shares one crawler, so starting all
+        of them at once makes each wait for the others (10 texts at once on a laptop: ~60s each, vs ~19s alone)."""
+        if concurrency < 1:
+            raise ValueError(f"concurrency must be >= 1, not {concurrency}")
+        slots = asyncio.Semaphore(concurrency)
+
+        async def one(text: str) -> CheckResult:
+            async with slots:
+                return await self.assess(text)
+
+        return list(await asyncio.gather(*(one(t) for t in texts)))
+
+    def assess_many_sync(self, texts: Iterable[str], concurrency: int = 3) -> list[CheckResult]:
+        """Blocking `assess_many`, on the same background loop as `assess_sync` (call `close()` when done)."""
+        return self._run_sync(self.assess_many(list(texts), concurrency))
+
     async def acheck(self, text: str) -> CheckResult:
         """Alias for `assess`."""
         return await self.assess(text)
@@ -158,11 +178,14 @@ class FactAssessor:
         across calls. Use either `assess` or `assess_sync` on a given instance, not both: their resources belong
         to different loops. Call `close()` (or use `with FactAssessor() as fa:`) when done.
         """
+        return self._run_sync(self.assess(text))
+
+    def _run_sync(self, coro: Any) -> Any:
         if self._loop is None:
             self._loop = asyncio.new_event_loop()
             self._loop_thread = threading.Thread(target=self._loop.run_forever, name="factassessor-loop", daemon=True)
             self._loop_thread.start()
-        return asyncio.run_coroutine_threadsafe(self.assess(text), self._loop).result()
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
 
     # --- lifecycle --------------------------------------------------------------------------------------
 

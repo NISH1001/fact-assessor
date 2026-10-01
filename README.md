@@ -165,6 +165,15 @@ result = await fa.assess(text)   # reuse for every check
 await fa.aclose()             # on shutdown: closes the browser and HTTP pool (or use `async with`)
 ```
 
+One assessor also shares its caches across checks: search results, pages and OpenAlex lookups are kept in memory
+for 10 minutes, and a text's claims often hit the same papers (half of all hits repeat). For many texts, use one
+assessor and cap how many run at once, since every text in flight shares one crawler:
+
+```python
+results = await fa.assess_many(texts, concurrency=3)   # results in input order; at most 3 texts in flight
+results = fa.assess_many_sync(texts, concurrency=3)    # the blocking twin, for plain scripts
+```
+
 ### Stream results
 
 `stream` yields each claim as it's found and each verdict the moment it settles, so a UI can show progress
