@@ -408,11 +408,17 @@ async def replay(args: argparse.Namespace) -> None:
     start = time.perf_counter()
     slots = asyncio.Semaphore(args.parallel)  # answers at once: several answers' passages fill the runner's batches
 
+    done = 0
+
     async def one(r: dict[str, Any]) -> dict[str, Any]:
+        nonlocal done
         if args.no_source_query:
             r = {**r, "source_query": None}
         async with slots:
             atoms, verify_s = await verify_answer(verify, r)
+        done += 1
+        print(f"[{done:3d}/{len(live_results)}] {r['id']}: {len(atoms)} atoms, {sum(a['verdict'] == 'supported' for a in atoms)} supported; "
+              f"{verify_s:.1f}s", flush=True)
         return {**{k: r[k] for k in ("id", "pair", "kind")}, "atoms": atoms, "time": {"verify": verify_s}}
 
     out = list(await asyncio.gather(*(one(r) for r in live_results)))
