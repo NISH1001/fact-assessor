@@ -7,6 +7,7 @@ from typing import Any
 
 from factassessor.crawlers._base import Crawler
 from factassessor.passages import clean_text
+from factassessor.utils import cache
 
 
 class Crawl4AICrawler(Crawler):
@@ -22,6 +23,7 @@ class Crawl4AICrawler(Crawler):
         self._browser: Any = None
         self._browser_lock = asyncio.Lock()
 
+    @cache(maxsize=2048, ttl=600)  # a page rendered once, shared by every claim
     async def crawl(self, url: str) -> dict[str, Any] | None:
         """One page, or None on failure/timeout. Never raises."""
         from crawl4ai import CacheMode, CrawlerRunConfig, DefaultMarkdownGenerator

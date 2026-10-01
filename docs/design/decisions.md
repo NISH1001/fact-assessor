@@ -108,6 +108,11 @@ Mac (MPS), Sept 2026. Revisit a decision when its evidence changes.
   (reposts, opinions, comments; crawl badly) and youtube (no text). LinkedIn kept (primary source for people/orgs).
   Earlier versions kept twitter/x and reddit; blocked since 2026-09-25. LinkedIn and tumblr blocked since
   2026-09-30 (FactReasoner's list).
+- **Pages and OpenAlex lookups cached in memory** (2026-10-01, `utils.cache` on `HTTPXCrawler.crawl`,
+  `Crawl4AICrawler.crawl`, `OpenAlexResolver.resolve`; 2,048 pages / 4,096 lookups, 10 minutes, per instance,
+  concurrent callers share one call). Half of all hit URLs repeat across a text's claims (they share the source
+  query: the same papers), and each repeat used to be fetched, parsed and sometimes rendered again. 10 answers at
+  once on cached hits: 162s -> 63s wall clock, ~150s -> 40-63s per answer, crawl busy time 144-158s -> 36-60s.
 - **No per-hit read deadline** (2026-09-30). `Verify` used to give one hit 8s for all its locations together,
   measured from the moment the hit was handed to the crawler. The crawler caps connections (20 HTTP, 10 browser),
   so under load that clock counted the wait for a connection: the first live eval at 6 answers in parallel

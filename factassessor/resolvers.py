@@ -22,6 +22,8 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
+from factassessor.utils import cache
+
 
 @runtime_checkable
 class Resolver(Protocol):
@@ -140,6 +142,7 @@ class OpenAlexResolver:
         self._slots = asyncio.Semaphore(max_concurrent)  # OpenAlex asks for at most 10 requests/s
         self._http: httpx.AsyncClient | None = None
 
+    @cache(maxsize=4096, ttl=600)  # one lookup per URL, shared by every claim citing the paper
     async def resolve(self, url: str) -> list[str]:
         doi = doi_in(url)
         if doi is None or arxiv_id(url) is not None:

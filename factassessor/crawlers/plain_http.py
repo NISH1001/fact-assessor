@@ -9,6 +9,7 @@ import httpx
 
 from factassessor.crawlers._base import Crawler
 from factassessor.extract import extract
+from factassessor.utils import cache
 
 
 class HTTPXCrawler(Crawler):
@@ -45,6 +46,7 @@ class HTTPXCrawler(Crawler):
         self._slots = asyncio.Semaphore(max_concurrent)
         self._http: httpx.AsyncClient | None = None
 
+    @cache(maxsize=2048, ttl=600)  # a page fetched and extracted once, shared by every claim (half of all hits repeat)
     async def crawl(self, url: str) -> dict[str, Any] | None:
         try:
             async with self._slots:  # waiting for a slot doesn't count toward the deadline

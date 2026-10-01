@@ -585,7 +585,7 @@ factassessor/
     decision.py      DecisionJudge (default): one decision per (claim, passage) on any runner
   kg.py              knowledge graph (kg.build, kg.to_mermaid), built on demand from a result
   passages.py        page cleaning, normalization, word windows and token-exact chunking, BM25
-  utils.py           sentence spans; locate(query, source): the sentence of a text that best matches a piece of it
+  utils.py           sentence spans; locate(query, source); cache: in-memory TTL cache for methods and functions (pages, OpenAlex lookups)
   schema.py          Atom, Evidence, AtomResult, CheckResult (fact_score computed from its atoms), stream events
 ```
 
