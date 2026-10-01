@@ -13,6 +13,12 @@ Each JSONL row is a pair: an `original` and a `corrupted` long-form answer, each
 
     uv run python scripts/eval_atoms.py report --tag web
 
+    # end to end on OUR atoms, synthetic labels: each original answer is atomized by our atomizer (those atoms are S:
+    # the originals are true), and each atom gets a one-detail corruption from an LLM (NS); the mix runs through the
+    # product path (filter, search, crawl, judge). Not comparable to the paper's table (half the atoms are false):
+    # it measures our atomization in the loop, how often a wrong detail is caught, and the atomizer's own error rate
+    uv run python scripts/eval_atoms.py synth --data tmp/scielf_paired.jsonl --tag e2e-synth --searcher serper
+
 Metric (the paper's Table 3): atom-level accuracy, precision, recall, F1 with S (true) as the positive class,
 computed per answer and macro-averaged over answers, on the corrupted split and on original + corrupted combined.
 An atom is predicted S when its verdict is `supported`; unverified, contested and refuted are NS (the reference
@@ -33,13 +39,17 @@ import math
 import statistics
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel
+from pydantic_ai import Agent
 
 from factassessor import (
-    ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, FallbackCrawler,
-    HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, SearxngSearcher, SerperSearcher, Step,
-    SystemOneRunner, Take, Verify, WeightedPolicy, collect, not_blocked, once,
+    ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, DecisionRequest,
+    FallbackCrawler, HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, Question, SearxngSearcher,
+    SerperSearcher, Step, SystemOneRunner, Take, Verify, WeightedPolicy, collect, not_blocked, once,
 )
+from factassessor._llm import reasoning_off
 from factassessor.rankers import HybridRanker
 from factassessor.resolvers import locations
 
@@ -327,6 +337,34 @@ async def fill_pages(cache_hits: dict[str, Any], pages: dict[str, Any], resolver
     await asyncio.gather(*(read(u) for u in todo))
 
 
+class Pipeline:
+    """The live pipeline of a run: its judge, filter, verify step and the resources to close."""
+
+    def __init__(self, args: argparse.Namespace, run_dir: Path, hits: dict[str, Any], pages: dict[str, Any]) -> None:
+        self.judge = make_judge(args)
+        self.claim_filter = DecisionClaimFilter(self.judge.runner, threshold=getattr(args, "claim_threshold", 0.4))
+        if args.searcher == "serper":  # 10 results = 1 credit; blocked hosts excluded in the query, so all 10 are usable
+            base_search: Step = SerperSearcher(num=10, hedge_after=None, search_type=args.search_type)
+        else:
+            base_search = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type, hedge_after=None)
+        searcher = base_search >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
+        self.resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
+        self.crawler = FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler(timeout=2.5))
+        save_hits = lambda: _save(run_dir / "hits.json.gz", hits)  # noqa: E731  # every paid search on disk at once
+        self.verify = Verify(
+            TimedSearch(searcher, hits, slots=16 if args.searcher == "serper" else 4, save=save_hits),  # SearXNG's engines suspend bursts
+            TimedCrawler(self.crawler), TimedJudge(self.judge, pages), WeightedPolicy(strong=args.strong), timeout=args.timeout,
+            resolver=TimedResolver(self.resolver) if self.resolver else None,
+            pages_per_claim=TOP_K * (1 if args.no_source_query else 2) if args.overfetch else None,
+        )
+
+    async def aclose(self) -> None:
+        await self.crawler.aclose()
+        if self.resolver:
+            await self.resolver.aclose()
+        await self.judge.aclose()
+
+
 async def live(args: argparse.Namespace) -> None:
     answers = load_answers(args.data, limit=args.limit, sample=args.sample, seed=args.seed)
     run_dir = OUT / args.tag
@@ -335,21 +373,8 @@ async def live(args: argparse.Namespace) -> None:
     done = {r["id"]: r for r in _load(run_dir / "results.json.gz", [])}
 
     atomizer = LLMAtomizer(args.atomizer, source_query=not args.no_source_query)
-    judge = make_judge(args)
-    claim_filter = DecisionClaimFilter(judge.runner)  # timed only; the same model as the judge
-    if args.searcher == "serper":  # 10 results = 1 credit; blocked hosts excluded in the query, so all 10 are usable
-        base_search: Step = SerperSearcher(num=10, hedge_after=None, search_type=args.search_type)
-    else:
-        base_search = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type, hedge_after=None)
-    searcher = base_search >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
-    base_resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
-    base_crawler = FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler(timeout=2.5))
-    save_hits = lambda: _save(run_dir / "hits.json.gz", hits)  # noqa: E731  # every paid search on disk at once
-    verify = Verify(TimedSearch(searcher, hits, save=save_hits), TimedCrawler(base_crawler), TimedJudge(judge, pages),
-                    WeightedPolicy(strong=args.strong), timeout=args.timeout,
-                    resolver=TimedResolver(base_resolver) if base_resolver else None,
-                    pages_per_claim=TOP_K * (1 if args.no_source_query else 2) if args.overfetch else None)
-    await judge.aload()  # the model (or the HTTP pool) before timing
+    pipe = Pipeline(args, run_dir, hits, pages)
+    await pipe.judge.aload()  # the model (or the HTTP pool) before timing
     _write_meta(run_dir, args)
     slots = asyncio.Semaphore(args.parallel)  # answers at once; > 1 contaminates per-answer latency (flagged)
     todo = [a for a in answers if a["id"] not in done]
@@ -359,18 +384,18 @@ async def live(args: argparse.Namespace) -> None:
             t0 = time.perf_counter()
             ours = await atomizer.atomize(answer["text"])  # timed only: scoring uses the labelled atoms
             t1 = time.perf_counter()
-            kept = await collect(claim_filter(_stream(ours)))
+            kept = await collect(pipe.claim_filter(_stream(ours)))
             t2 = time.perf_counter()
             answer["source_query"] = ours[0].source_query if ours else None  # from the same atomizer call
             searches_cached = all(a["text"] in hits for a in answer["atoms"])  # an earlier run searched them: not live
-            atoms, verify_s = await verify_answer(verify, answer)
+            atoms, verify_s = await verify_answer(pipe.verify, answer)
             done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind", "source_query")}, "atoms": atoms,
                                   "time": {"atomize": t1 - t0, "filter": t2 - t1, "verify": verify_s,
                                            "total": t1 - t0 + t2 - t1 + verify_s},
                                   "our_atoms": len(ours), "our_kept": len(kept),
                                   "searches_cached": searches_cached or args.parallel > 1}
             queries = [a["text"] for a in answer["atoms"]] + ([answer["source_query"]] if answer["source_query"] else [])
-            await fill_pages(hits, pages, base_resolver, base_crawler, queries)
+            await fill_pages(hits, pages, pipe.resolver, pipe.crawler, queries)
             _save(run_dir / "hits.json.gz", hits)  # synchronous dumps: no other answer mutates the dicts meanwhile
             _save(run_dir / "pages.json.gz", pages)
             _save(run_dir / "results.json.gz", list(done.values()))
@@ -380,13 +405,121 @@ async def live(args: argparse.Namespace) -> None:
                   f"filter {t['filter']:.2f}s verify {t['verify']:.1f}s = {t['total']:.1f}s", flush=True)
 
     await asyncio.gather(*(one(n, a) for n, a in enumerate(todo, 1 + len(answers) - len(todo))))
-
-    await base_crawler.aclose()
-    if base_resolver:
-        await base_resolver.aclose()
-    await judge.aclose()
+    await pipe.aclose()
     report(list(done.values()), args.tag)
-    print(f"judge: {args.judge}{_cost(judge)}")
+    print(f"judge: {args.judge}{_cost(pipe.judge)}")
+
+
+# --- end to end on our own atoms, with synthetic labels ---------------------------------------------------------
+
+STATED = {"stated": Question(type="choice", instructions="Does `text` state `claim`?", criteria={
+    "yes": "the text says this, in the same or other words",
+    "no": "the text does not say this, or says something different",
+})}
+
+CORRUPT = """\
+Each numbered claim is true. For each one, write a version that is FALSE because exactly one checkable detail is \
+changed: a number, a date, a place, a named entity (a person, instrument, dataset, organisation, species, or \
+material), or a direction (increase/decrease, more/less, before/after, higher/lower). Keep every other word, keep it \
+fluent and plausible (a wrong value a careful reader could believe, not an absurd one), never add or remove \
+information, never replace the detail with a vaguer statement, and never touch a citation (author names or years \
+in parentheses): change a detail of what the claim says about its subject. Return each claim's index, the new text, \
+what changed (old -> new), and the kind of detail."""
+
+
+class Corruption(BaseModel):
+    index: int
+    text: str
+    changed: str
+    kind: Literal["number", "date", "place", "entity", "direction", "other"]
+
+
+class Corruptions(BaseModel):
+    items: list[Corruption]
+
+
+async def synth(args: argparse.Namespace) -> None:
+    """Each original answer: our atomizer's first `--n` atoms (label S) plus one corruption of each (label NS), through
+    the product path. Also measured, not scored: the atomizer's error rate (does the text state the atom?) and the
+    claim filter's drops. Results replay like any run."""
+    answers = [a for a in load_answers(args.data, limit=args.limit, sample=args.sample, seed=args.seed) if a["kind"] == "original"]
+    run_dir = OUT / args.tag
+    hits: dict[str, Any] = _load(run_dir / "hits.json.gz", {})
+    pages: dict[str, Any] = _load(run_dir / "pages.json.gz", {})
+    done = {r["id"]: r for r in _load(run_dir / "results.json.gz", [])}
+
+    atomizer = LLMAtomizer(args.atomizer, source_query=True)
+    corruptor = Agent(args.corruptor, output_type=Corruptions, instructions=CORRUPT, model_settings=reasoning_off(args.corruptor),
+                      defer_model_check=True)
+    pipe = Pipeline(args, run_dir, hits, pages)
+    await pipe.judge.aload()
+    _write_meta(run_dir, args)
+    slots = asyncio.Semaphore(args.parallel)
+    todo = [a for a in answers if a["id"] not in done]
+
+    async def one(n: int, answer: dict[str, Any]) -> None:
+        async with slots:
+            ours = (await atomizer.atomize(answer["text"]))[: args.n]
+            if not ours:
+                return
+            source_query = ours[0].source_query
+            # the atomizer's error rate: does the answer actually state each atom? (reported, never used to drop)
+            stated = await pipe.judge.runner.predict(
+                [DecisionRequest(state={"text": answer["text"], "claim": a.text}, questions=STATED) for a in ours]
+            )
+            corrupted = {c.index: c for c in (await corruptor.run(
+                "\n".join(f"[{i}] {a.text}" for i, a in enumerate(ours))
+            )).output.items}
+            atoms = [{"text": a.text, "label": "S", "kind": "original", "stated": round(r.answers["stated"].probabilities.get("yes", 0.0), 3)}
+                     for a, r in zip(ours, stated)]
+            atoms += [{"text": c.text, "label": "NS", "kind": c.kind, "changed": c.changed, "from": ours[i].text}
+                      for i, c in corrupted.items() if 0 <= i < len(ours) and c.text.strip() and c.text.strip() != ours[i].text.strip()]
+            # the claim filter as in the product: a dropped atom is never checked, so it is reported, not scored
+            scores = await asyncio.gather(*(pipe.claim_filter.score(Atom(id=i, text=a["text"], span=(0, 1))) for i, a in enumerate(atoms)))
+            kept, filtered = [], []
+            for a, s in zip(atoms, scores):
+                (kept if s >= pipe.claim_filter.threshold else filtered).append({**a, "claim_score": round(s, 3)})
+            synthetic = {"id": f"{answer['id'].rsplit('-', 1)[0]}-synth", "pair": answer["pair"], "kind": "synthetic",
+                         "text": answer["text"], "source_query": source_query, "atoms": kept}
+            verified, verify_s = await verify_answer(pipe.verify, synthetic)
+            done[synthetic["id"]] = {**{k: synthetic[k] for k in ("id", "pair", "kind", "source_query")}, "atoms": verified,
+                                     "filtered": filtered, "time": {"verify": verify_s}}
+            queries = [a["text"] for a in kept] + ([source_query] if source_query else [])
+            await fill_pages(hits, pages, pipe.resolver, pipe.crawler, queries)
+            _save(run_dir / "hits.json.gz", hits)
+            _save(run_dir / "pages.json.gz", pages)
+            _save(run_dir / "results.json.gz", list(done.values()))
+            caught = sum(a["label"] == "NS" and a["verdict"] != "supported" for a in verified)
+            confirmed = sum(a["label"] == "S" and a["verdict"] == "supported" for a in verified)
+            print(f"[{n:3d}/{len(answers)}] {synthetic['id']}: {len(ours)} atoms + {len(corrupted)} corruptions, {len(filtered)} filtered; "
+                  f"true confirmed {confirmed}/{sum(a['label'] == 'S' for a in verified)}, false caught {caught}/{sum(a['label'] == 'NS' for a in verified)}; "
+                  f"verify {verify_s:.1f}s", flush=True)
+
+    await asyncio.gather(*(one(n, a) for n, a in enumerate(todo, 1 + len(answers) - len(todo))))
+    await pipe.aclose()
+    results = list(done.values())
+    report(results, args.tag)
+    synth_report(results)
+    print(f"judge: {args.judge}{_cost(pipe.judge)}")
+
+
+def synth_report(results: list[dict[str, Any]]) -> None:
+    atoms = [a for r in results for a in r["atoms"]]
+    filtered = [a for r in results for a in r.get("filtered", [])]
+    s_atoms = [a for a in atoms if a["label"] == "S"]
+    print(f"\nour atoms: {len(s_atoms) + sum(a['label'] == 'S' for a in filtered)} from {len(results)} answers; "
+          f"the text states them (P(yes) >= 0.5): {100 * sum(a.get('stated', 1) >= 0.5 for a in s_atoms) / max(1, len(s_atoms)):.0f}%")
+    print(f"claim filter dropped: {sum(a['label'] == 'S' for a in filtered)} true atoms, {sum(a['label'] == 'NS' for a in filtered)} corruptions")
+    kinds = sorted({a["kind"] for a in atoms if a["label"] == "NS"})
+    print(f"{'corruption kind':16s} {'n':>5s} {'caught':>7s} {'refuted':>8s} {'unverified':>11s} {'contested':>10s} {'passed':>7s}")
+    for kind in kinds + ["all"]:
+        ns = [a for a in atoms if a["label"] == "NS" and (kind == "all" or a["kind"] == kind)]
+        if not ns:
+            continue
+        v = {x: sum(a["verdict"] == x for a in ns) for x in ("refuted", "unverified", "contested", "supported")}
+        print(f"{kind:16s} {len(ns):5d} {100 * (len(ns) - v['supported']) / len(ns):6.0f}% {v['refuted']:8d} {v['unverified']:11d} {v['contested']:10d} {v['supported']:7d}")
+    v = {x: sum(a["verdict"] == x for a in s_atoms) for x in ("supported", "refuted", "unverified", "contested")}
+    print(f"{'true atoms':16s} {len(s_atoms):5d} confirmed {100 * v['supported'] / max(1, len(s_atoms)):.0f}%  {v}")
 
 
 async def _stream(items: list[Any]) -> Any:
@@ -440,6 +573,8 @@ def report(results: list[dict[str, Any]], tag: str) -> None:
     print(f"\n== {tag}: {len(results)} answers, {sum(len(r['atoms']) for r in results)} atoms")
     print(f"{'system':28s} {'split':10s} {'n':>4s} {'Acc':>6s} {'Prec':>6s} {'Rec':>6s} {'F1':>6s}")
     for split in ("corrupted", "combined"):
+        if not any(split == "combined" or r["kind"] == split for r in results):
+            continue
         ref = REFERENCE.get((mode, split))
         if ref:
             print(f"{'reference (paper Table 3)':28s} {split:10s} {'':>4s} " + " ".join(f"{x:6.3f}" for x in ref))
@@ -507,9 +642,31 @@ def main() -> None:
     rp.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
     rp.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
     rp.add_argument("--parallel", type=int, default=4, help="answers judged at once (a replay has no network: the judge's runner is the floor)")
-    for p in (lv, rp):
+    sy = sub.add_parser("synth", help="end to end on our own atoms: atomize, corrupt one detail per atom, check both")
+    sy.add_argument("--data", required=True)
+    sy.add_argument("--tag", default="e2e-synth")
+    sy.add_argument("--n", type=int, default=10, help="atoms per answer (and as many corruptions)")
+    sy.add_argument("--limit", type=int, help="first N pairs")
+    sy.add_argument("--sample", type=int, help="N random pairs")
+    sy.add_argument("--seed", type=int, default=0)
+    sy.add_argument("--searcher", default="serper", choices=["searxng", "serper"])
+    sy.add_argument("--searxng", default="http://localhost:8080")
+    sy.add_argument("--search-type", default="general", choices=["general", "science"])
+    sy.add_argument("--atomizer", default="openai:gpt-6-luna")
+    sy.add_argument("--corruptor", default="openai:gpt-6-luna", help="pydantic-ai model that writes the one-detail corruptions")
+    sy.add_argument("--claim-threshold", type=float, default=0.4)
+    sy.add_argument("--no-resolver", action="store_true")
+    sy.add_argument("--no-source-query", action="store_true", default=False, help=argparse.SUPPRESS)  # always on here
+    sy.add_argument("--parallel", type=int, default=3, help="answers at once (the crawler is the limit)")
+    sy.add_argument("--overfetch", type=float, default=1.0)
+    sy.add_argument("--passages", type=int, default=3)
+    sy.add_argument("--strong", type=float, default=0.7)
+    sy.add_argument("--timeout", type=float, default=60.0, help="per-claim deadline; the replay re-judges every page anyway")
+    sy.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"])
+    sy.add_argument("--alpha", type=float, default=0.5)
+    for p in (lv, rp, sy):
         p.add_argument("--passage-words", type=int, default=90, help="words per page window (90 ~ 130 tokens on scientific text)")
-        p.add_argument("--judge", default="laya", choices=["laya", "decision"], help="the judge's runner: local Laya, or Jev on OpenRouter")
+        p.add_argument("--judge", default="decision" if p is sy else "laya", choices=["laya", "decision"], help="the judge's runner: local Laya, or Jev on OpenRouter")
         p.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
         p.add_argument("--pack", default="call", choices=[p.value for p in DecisionPacking],
                        help="--judge decision: what shares a call: one claim's passages (call, the default), every claim in flight (all), nothing (none)")
@@ -522,6 +679,8 @@ def main() -> None:
         asyncio.run(live(args))
     elif args.cmd == "replay":
         asyncio.run(replay(args))
+    elif args.cmd == "synth":
+        asyncio.run(synth(args))
     else:
         report(_load(OUT / args.tag / "results.json.gz", []), args.tag)
 
