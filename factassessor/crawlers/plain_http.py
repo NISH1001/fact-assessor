@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from factassessor.crawlers._base import Crawler
+from factassessor.crawlers.predicates import Fetch
 from factassessor.extract import extract
 from factassessor.utils import cache
 
@@ -26,6 +27,7 @@ class HTTPXCrawler(Crawler):
     """
 
     USER_AGENT = "Mozilla/5.0 (compatible; fact-assessor/0.1; +https://github.com/NISH1001/fact-assessor)"
+    HEAD_BYTES = 16_000  # the start of every response is kept for markers: a bot check's "Just a moment..."
 
     def __init__(
         self,
@@ -47,14 +49,20 @@ class HTTPXCrawler(Crawler):
         self._http: httpx.AsyncClient | None = None
 
     @cache(maxsize=2048, ttl=600)  # a page fetched and extracted once, shared by every claim (half of all hits repeat)
-    async def crawl(self, url: str) -> dict[str, Any] | None:
+    async def fetch(self, url: str) -> Fetch:
+        """One GET, and everything it showed: the page when a 2xx gave text (however short), the status, the type,
+        the word count and the start of the body, for the predicates to decide on. Never raises."""
         try:
             async with self._slots:  # waiting for a slot doesn't count toward the deadline
                 async with asyncio.timeout(self.timeout) as deadline:
-                    page = await self._fetch(url, deadline)
-        except Exception:  # timeouts, DNS/connection errors, bad encodings
-            return None
-        return page if page and len(page["text"].split()) >= self.min_words else None
+                    return await self._fetch(url, deadline)
+        except Exception as exc:  # timeouts, DNS/connection errors, bad encodings
+            return Fetch(url=url, error=type(exc).__name__)
+
+    async def crawl(self, url: str) -> dict[str, Any] | None:
+        """The page, or None: a 2xx with at least `min_words` of text (the crawler's own rule, as before)."""
+        f = await self.fetch(url)
+        return f.page if f.page is not None and f.status is not None and f.status < 400 and f.words >= self.min_words else None
 
     async def start(self) -> None:
         if self._http is None:
@@ -69,15 +77,15 @@ class HTTPXCrawler(Crawler):
             await self._http.aclose()
             self._http = None
 
-    async def _fetch(self, url: str, deadline: asyncio.Timeout) -> dict[str, Any] | None:
+    async def _fetch(self, url: str, deadline: asyncio.Timeout) -> Fetch:
         await self.start()
         async with self._http.stream("GET", url) as response:
-            kind = response.headers.get("content-type", "").lower()
-            if response.status_code >= 400 or not _maybe_readable(kind):
-                return None
+            kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
+            status = response.status_code
+            readable = status < 400 and _maybe_readable(kind)
             maybe_pdf = "pdf" in kind or "octet-stream" in kind
-            limit = self.max_pdf_bytes if maybe_pdf else self.max_bytes
-            if maybe_pdf:  # a paper: several MB, so more time than a page
+            limit = (self.max_pdf_bytes if maybe_pdf else self.max_bytes) if readable else self.HEAD_BYTES
+            if readable and maybe_pdf:  # a paper: several MB, so more time than a page
                 deadline.reschedule(asyncio.get_running_loop().time() + self.pdf_timeout)
             body = bytearray()
             async for piece in response.aiter_bytes():
@@ -85,8 +93,14 @@ class HTTPXCrawler(Crawler):
                 if len(body) >= limit:
                     break
             encoding = response.charset_encoding  # only what the server declared; else the page's own <meta>
+        head = bytes(body[: self.HEAD_BYTES]).decode(encoding or "utf-8", "ignore") if "pdf" not in kind else ""
+        fetched = Fetch(url=url, status=status, content_type=kind, body_head=head)
+        if not readable:
+            return fetched
         got = await asyncio.to_thread(extract, bytes(body[:limit]), kind, encoding)  # a single chunk can overshoot
-        return {"url": url, "title": got[0], "text": got[1]} if got else None
+        if not got:
+            return fetched
+        return fetched.model_copy(update={"page": {"url": url, "title": got[0], "text": got[1]}, "words": len(got[1].split())})
 
 
 def _maybe_readable(content_type: str) -> bool:

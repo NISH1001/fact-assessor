@@ -129,3 +129,51 @@ async def test_pdfs_get_more_time_than_pages_once_the_response_says_pdf():
     pdf = minimal_pdf("A paper that takes a while to download.")
     assert await crawler(slow("application/pdf", pdf), timeout=0.1, pdf_timeout=2).crawl("https://x.org/a.pdf") is not None
     assert await crawler(slow("text/html", PAGE.encode()), timeout=0.1, pdf_timeout=2).crawl("https://x.org/") is None
+
+
+# --- fetch: every fact about the response, for the predicates ----------------------------------------------------
+
+async def test_fetch_records_a_page_with_its_status_type_and_word_count():
+    from factassessor.crawlers import Fetch, HasPage
+
+    f = await crawler(html()).fetch("https://en.wikipedia.org/wiki/Nepal")
+    assert isinstance(f, Fetch) and HasPage()(f)
+    assert (f.status, f.content_type, f.page["title"]) == (200, "text/html", "Nepal earthquake - Wikipedia")
+    assert f.words == len(f.page["text"].split()) and "<h1>" in f.body_head
+
+
+async def test_fetch_keeps_short_text_as_a_page_and_crawl_still_applies_min_words():
+    # a JavaScript shell: 200, html, almost no text. fetch reports it as it is; crawl keeps today's 100-word rule
+    shell = "<html><body><div id='root'></div><p>Loading...</p><script>app()</script></body></html>"
+    c = crawler(html(body=shell), min_words=100)
+    f = await c.fetch("https://spa.org")
+    assert (f.status, f.words, f.page["text"]) == (200, 1, "Loading...")
+    assert await c.crawl("https://spa.org") is None
+
+
+async def test_fetch_records_error_statuses_with_the_start_of_the_body():
+    challenge = "<html><title>Just a moment...</title><body>Checking your browser. cf-chl-bypass</body></html>"
+    f = await crawler(html(body=challenge, status=403)).fetch("https://publisher.org/paper")
+    assert (f.status, f.page, f.content_type) == (403, None, "text/html") and "Just a moment" in f.body_head
+    f = await crawler(html(status=404)).fetch("https://x.org/missing")
+    assert (f.status, f.page) == (404, None)
+
+
+async def test_fetch_records_why_there_was_no_response():
+    def boom(request):
+        raise httpx.ConnectError("refused")
+
+    f = await crawler(boom).fetch("https://dead.org")
+    assert (f.status, f.page, f.error) == (None, None, "ConnectError")
+
+
+async def test_fetch_and_crawl_share_one_cached_request():
+    calls = []
+
+    def counted(request):
+        calls.append(request.url)
+        return httpx.Response(200, content=PAGE.encode(), headers={"content-type": "text/html"})
+
+    c = crawler(counted)
+    await c.fetch("https://a.org"); await c.crawl("https://a.org"); await c.fetch("https://a.org")
+    assert len(calls) == 1
