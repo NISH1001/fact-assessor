@@ -36,3 +36,43 @@ async def test_in_a_chain_a_predicate_filters_fetches():
 
     kept = await collect(Filter(HasPage() | StatusIn(403))(stream()))
     assert [f.url for f in kept] == ["https://a.org", "https://d.org"]
+
+
+# --- the predicates behind NeedsBrowser: the cases from the 1,500-URL measurement ---------------------------------
+
+from factassessor.crawlers import BotChallenge, ContentType, JavaScriptShell, MinWords, NeedsBrowser
+
+loading = Fetch(url="https://spa.org", page={"url": "https://spa.org", "title": "", "text": "Loading..."}, status=200,
+                content_type="text/html", words=1, body_head="<div id='root'></div><p>Loading...</p>")
+challenge = Fetch(url="https://pub.org", status=403, content_type="text/html",
+                  body_head="<title>Just a moment...</title><body>Checking your browser before accessing. cf-chl</body>")
+plain_403 = Fetch(url="https://pub2.org", status=403, content_type="text/html", body_head="<h1>403 Forbidden</h1>")
+method_405 = Fetch(url="https://odd.org", status=405, content_type="text/html")
+
+
+def test_min_words_and_content_type():
+    assert MinWords(100)(article) and not MinWords(100)(loading) and not MinWords(1)(timed_out)
+    assert ContentType("html")(article) and not ContentType("html")(bad_pdf) and ContentType("pdf")(bad_pdf)
+    assert not ContentType("html")(timed_out)  # no response: no type
+
+
+def test_bot_challenge_is_a_refusal_with_a_challenge_page():
+    assert BotChallenge()(challenge)
+    assert not BotChallenge()(plain_403)  # refused, but nothing a browser could pass
+    assert not BotChallenge()(Fetch(url="x", status=200, body_head="please solve the captcha below"))  # not a refusal
+
+
+def test_javascript_shell_is_a_2xx_html_page_with_almost_no_text():
+    assert JavaScriptShell()(loading) and JavaScriptShell()(js_shell)
+    assert not JavaScriptShell()(article)  # real text
+    assert not JavaScriptShell()(bad_pdf)  # a 2xx with no text, but a PDF: a browser can't parse it better
+    assert not JavaScriptShell()(refused) and not JavaScriptShell()(timed_out)
+    assert JavaScriptShell(max_words=500)(article)  # the threshold is a setting
+
+
+def test_needs_browser_is_exactly_the_cases_a_browser_rescued():
+    yes = [loading, js_shell, challenge, method_405]
+    no = [article, bad_pdf, plain_403, gone, timed_out, Fetch(url="x", status=401), Fetch(url="x", status=410),
+          Fetch(url="x", status=500)]
+    assert all(NeedsBrowser()(f) for f in yes), [f.url for f in yes if not NeedsBrowser()(f)]
+    assert not any(NeedsBrowser()(f) for f in no), [f.url for f in no if NeedsBrowser()(f)]

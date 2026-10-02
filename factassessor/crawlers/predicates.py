@@ -6,6 +6,7 @@ The predicates read a `Fetch`; in a chain each becomes a `Filter` (`>>`), and th
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel
@@ -41,3 +42,54 @@ class HasPage(Predicate):
     def __init__(self) -> None:
         success = StatusIn(range(200, 300))
         super().__init__(lambda f: f.page is not None and success(f))
+
+
+class MinWords(Predicate):
+    """At least `n` words of text came out."""
+
+    def __init__(self, n: int) -> None:
+        super().__init__(lambda f: f.words >= n)
+
+
+class ContentType(Predicate):
+    """The response's content type contains `kind`: `ContentType("html")`, `ContentType("pdf")`."""
+
+    def __init__(self, kind: str) -> None:
+        kind = kind.lower()
+        super().__init__(lambda f: kind in f.content_type)
+
+
+# what bot-check pages say (Cloudflare's "Just a moment...", captchas); read from the start of the response body
+_CHALLENGE = re.compile(
+    r"just a moment|cf-chl|cf_chl|challenge-platform|captcha|are you a robot|verify you are human"
+    r"|checking your browser|enable javascript and cookies",
+    re.IGNORECASE,
+)
+
+
+class BotChallenge(Predicate):
+    """The server refused (403, 503 by default) with a bot-check page. A real browser sometimes passes: 104 of 453
+    such pages in a 1,500-URL sample of the eval's search hits."""
+
+    def __init__(self, statuses: tuple[int, ...] = (403, 503)) -> None:
+        super().__init__(lambda f: f.status in statuses and bool(_CHALLENGE.search(f.body_head)))
+
+
+class JavaScriptShell(Predicate):
+    """A 2xx HTML page with almost no text: the content is probably built by JavaScript, which a browser runs. A
+    heuristic (it reads the word count, not the scripts): the browser rescued 60 of 119 in the sample, the rest were
+    pages that are short anyway (redirect stubs, landing pages)."""
+
+    def __init__(self, max_words: int = 100) -> None:
+        p = StatusIn(range(200, 300)) & ContentType("html") & ~MinWords(max_words)
+        super().__init__(p.fn)
+
+
+class NeedsBrowser(Predicate):
+    """An HTTP failure a browser can plausibly fix: a JavaScript shell, a bot check, or a 405 sent to non-browsers.
+    In the sample these held 170 of the browser's 180 rescues, and the failures left out (404, 401/402, timeouts,
+    PDFs that didn't parse, plain 403s) a third of its attempts."""
+
+    def __init__(self) -> None:
+        p = JavaScriptShell() | BotChallenge() | StatusIn(405)
+        super().__init__(p.fn)

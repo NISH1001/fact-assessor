@@ -177,3 +177,72 @@ async def test_fetch_and_crawl_share_one_cached_request():
     c = crawler(counted)
     await c.fetch("https://a.org"); await c.crawl("https://a.org"); await c.fetch("https://a.org")
     assert len(calls) == 1
+
+
+# --- FallbackCrawler(escalate=...): which failures go on to the next crawler --------------------------------------
+
+class Counting(Crawler):
+    """The browser: counts what it is asked to render, returns a page for everything."""
+
+    def __init__(self):
+        self.asked = []
+
+    async def crawl(self, url):
+        self.asked.append(url)
+        return {"url": url, "title": "", "text": "rendered " * 200}
+
+
+def responses(table):
+    return lambda request: table[str(request.url)]()
+
+
+SITES = {
+    "https://good.org/": lambda: httpx.Response(200, content=("<p>" + "word " * 300 + "</p>").encode(), headers={"content-type": "text/html"}),
+    "https://spa.org/": lambda: httpx.Response(200, content=b"<div id='root'></div><p>Loading...</p>", headers={"content-type": "text/html"}),
+    "https://pub.org/": lambda: httpx.Response(403, content=b"<title>Just a moment...</title> cf-chl", headers={"content-type": "text/html"}),
+    "https://gone.org/": lambda: httpx.Response(404, content=b"not found", headers={"content-type": "text/html"}),
+    "https://paid.org/": lambda: httpx.Response(402, content=b"payment required", headers={"content-type": "text/html"}),
+}
+
+
+async def test_escalate_none_sends_every_failure_on_as_before():
+    from factassessor.crawlers import FallbackCrawler
+
+    browser = Counting()
+    f = FallbackCrawler(crawler(responses(SITES), min_words=100), browser)
+    for url in SITES:
+        await f.crawl(url)
+    assert sorted(browser.asked) == sorted(u for u in SITES if u != "https://good.org/")
+
+
+async def test_escalate_sends_only_the_failures_it_names_and_the_successes_never():
+    from factassessor.crawlers import FallbackCrawler, NeedsBrowser
+
+    browser = Counting()
+    f = FallbackCrawler(crawler(responses(SITES), min_words=100), browser, escalate=NeedsBrowser())
+    pages = {url: await f.crawl(url) for url in SITES}
+    assert sorted(browser.asked) == ["https://pub.org/", "https://spa.org/"]  # the shell and the bot check only
+    assert pages["https://good.org/"]["text"].startswith("word") and pages["https://spa.org/"]["text"].startswith("rendered")
+    assert pages["https://gone.org/"] is None and pages["https://paid.org/"] is None  # no tab spent on them
+
+
+async def test_escalate_takes_an_async_predicate_too():
+    from factassessor import Predicate
+    from factassessor.crawlers import FallbackCrawler
+
+    async def only_spa(fetch):
+        return "spa" in fetch.url
+
+    browser = Counting()
+    f = FallbackCrawler(crawler(responses(SITES), min_words=100), browser, escalate=Predicate(only_spa))
+    for url in SITES:
+        await f.crawl(url)
+    assert browser.asked == ["https://spa.org/"]
+
+
+async def test_escalate_needs_a_first_crawler_that_reports_why():
+    import pytest
+    from factassessor.crawlers import FallbackCrawler, NeedsBrowser
+
+    with pytest.raises(TypeError, match="fetch"):
+        FallbackCrawler(Counting(), Counting(), escalate=NeedsBrowser())
