@@ -88,3 +88,14 @@ def test_paywalled_is_a_401_or_402_or_paywall_wording():
     assert not Paywalled()(article) and not Paywalled()(loading) and not Paywalled()(challenge)
     assert not NeedsBrowser()(teaser)  # short, html, 200: shaped like a JavaScript shell, but a browser renders the same paywall
     assert JavaScriptShell()(teaser)   # the shell rule alone would have sent it
+
+
+def test_body_markers_are_plain_phrases_with_defaults_on_the_class_and_overrides_per_instance():
+    from factassessor.crawlers import BodyMatches, Paywalled
+
+    assert BodyMatches("Just a Moment")(challenge) and not BodyMatches("nothing like this")(challenge)
+    assert not BodyMatches("a.c")(Fetch(url="x", body_head="abc"))  # plain text: "." is a dot, not "any character"
+    ddos = Fetch(url="x", status=403, body_head="DDoS protection by a vendor")
+    assert not BotChallenge()(ddos) and BotChallenge(markers=BotChallenge.MARKERS + ("ddos protection",))(ddos)
+    assert BotChallenge(statuses=(429,))(Fetch(url="x", status=429, body_head="captcha"))
+    assert "subscribe to read" in Paywalled.MARKERS and not Paywalled(markers=("only this",))(Fetch(url="x", status=200, body_head="subscribe to read"))

@@ -59,20 +59,29 @@ class ContentType(Predicate):
         super().__init__(lambda f: kind in f.content_type)
 
 
-# what bot-check pages say (Cloudflare's "Just a moment...", captchas); read from the start of the response body
-_CHALLENGE = re.compile(
-    r"just a moment|cf-chl|cf_chl|challenge-platform|captcha|are you a robot|verify you are human"
-    r"|checking your browser|enable javascript and cookies",
-    re.IGNORECASE,
-)
+class BodyMatches(Predicate):
+    """The start of the response body contains any of these phrases (case-insensitive, matched as plain text)."""
+
+    def __init__(self, *phrases: str) -> None:
+        if not phrases:
+            raise ValueError("BodyMatches needs at least one phrase")
+        pattern = re.compile("|".join(re.escape(p) for p in phrases), re.IGNORECASE)
+        super().__init__(lambda f: bool(pattern.search(f.body_head)))
 
 
 class BotChallenge(Predicate):
     """The server refused (403, 503 by default) with a bot-check page. A real browser sometimes passes: 104 of 453
-    such pages in a 1,500-URL sample of the eval's search hits."""
+    such pages in a 1,500-URL sample of the eval's search hits. `markers` replaces the default phrases;
+    `markers=BotChallenge.MARKERS + (...)` extends them."""
 
-    def __init__(self, statuses: tuple[int, ...] = (403, 503)) -> None:
-        super().__init__(lambda f: f.status in statuses and bool(_CHALLENGE.search(f.body_head)))
+    MARKERS = (
+        "just a moment", "cf-chl", "cf_chl", "challenge-platform", "captcha", "are you a robot",
+        "verify you are human", "checking your browser", "enable javascript and cookies",
+    )
+
+    def __init__(self, statuses: tuple[int, ...] = (403, 503), markers: tuple[str, ...] = MARKERS) -> None:
+        p = StatusIn(*statuses) & BodyMatches(*markers)
+        super().__init__(p.fn)
 
 
 class JavaScriptShell(Predicate):
@@ -87,20 +96,19 @@ class JavaScriptShell(Predicate):
 
 
 
-# what paywall pages say; read from the start of the response body
-_PAYWALL = re.compile(
-    r"subscribe to (read|continue)|purchase (this )?article|buy (this )?article|rent (this )?article"
-    r"|institutional access|log ?in to (read|access|view)",
-    re.IGNORECASE,
-)
-
-
 class Paywalled(Predicate):
     """The content needs a login or payment: a 401 or 402, or paywall wording at the start of the page. No crawler
-    gets past it; the resolvers look for a free copy of the paper instead."""
+    gets past it; the resolvers look for a free copy of the paper instead. `markers` replaces the default phrases."""
 
-    def __init__(self) -> None:
-        super().__init__(lambda f: f.status in (401, 402) or bool(_PAYWALL.search(f.body_head)))
+    MARKERS = (
+        "subscribe to read", "subscribe to continue", "purchase this article", "purchase article", "buy this article",
+        "rent this article", "institutional access", "log in to read", "login to read", "log in to access",
+        "log in to view",
+    )
+
+    def __init__(self, statuses: tuple[int, ...] = (401, 402), markers: tuple[str, ...] = MARKERS) -> None:
+        p = StatusIn(*statuses) | BodyMatches(*markers)
+        super().__init__(p.fn)
 
 
 class NeedsBrowser(Predicate):
