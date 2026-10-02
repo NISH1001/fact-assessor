@@ -76,3 +76,15 @@ def test_needs_browser_is_exactly_the_cases_a_browser_rescued():
           Fetch(url="x", status=500)]
     assert all(NeedsBrowser()(f) for f in yes), [f.url for f in yes if not NeedsBrowser()(f)]
     assert not any(NeedsBrowser()(f) for f in no), [f.url for f in no if NeedsBrowser()(f)]
+
+
+def test_paywalled_is_a_401_or_402_or_paywall_wording():
+    from factassessor.crawlers import Paywalled
+
+    teaser = Fetch(url="https://journal.org/a", status=200, content_type="text/html", words=40,
+                   page={"url": "https://journal.org/a", "title": "", "text": "Abstract ..."},
+                   body_head="<p>Abstract ...</p><div>Subscribe to read the full article. Purchase this article</div>")
+    assert Paywalled()(teaser) and Paywalled()(Fetch(url="x", status=402)) and Paywalled()(Fetch(url="x", status=401))
+    assert not Paywalled()(article) and not Paywalled()(loading) and not Paywalled()(challenge)
+    assert not NeedsBrowser()(teaser)  # short, html, 200: shaped like a JavaScript shell, but a browser renders the same paywall
+    assert JavaScriptShell()(teaser)   # the shell rule alone would have sent it

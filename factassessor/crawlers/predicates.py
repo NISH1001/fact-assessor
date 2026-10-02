@@ -85,11 +85,30 @@ class JavaScriptShell(Predicate):
         super().__init__(p.fn)
 
 
-class NeedsBrowser(Predicate):
-    """An HTTP failure a browser can plausibly fix: a JavaScript shell, a bot check, or a 405 sent to non-browsers.
-    In the sample these held 170 of the browser's 180 rescues, and the failures left out (404, 401/402, timeouts,
-    PDFs that didn't parse, plain 403s) a third of its attempts."""
+
+
+# what paywall pages say; read from the start of the response body
+_PAYWALL = re.compile(
+    r"subscribe to (read|continue)|purchase (this )?article|buy (this )?article|rent (this )?article"
+    r"|institutional access|log ?in to (read|access|view)",
+    re.IGNORECASE,
+)
+
+
+class Paywalled(Predicate):
+    """The content needs a login or payment: a 401 or 402, or paywall wording at the start of the page. No crawler
+    gets past it; the resolvers look for a free copy of the paper instead."""
 
     def __init__(self) -> None:
-        p = JavaScriptShell() | BotChallenge() | StatusIn(405)
+        super().__init__(lambda f: f.status in (401, 402) or bool(_PAYWALL.search(f.body_head)))
+
+
+class NeedsBrowser(Predicate):
+    """An HTTP failure a browser can plausibly fix: a JavaScript shell (unless it is a short paywall page, which a
+    browser renders the same), a bot check, or a 405 sent to non-browsers. In a 1,500-URL sample of the eval's hits
+    these held 170 of the browser's 180 rescues, and the failures left out (404, 401/402, timeouts, PDFs that didn't
+    parse, plain 403s) a third of its attempts."""
+
+    def __init__(self) -> None:
+        p = (JavaScriptShell() & ~Paywalled()) | BotChallenge() | StatusIn(405)
         super().__init__(p.fn)
