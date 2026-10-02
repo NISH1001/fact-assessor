@@ -10,8 +10,10 @@
 from factassessor.crawlers._base import Crawler, FallbackCrawler, NoCrawler
 from factassessor.crawlers.browser import Crawl4AICrawler
 from factassessor.crawlers.plain_http import HTTPXCrawler
+from factassessor.crawlers.predicates import Fetch, HasPage, StatusIn
 from factassessor.resolvers import doi_in
 
 __all__ = [
     "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "FallbackCrawler", "NoCrawler", "doi_in",
+    "Fetch", "StatusIn", "HasPage",
 ]
