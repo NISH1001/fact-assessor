@@ -42,7 +42,7 @@ SOURCE_QUERY_RULE = """
 article), written the way its title and keywords would read: the topic, the method, the place or object, the \
 instruments or datasets. No quotation marks and no numbers or results: they rarely appear in a title."""
 
-DEFAULT_MODEL = "openai:gpt-5.6-luna"
+DEFAULT_MODEL = "openai:gpt-6-luna"  # the same atoms as gpt-5.6-luna at half the price (reasoning off)
 
 
 class Claim(BaseModel):

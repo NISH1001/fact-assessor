@@ -26,14 +26,14 @@ from typing import Any
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
 from factassessor.atomizer import LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
-from factassessor.crawlers import Crawl4AICrawler
+from factassessor.crawlers import CascadedCrawler, Crawl4AICrawler, HTTPXCrawler
 from factassessor.judges import DecisionJudge, Judge
 from factassessor.laya import LayaRunner
 from factassessor.pipeline import Cache, Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
 from factassessor.verify import Policy, Verify, WeightedPolicy
-from factassessor.resolvers import Resolver
+from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, Resolver
 
 _END = object()
 _DEFAULT: Any = object()  # "build the default" (so claim_filter=None can mean "no filter")
@@ -49,7 +49,7 @@ class FactAssessor:
         n_atoms: int = 5,
         top_k: int = 5,
         *,
-        overfetch: float = 0.0,  # 1.0: keep twice as many hits as pages; the first top_k readable ones are judged
+        overfetch: float = 1.0,  # keep twice as many hits as pages; the first readable ones are judged (+0.015 F1, same credits)
         device: str = "auto",
         serper_api_key: str | None = None,
         laya_model: str = "english",  # Laya checkpoint: english | multilingual | typed-decisions
@@ -62,14 +62,15 @@ class FactAssessor:
         search_timeout: float = 5.0,
         search_hedge_after: float = 1.2,
         blocked_domains: tuple[str, ...] = BLOCKED_DOMAINS,
-        timeout: float = 15.0,  # per claim; a claim still running then comes back unverified
+        timeout: float = 30.0,  # per claim; a claim still running then is decided on the evidence it has (p90 22s alone)
         atomizer_model: str = DEFAULT_ATOMIZER_MODEL,
-        source_query: bool = False,  # the atomizer also writes one search for the text's source document (papers)
+        source_query: bool = True,  # the atomizer also writes one search for the text's source document (papers: +0.04 F1)
+        passages_per_page: int = 3,  # windows of each page the judge sees (3 vs 1: +0.10 F1 on the paper eval)
         atomizer: Step | None = None,  # an Atomizer, or any chain starting with one (text -> atoms)
         claim_filter: ClaimFilter | Step | None = _DEFAULT,  # None: no filter (e.g. your atomizer chain already filters)
         searcher: Step | None = None,  # a Searcher, or any chain starting with one (query -> hits)
         crawler: Step | None = None,  # a Crawler, or any step url -> page
-        resolver: Resolver | None = None,  # e.g. CompositeResolver(ArxivResolver(), OpenAlexResolver()): papers in full
+        resolver: Resolver | None | Any = _DEFAULT,  # default: arXiv + OpenAlex, papers read from their free copies; None: off
         judge: Judge | None = None,
         policy: Policy | None = None,
     ) -> None:
@@ -82,13 +83,16 @@ class FactAssessor:
         candidates = math.ceil(top_k * (1 + overfetch))  # hits kept per claim; pages read: top_k
         self.searcher = Cache(  # a query is searched once per 10 minutes: a text's claims share their source query
             searcher
-            or SerperSearcher(serper_api_key, num=2 * candidates, timeout=search_timeout, hedge_after=search_hedge_after,
+            or SerperSearcher(serper_api_key, num=max(10, candidates), timeout=search_timeout, hedge_after=search_hedge_after,
                               exclude=blocked_domains)  # excluded in the query, so Google fills the slots with usable hits
-            >> not_blocked(blocked_domains)  # and dropped after search as the guarantee (over-fetched above)
+            >> not_blocked(blocked_domains)  # and dropped after search as the guarantee
             >> Take(candidates)
         )
-        self.crawler = crawler or Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
-        self.judge = judge or DecisionJudge(laya)
+        self.crawler = crawler or CascadedCrawler(  # plain HTTP first, a headless browser for what it can't read
+            HTTPXCrawler(timeout=crawl_timeout), Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
+        )
+        resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver()) if resolver is _DEFAULT else resolver
+        self.judge = judge or DecisionJudge(laya, passages_per_page=passages_per_page)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf)
         claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}
         self.verify = Verify(

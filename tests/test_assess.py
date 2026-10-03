@@ -62,6 +62,7 @@ def offline_assessor():
         claim_filter=Filter(lambda a: "pizza" not in a.text),  # any step works as a claim filter
         searcher=searcher,
         crawler=NoCrawl(),
+        resolver=None,  # a bare step crawler: nothing to read resolved copies with
         judge=FakeJudge(),
     )
     fa.fake_searcher = searcher
@@ -134,14 +135,32 @@ def test_sync_context_manager_closes():
 
 
 def test_default_pipeline_is_built_from_the_familiar_arguments():
-    fa = FactAssessor(n_atoms=8, top_k=3, crawl_timeout=1.5, blocked_domains=("example.com",), claim_threshold=0.6)
+    fa = FactAssessor(n_atoms=8, top_k=3, overfetch=0.0, crawl_timeout=1.5, blocked_domains=("example.com",), claim_threshold=0.6)
     atomizer, claim_filter, take_atoms = fa.atoms.steps
     assert type(atomizer).__name__ == "LLMAtomizer" and type(claim_filter).__name__ == "DecisionClaimFilter"
     assert claim_filter.threshold == 0.6
     serper, block, take_hits = fa.searcher.step.steps  # under the Cache wrapper
-    assert take_atoms.n == 8 and serper.num == 6 and take_hits.n == 3 and fa.crawler.timeout == 1.5
+    assert take_atoms.n == 8 and serper.num == 10 and take_hits.n == 3  # 10 results = 1 Serper credit
+    assert [c.timeout for c in fa.crawler.crawlers] == [1.5, 1.5]
     assert block.pred({"url": "https://facebook.com/x"}) and not block.pred({"url": "https://example.com/x"})
     assert serper.exclude == ("example.com",) and serper.query("q") == "q -site:example.com"  # the same list, in the query
+
+
+def test_defaults_are_the_measured_best_setup():
+    # the configuration behind the eval numbers in issue #1, local judge: Laya (Jev is one argument away)
+    from factassessor import CascadedCrawler, CompositeResolver, Crawl4AICrawler, HTTPXCrawler, LayaRunner
+
+    fa = FactAssessor()
+    assert fa.atomizer.agent.model == "openai:gpt-6-luna" and fa.atomizer.source_query  # the text's source query on
+    serper, _, take_hits = fa.searcher.step.steps
+    assert take_hits.n == 10 and serper.num == 10  # overfetch 1.0: 10 hits per query, still 1 credit
+    assert fa.verify.pages_per_claim == 10  # the first 10 readable pages (own hits + the source query's)
+    assert isinstance(fa.verify.resolver, CompositeResolver)  # papers read in full (arXiv, OpenAlex)
+    assert isinstance(fa.crawler, CascadedCrawler) and fa.crawler.when is None  # every HTTP failure tries the browser, for now
+    assert [type(c) for c in fa.crawler.crawlers] == [HTTPXCrawler, Crawl4AICrawler]
+    assert fa.judge.passages_per_page == 3 and isinstance(fa.judge.runner, LayaRunner)
+    assert fa.verify.timeout == 30
+    assert FactAssessor(resolver=None).verify.resolver is None  # opt out
 
 
 def test_claim_filter_none_means_no_filter():
@@ -160,13 +179,13 @@ def test_default_filter_and_judge_share_one_laya_runner():
 
 
 def test_overfetch_keeps_more_hits_than_pages():
-    # overfetch=1.0: search keeps 100% more hits than pages, the crawl stage keeps the first top_k readable pages
+    # overfetch=1.0 (the default): search keeps 100% more hits than pages, the crawl stage the first readable pages
     from factassessor import FactAssessor
 
-    fa = FactAssessor(top_k=4, overfetch=1.0)
+    fa = FactAssessor(top_k=4, overfetch=1.0, source_query=False)
     _, _, take_hits = fa.searcher.step.steps
     assert take_hits.n == 8 and fa.verify.pages_per_claim == 4
-    fa = FactAssessor(top_k=4)  # default: today's behaviour, every kept hit is read
+    fa = FactAssessor(top_k=4, overfetch=0.0)  # every kept hit is read
     _, _, take_hits = fa.searcher.step.steps
     assert take_hits.n == 4 and fa.verify.pages_per_claim is None
     assert FactAssessor(top_k=4, overfetch=1.0, source_query=True).verify.pages_per_claim == 8  # own + source query's

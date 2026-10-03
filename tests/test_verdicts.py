@@ -202,7 +202,7 @@ def test_fact_assessor_passes_max_concurrent_claims_to_verify():
     from factassessor import FactAssessor
 
     def fa(**kw):
-        return FactAssessor(atomizer=Step(), claim_filter=None, searcher=FakeSearcher(), crawler=FakeCrawler(), **kw)
+        return FactAssessor(atomizer=Step(), claim_filter=None, searcher=FakeSearcher(), crawler=FakeCrawler(), resolver=None, **kw)
 
     assert fa(judge=SlowJudge(concurrency=3)).verify.concurrency == 3
     assert fa(judge=SlowJudge(concurrency=3), max_concurrent_claims=4).verify.concurrency == 4
