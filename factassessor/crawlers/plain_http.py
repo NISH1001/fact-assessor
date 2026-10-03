@@ -52,15 +52,16 @@ class HTTPXCrawler(Crawler):
         self._http: httpx.AsyncClient | None = None
 
     @cache(maxsize=2048, ttl=600)  # a page fetched and extracted once, shared by every claim (half of all hits repeat)
-    async def fetch(self, url: str) -> Fetch:
+    async def crawl(self, url: str) -> Fetch:
         """One GET, and everything it showed: the page when a 2xx gave text (however short), the status, the type,
-        the word count and the start of the body, for the predicates to decide on. Never raises."""
+        the word count and the start of the body; `usable` by `accept`. Never raises."""
         try:
             async with self._slots:  # waiting for a slot doesn't count toward the deadline
                 async with asyncio.timeout(self.timeout) as deadline:
-                    return await self._fetch(url, deadline)
+                    f = await self._fetch(url, deadline)
         except Exception as exc:  # timeouts, DNS/connection errors, bad encodings
-            return Fetch(url=url, error=type(exc).__name__)
+            f = Fetch(url=url, error=type(exc).__name__)
+        return self.mark(f)
 
     async def start(self) -> None:
         if self._http is None:

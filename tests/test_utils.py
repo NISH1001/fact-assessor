@@ -94,7 +94,7 @@ async def test_failures_are_not_kept_and_the_size_is_bounded():
 async def test_crawlers_and_the_openalex_resolver_are_cached():
     from factassessor import Crawl4AICrawler, HTTPXCrawler, OpenAlexResolver
 
-    for cls, name in ((HTTPXCrawler, "fetch"), (Crawl4AICrawler, "fetch"), (OpenAlexResolver, "resolve")):
+    for cls, name in ((HTTPXCrawler, "crawl"), (Crawl4AICrawler, "crawl"), (OpenAlexResolver, "resolve")):
         assert hasattr(getattr(cls, name), "__cached__"), cls.__name__
 
 

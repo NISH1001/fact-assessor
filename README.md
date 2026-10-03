@@ -298,19 +298,20 @@ come for free.
 | `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer()` |
 | `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` on Laya; `DecisionClaimFilter(runner)` for another model |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
-| `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | none; `CompositeResolver(ArxivResolver(), OpenAlexResolver())` for papers |
-| `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `CascadedCrawler` |
+| `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | `CompositeResolver(ArxivResolver(), OpenAlexResolver())`; `None` turns it off |
+| `crawler=` | `Crawler` | `crawl(url) -> Fetch`: the page `{"url", "title", "text"}`, the status, and `usable` (its `accept` rule) | `CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())`; `when=NeedsBrowser()` sends only JavaScript shells and bot checks to the browser |
 | `judge=` | `Judge` (a Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()` on Laya; `DecisionJudge(LLMRunner())`, `DecisionJudge(SystemOneRunner())`, `DecisionJudge(GlinerRunner())` for other models. Takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
 | `policy=` | `Policy` (a Protocol) | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 
 A new crawler, for example, is just:
 
 ```python
-from factassessor import Crawler
+from factassessor import Crawler, Fetch
 
 class MyCrawler(Crawler):
     async def crawl(self, url):
-        ...  # fetch; return {"url", "title", "text"} or None on failure
+        ...  # fetch; never raise
+        return self.mark(Fetch(url=url, status=200, page={"url": url, "title": title, "text": text}))
 
 fa = FactAssessor(crawler=MyCrawler())
 ```

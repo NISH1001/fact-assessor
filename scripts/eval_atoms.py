@@ -46,7 +46,7 @@ from pydantic_ai import Agent
 
 from factassessor import (
     ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, DecisionRequest,
-    CascadedCrawler, HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, Question, SearxngSearcher,
+    CascadedCrawler, Fetch, HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, Question, SearxngSearcher,
     SerperSearcher, Step, SystemOneRunner, Take, Verify, WeightedPolicy, collect, not_blocked, once,
 )
 from factassessor._llm import reasoning_off
@@ -193,7 +193,7 @@ class TimedCrawler(Crawler):
     def __init__(self, inner: Crawler) -> None:
         self.inner = inner
 
-    async def crawl(self, url: str) -> dict[str, Any] | None:
+    async def crawl(self, url: str) -> Fetch:
         start = time.perf_counter()
         try:
             return await self.inner.crawl(url)
@@ -240,8 +240,8 @@ class CachedCrawler(Crawler):
     def __init__(self, pages: dict[str, Any]) -> None:
         self.pages = pages
 
-    async def crawl(self, url: str) -> dict[str, Any] | None:
-        return self.pages.get(url)
+    async def crawl(self, url: str) -> Fetch:
+        return Fetch(url=url, crawler="cache", page=self.pages.get(url))
 
 
 # --- runs ---------------------------------------------------------------------------------------------------------

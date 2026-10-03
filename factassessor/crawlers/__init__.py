@@ -1,10 +1,11 @@
-"""Crawlers: url -> page `{"url", "title", "text"}` (clean plain text). A step; failed pages are dropped.
+"""Crawlers: url -> `Fetch` (the page `{"url", "title", "text"}`, clean plain text, and the facts about the
+response). A step: usable pages come out, the rest are dropped.
 
-`Crawler` is the role: implement `crawl(url)` (return None on failure).
+`Crawler` is the role: implement `crawl(url) -> Fetch` (never raise; end with `self.mark(f)`, which applies `accept`).
 - `Crawl4AICrawler`: a headless browser; renders JavaScript; ~0.6-1.6s per page.
 - `HTTPXCrawler`: a plain HTTP fetch + `extract()` (HTML or PDF); no JavaScript; much faster for ordinary pages.
   (Papers in full from their free copies: give the pipeline a resolver, `FactAssessor(resolver=...)`.)
-- `CascadedCrawler(fast, thorough)`: the first crawler that gets text wins.
+- `CascadedCrawler(fast, thorough, when=...)`: the first usable page wins; `when` says which failures go on.
 """
 
 from factassessor.crawlers._base import Crawler, CascadedCrawler, NoCrawler

@@ -161,9 +161,9 @@ async def read_first(crawler: Any, url: str, where: list[str], min_copy_words: i
     """Crawl `where` (a hit's locations, `resolvers.locations`) in order; the first readable one, as `url`'s page.
     A location other than `url` is a copy claiming to be the full document, so it needs `min_copy_words`."""
     for location in where:
-        page = await crawler.crawl(location)
-        if page and (location == url or len(page["text"].split()) >= min_copy_words):
-            return {**page, "url": url}
+        f = await crawler.crawl(location)
+        if f and (location == url or len(f.page["text"].split()) >= min_copy_words):
+            return {**f.page, "url": url}
     return None
 
 

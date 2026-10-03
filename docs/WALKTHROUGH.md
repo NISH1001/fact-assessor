@@ -149,11 +149,14 @@ hits = await searcher.search("Nepal's earthquake occurred in 2017.")
 
 ### 3d. `Crawl4AICrawler`: url → page
 
-A headless browser fetches a page and returns clean plain text (no links, citations, or menus); a failed or slow page
-is `None`:
+A headless browser fetches a page and returns clean plain text (no links, citations, or menus), as a `Fetch`: the
+page, the status, and whether the crawler's `accept` rule passed. `if f:` means a page you can use; as a step, only
+those come out:
 
 ```python
-page = await Crawl4AICrawler(timeout=2.5).crawl(hits[0]["url"])   # {"url", "title", "text"} or None
+f = await Crawl4AICrawler(timeout=2.5).crawl(hits[0]["url"])
+f.page       # {"url", "title", "text"}, kept even when the rule turned it down
+f.usable     # what accept said (default for the browser: a 2xx with text)
 ```
 
 The same 5 search hits through each crawler:
@@ -278,7 +281,7 @@ For the Nepal text: 2 sentences, 4 claims, 17 passages, 11 sources; 10 supports 
 - **A role subclass**: implement its one method; streaming, concurrency, and chaining come from the base.
 
 ```python
-from factassessor import ClaimFilter, Crawler
+from factassessor import ClaimFilter, Crawler, Fetch
 
 class LengthFilter(ClaimFilter):
     async def score(self, atom):
@@ -286,7 +289,8 @@ class LengthFilter(ClaimFilter):
 
 class MyCrawler(Crawler):
     async def crawl(self, url):
-        ...                                               # return {"url", "title", "text"}, or None on failure
+        ...                                               # fetch; never raise
+        return self.mark(Fetch(url=url, status=200, page={"url": url, "title": title, "text": text}))
 
 FactAssessor(claim_filter=LengthFilter(), crawler=MyCrawler())
 ```

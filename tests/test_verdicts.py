@@ -239,6 +239,7 @@ async def test_snippets_still_decide_when_every_crawl_returns_an_error_page():
 # --- resolve -> read: resolvers before the crawler ----------------------------------------------------------------
 
 from factassessor import Crawler  # noqa: E402
+from factassessor.crawlers import Fetch  # noqa: E402
 
 PAPER_TEXT = " ".join(["word"] * 400)  # a real paper's worth of words
 STUB_TEXT = " ".join(["bot"] * 180)  # a bot-check page: long enough to look real, too short for a paper
@@ -257,7 +258,7 @@ class Copies:
 
 
 class PageCrawler(Crawler):
-    """crawl(url) -> page from `pages` ({url: text}); None for others; urls in `hang` never answer."""
+    """crawl(url) -> a Fetch with the page from `pages` ({url: text}), without one for others; urls in `hang` never answer."""
 
     def __init__(self, pages, hang=()):
         self.pages, self.hang, self.crawled = pages, set(hang), []
@@ -267,7 +268,7 @@ class PageCrawler(Crawler):
         if url in self.hang:
             await asyncio.sleep(5)
         text = self.pages.get(url)
-        return {"url": url, "title": "t", "text": text} if text else None
+        return Fetch(url=url, status=200 if text else 404, page={"url": url, "title": "t", "text": text} if text else None)
 
 
 class RecordingJudge(FakeJudge):

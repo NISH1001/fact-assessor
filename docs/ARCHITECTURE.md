@@ -80,7 +80,7 @@ lifecycle) around your one method; no abstract base classes anywhere.
 | `ClaimFilter` | `score(atoms)` -> P(factual claim) | `DecisionClaimFilter` (one decision per atom, on any runner) | `claim_filters/` |
 | `Searcher` | `search(query) -> list[hit]` | `SerperSearcher` (web or Google Scholar), `SearxngSearcher` (self-hosted; general or science engines), `DuckDuckGoSearcher`, `DocumentSearcher` (given documents: in-domain checks) | `search/` |
 | `Resolver` (Protocol) | `resolve(url) -> list[str]` | `ArxivResolver`, `OpenAlexResolver`, `CompositeResolver` | `resolvers.py` |
-| `Crawler` | `crawl(url) -> page \| None` | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `CascadedCrawler` (waterfall), `NoCrawler` | `crawlers/` |
+| `Crawler` | `crawl(url) -> Fetch` (page, status, `usable` by its `accept`) | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `CascadedCrawler` (waterfall), `NoCrawler` | `crawlers/` |
 | `Judge` (Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge` (one decision per (claim, passage), on any runner) | `judges/` |
 | `Ranker` (Protocol) | `top(claim, chunks, k) -> list[str]` | `BM25Ranker` (default), `EmbeddingRanker` (model2vec), `HybridRanker` | `rankers.py` |
 | `Policy` (Protocol) | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` | `verify.py` |
@@ -272,8 +272,9 @@ fa = FactAssessor(
 
 - **A source of free copies**: a class with `async resolve(url) -> list[str]` (return `[]` for URLs that aren't
   yours, never raise), added to `CompositeResolver`. Give it `aload` / `aclose` if it holds a client.
-- **A way to fetch**: subclass `Crawler`, implement `crawl(url)`, use `extract()` for the bytes, return None on
-  failure. Combine with `CascadedCrawler`.
+- **A way to fetch**: subclass `Crawler`, implement `crawl(url) -> Fetch` (never raise; a failure is a `Fetch`
+  without a page), use `extract()` for the bytes, and return `self.mark(f)`: it records the crawler's name and sets
+  `usable` from its `accept` rule (no rule: every page fetched is usable). Combine with `CascadedCrawler(when=...)`.
 - **A search backend**: subclass `Searcher`, implement `search(query)`; chain `>> not_blocked() >> Take(k)`.
 - **A passage ranker**: a class with `top(claim, chunks, k)` (best first; `k=None` for all, ranked), passed as
   `ranker=` to any judge. `HybridRanker(alpha=)` already mixes BM25 with embeddings.

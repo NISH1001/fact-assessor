@@ -4,6 +4,7 @@ from factassessor import (
     Atomizer, ClaimFilter, Crawler, DecisionJudge, DecisionRunner, Evidence, Judge, Policy, Ranker, Resolver, Searcher,
     Step, WeightedPolicy, collect, once,
 )
+from factassessor.crawlers import Fetch
 
 
 class BareJudge:
@@ -39,7 +40,7 @@ async def test_step_roles_are_base_classes_that_turn_one_method_into_a_step():
 
     class Nothing(Crawler):
         async def crawl(self, url):
-            return None
+            return Fetch(url="")  # no page
 
     atoms = await collect((Sentences() >> Step.__rshift__(TwoHits(), Nothing()))(once("A. B")))  # chains with >>
     assert atoms == []  # two atoms -> four hits -> nothing crawled

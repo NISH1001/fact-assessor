@@ -317,8 +317,9 @@ def _(mo):
     mo.md("""
     ### 3d. `Crawl4AICrawler`: url → page
 
-    Fetches a page with a headless browser and returns clean plain text (no links, citations, or menus). A failed or
-    slow page comes back `None`; as a step, it's simply dropped.
+    Fetches a page with a headless browser and returns clean plain text (no links, citations, or menus), as a `Fetch`:
+    the page, the status, and whether the crawler's `accept` rule passed. `if f:` means a page you can use; as a step,
+    only those come out.
     """)
     return
 
@@ -328,7 +329,7 @@ async def _(mo, raw_hits):
     from factassessor import Crawl4AICrawler
 
     crawler = Crawl4AICrawler(timeout=2.5)
-    page = await crawler.crawl(raw_hits[0]["url"])
+    page = (_f := await crawler.crawl(raw_hits[0]["url"])) and _f.page
     mo.md(f"**{page['title']}** ({len(page['text']):,} chars)\n\n> {page['text'][:400]}…" if page else "*(crawl failed)*")
     return crawler, page
 
@@ -357,7 +358,7 @@ async def _(asyncio, crawler, mo, raw_hits, time):
     ):
         _t = time.perf_counter()
         _pages = await asyncio.gather(*(_crawler.crawl(u) for u in _urls))
-        _rows.append({"crawler": _name, "pages read": f"{sum(p is not None for p in _pages)}/{len(_urls)}", "all at once": f"{time.perf_counter() - _t:.1f}s"})
+        _rows.append({"crawler": _name, "pages read": f"{sum(map(bool, _pages))}/{len(_urls)}", "all at once": f"{time.perf_counter() - _t:.1f}s"})
     await _fast.stop()
     mo.ui.table(_rows, selection=None)
     return

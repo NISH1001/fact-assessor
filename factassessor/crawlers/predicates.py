@@ -15,15 +15,21 @@ from factassessor.pipeline import Predicate
 
 
 class Fetch(BaseModel):
-    """One crawl of one URL: the page, or the facts about why there isn't one."""
+    """One crawl of one URL: the page as fetched, the facts about the response, and whether the crawler's `accept`
+    rule passed (`usable`). True (`if f:`) when there is a page and it is usable."""
 
     url: str
+    crawler: str = ""  # the crawler that fetched it: "HTTPXCrawler", "Crawl4AICrawler", ...
     page: dict[str, Any] | None = None  # {"url", "title", "text"}: the extracted text, when any came out
     status: int | None = None  # the HTTP status; None when no response came back (timeout, DNS, refused connection)
     content_type: str = ""  # "text/html", "application/pdf", ... without parameters
     words: int = 0  # words of extracted text (0 when nothing came out)
     body_head: str = ""  # the start of the response, decoded, for markers (bot checks)
     error: str = ""  # the exception's name when there was no response
+    usable: bool = True  # what the crawler's `accept` said; a fetched page is usable unless a rule says otherwise
+
+    def __bool__(self) -> bool:
+        return self.page is not None and self.usable
 
 
 class StatusIn(Predicate):

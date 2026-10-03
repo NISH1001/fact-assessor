@@ -361,7 +361,7 @@ def _(mo):
     **6. Write your own component.** Subclass the role and implement its one method:
 
     ```python
-    from factassessor import ClaimFilter, Crawler
+    from factassessor import ClaimFilter, Crawler, Fetch
 
     class LengthFilter(ClaimFilter):
         async def score(self, atom):
@@ -369,7 +369,8 @@ def _(mo):
 
     class MyCrawler(Crawler):
         async def crawl(self, url):
-            ...   # return {"url", "title", "text"}, or None if it failed
+            ...   # fetch; never raise
+            return self.mark(Fetch(url=url, status=200, page={"url": url, "title": title, "text": text}))
 
     FactAssessor(claim_filter=LengthFilter(), crawler=MyCrawler())
     ```

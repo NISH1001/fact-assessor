@@ -57,7 +57,7 @@ import httpx
 from factassessor import Atom, Crawl4AICrawler, DecisionClaimFilter, DecisionJudge, FactAssessor, LayaRunner, LLMRunner, SerperSearcher
 from factassessor._llm import reasoning_off
 from factassessor.atomizer import Atomizer, LLMAtomizer
-from factassessor.crawlers import Crawler, HTTPXCrawler
+from factassessor.crawlers import Crawler, Fetch, HTTPXCrawler
 from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, locations
 from factassessor.verify import read_first
 from factassessor.pipeline import Take
@@ -245,7 +245,7 @@ async def record(searcher_name: str, searxng_url: str, llm_model: str = LLM_MODE
         atoms = await atomizer.atomize(ex["text"])
         hits = await asyncio.gather(*(search(a.text) for a in atoms))
         urls = list({h["url"] for hs in hits for h in hs} - evidence["pages"].keys())
-        pages = await asyncio.gather(*(crawler.crawl(u) for u in urls))
+        pages = [f.page if f else None for f in await asyncio.gather(*(crawler.crawl(u) for u in urls))]
         evidence["pages"].update(zip(urls, pages))
         evidence["texts"][ex["id"]] = {"atoms": [{"text": a.text, "span": list(a.span)} for a in atoms],
                                        "hits": {a.text: hs for a, hs in zip(atoms, hits)}}
@@ -293,15 +293,19 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_words: int = 500) -> Non
         tried = []
         text, via = "", ""
         if link.startswith("http"):
-            for name, get in (("download", download), ("browser", lambda u: browser.crawl(u))):
+            async def render(url: str) -> str:
+                f = await browser.crawl(url)
+                return f.page["text"] if f else ""
+
+            for name, get in (("download", download), ("browser", render)):
                 got = await get(link)
-                got = got["text"] if isinstance(got, dict) else (got or "")
                 tried.append(f"{name}:{len(got)}")
                 if len(got.split()) >= min_words:
                     text, via = got, f"{name} {link}"
                     break
         if not text and doi:
-            page = await open_access.crawl(f"https://doi.org/{doi.group(0).rstrip('.')}")
+            f = await open_access.crawl(f"https://doi.org/{doi.group(0).rstrip('.')}")
+            page = f.page if f else None
             tried.append(f"open access:{len(page['text']) if page else 0}")
             if page:
                 text, via = page["text"], f"open access {doi.group(0)}"
@@ -327,7 +331,7 @@ async def recrawl_open_access() -> None:
     todo = [u for u, page in evidence["pages"].items() if page is None]  # the crawler skips what it can't read
     crawler = paper_crawler()
     start = time.perf_counter()
-    pages = await asyncio.gather(*(crawler.crawl(u) for u in todo))
+    pages = [f.page if f else None for f in await asyncio.gather(*(crawler.crawl(u) for u in todo))]
     await crawler.stop()
     recovered = {u: p for u, p in zip(todo, pages) if p}
     evidence["pages"].update(recovered)
@@ -413,7 +417,7 @@ async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str
         qs = await asyncio.gather(*(query_for(c) for c in claims))
         hits = [await search(q) for q in qs]  # one at a time: identical queries in a text hit the cache
         urls = list({h["url"] for hs in hits for h in hs} - evidence["pages"].keys())
-        pages = await asyncio.gather(*(crawler.crawl(u) for u in urls))
+        pages = [f.page if f else None for f in await asyncio.gather(*(crawler.crawl(u) for u in urls))]
         evidence["pages"].update(zip(urls, pages))
         evidence["texts"][tid] = {"atoms": rec["atoms"], "hits": dict(zip(claims, hits)), "queries": dict(zip(claims, qs))}
         save_evidence(evidence)
@@ -445,8 +449,8 @@ class RecordedCrawler(Crawler):
     def __init__(self, evidence: dict[str, Any]) -> None:
         self.pages = evidence["pages"]
 
-    async def crawl(self, url: str) -> dict[str, Any] | None:
-        return self.pages.get(url)
+    async def crawl(self, url: str) -> Fetch:
+        return Fetch(url=url, crawler="recorded", page=self.pages.get(url))
 
 
 # --- runs ------------------------------------------------------------------------------------------------------
@@ -460,8 +464,9 @@ class PaperReader(Crawler):
         self.http = HTTPXCrawler(**http)
         self.min_words = min_words
 
-    async def crawl(self, url: str) -> dict[str, Any] | None:
-        return await read_first(self.http, url, locations(url, await self.resolver.resolve(url)), self.min_words)
+    async def crawl(self, url: str) -> Fetch:
+        page = await read_first(self.http, url, locations(url, await self.resolver.resolve(url)), self.min_words)
+        return Fetch(url=url, crawler=type(self).__name__, page=page)
 
     async def stop(self) -> None:
         await self.resolver.aclose()

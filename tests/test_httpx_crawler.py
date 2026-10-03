@@ -26,7 +26,7 @@ def html(body=PAGE, status=200, ctype="text/html; charset=utf-8"):
 
 
 async def test_extracts_title_and_readable_text_without_markup_or_chrome():
-    page = await crawler(html()).crawl("https://en.wikipedia.org/wiki/April_2015_Nepal_earthquake")
+    page = (await crawler(html()).crawl("https://en.wikipedia.org/wiki/April_2015_Nepal_earthquake")).page
     assert page["title"] == "Nepal earthquake - Wikipedia"
     assert "magnitude of 7.8" in page["text"] and "Nearly 9,000 people died." in page["text"]
     for junk in ("var x", "color: red", "Home | About", "Privacy policy", "<p>"):
@@ -40,22 +40,22 @@ def raw(body: bytes, ctype: str):
 async def test_pdfs_are_read_too_by_content_type_or_their_bytes():
     pdf = minimal_pdf("Secondary forests gained 122 Mg per ha in 20 years.")
     for ctype in ("application/pdf", "application/octet-stream", ""):  # repositories often mislabel PDFs
-        page = await crawler(raw(pdf, ctype)).crawl("https://repositorio.example/directbitstream/9813d075")
+        page = (await crawler(raw(pdf, ctype)).crawl("https://repositorio.example/directbitstream/9813d075")).page
         assert page == {"url": "https://repositorio.example/directbitstream/9813d075", "title": "",
                         "text": "Secondary forests gained 122 Mg per ha in 20 years."}
 
 
 async def test_pdfs_get_a_larger_size_limit_than_pages():
     pdf = minimal_pdf("A long paper.")
-    assert await crawler(raw(pdf, "application/pdf"), max_bytes=100).crawl("https://x.org/a.pdf") is not None
-    assert await crawler(raw(pdf, "application/pdf"), max_pdf_bytes=100).crawl("https://x.org/a.pdf") is None  # cut: unreadable
+    assert await crawler(raw(pdf, "application/pdf"), max_bytes=100).crawl("https://x.org/a.pdf")
+    assert not await crawler(raw(pdf, "application/pdf"), max_pdf_bytes=100).crawl("https://x.org/a.pdf")  # cut: unreadable
 
 
 async def test_non_html_error_and_empty_responses_are_none():
-    assert await crawler(raw(b"\x89PNG....", "image/png")).crawl("https://x.org/a.png") is None
-    assert await crawler(raw(b'{"a": 1}', "application/json")).crawl("https://x.org/api") is None
-    assert await crawler(html(status=404)).crawl("https://x.org/missing") is None
-    assert await crawler(html(body="<html><body><script>app()</script></body></html>")).crawl("https://spa.org") is None
+    assert not await crawler(raw(b"\x89PNG....", "image/png")).crawl("https://x.org/a.png")
+    assert not await crawler(raw(b'{"a": 1}', "application/json")).crawl("https://x.org/api")
+    assert not await crawler(html(status=404)).crawl("https://x.org/missing")
+    assert not await crawler(html(body="<html><body><script>app()</script></body></html>")).crawl("https://spa.org")
 
 
 async def test_slow_pages_hit_the_total_deadline():
@@ -64,7 +64,7 @@ async def test_slow_pages_hit_the_total_deadline():
         return httpx.Response(200, content=PAGE.encode(), headers={"content-type": "text/html"})
 
     start = asyncio.get_running_loop().time()
-    assert await crawler(slow, timeout=0.1).crawl("https://slow.org") is None
+    assert not await crawler(slow, timeout=0.1).crawl("https://slow.org")
     assert asyncio.get_running_loop().time() - start < 1
 
 
@@ -72,12 +72,12 @@ async def test_network_errors_are_none_not_exceptions():
     def boom(request):
         raise httpx.ConnectError("dns failed")
 
-    assert await crawler(boom).crawl("https://nope.invalid") is None
+    assert not await crawler(boom).crawl("https://nope.invalid")
 
 
 async def test_huge_pages_are_cut_off():
     big = "<html><body>" + "<p>word</p>" * 200_000 + "</body></html>"
-    page = await crawler(html(body=big), max_bytes=10_000).crawl("https://big.org")
+    page = (await crawler(html(body=big), max_bytes=10_000).crawl("https://big.org")).page
     assert page is not None and len(page["text"]) < 20_000
 
 
@@ -93,28 +93,30 @@ async def test_is_a_crawler_step():
 
 
 async def test_fallback_uses_the_next_crawler_only_when_the_first_fails():
+    from factassessor.crawlers import Fetch
+
     class Fake(Crawler):
         def __init__(self, pages):
             self.pages, self.calls = pages, []
 
         async def crawl(self, url):
             self.calls.append(url)
-            return self.pages.get(url)
+            text = self.pages.get(url)
+            return Fetch(url=url, status=200 if text else 404, page={"url": url, "title": "", "text": text} if text else None)
 
-    fast = Fake({"https://static.org": {"url": "https://static.org", "title": "", "text": "fast"}})
-    browser = Fake({"https://static.org": {"url": "https://static.org", "title": "", "text": "slow"},
-                    "https://spa.org": {"url": "https://spa.org", "title": "", "text": "rendered"}})
+    fast = Fake({"https://static.org": "fast"})
+    browser = Fake({"https://static.org": "slow", "https://spa.org": "rendered"})
     both = CascadedCrawler(fast, browser)
-    assert (await both.crawl("https://static.org"))["text"] == "fast"
-    assert (await both.crawl("https://spa.org"))["text"] == "rendered"
-    assert await both.crawl("https://dead.org") is None
+    assert (await both.crawl("https://static.org")).page["text"] == "fast"
+    assert (await both.crawl("https://spa.org")).page["text"] == "rendered"
+    assert not await both.crawl("https://dead.org")
     assert browser.calls == ["https://spa.org", "https://dead.org"]  # only for what the fast path couldn't read
 
 
 async def test_short_pages_are_not_documents():
     # login walls, "Loading..." shells, browser checks: on 2,748 crawled pages, those under 100 words were junk
     shell = "<html><body><p>Checking your browser before accessing pubmed.ncbi.nlm.nih.gov...</p></body></html>"
-    assert await crawler(html(body=shell), min_words=100).crawl("https://pubmed.ncbi.nlm.nih.gov/1/") is None
+    assert not await crawler(html(body=shell), min_words=100).crawl("https://pubmed.ncbi.nlm.nih.gov/1/")
     assert HTTPXCrawler().min_words == 100
 
 
@@ -127,47 +129,46 @@ async def test_pdfs_get_more_time_than_pages_once_the_response_says_pdf():
         return lambda request: httpx.Response(200, headers={"content-type": ctype}, content=slow_body(body))
 
     pdf = minimal_pdf("A paper that takes a while to download.")
-    assert await crawler(slow("application/pdf", pdf), timeout=0.1, pdf_timeout=2).crawl("https://x.org/a.pdf") is not None
-    assert await crawler(slow("text/html", PAGE.encode()), timeout=0.1, pdf_timeout=2).crawl("https://x.org/") is None
+    assert await crawler(slow("application/pdf", pdf), timeout=0.1, pdf_timeout=2).crawl("https://x.org/a.pdf")
+    assert not await crawler(slow("text/html", PAGE.encode()), timeout=0.1, pdf_timeout=2).crawl("https://x.org/")
 
 
-# --- fetch: every fact about the response, for the predicates ----------------------------------------------------
+# --- crawl: the Fetch, every fact about the response, and whether accept passed ----------------------------------
 
-async def test_fetch_records_a_page_with_its_status_type_and_word_count():
-    from factassessor.crawlers import Fetch, HasPage
+async def test_crawl_records_a_page_with_its_status_type_word_count_and_crawler():
+    from factassessor.crawlers import Fetch
 
-    f = await crawler(html()).fetch("https://en.wikipedia.org/wiki/Nepal")
-    assert isinstance(f, Fetch) and HasPage()(f)
+    f = await crawler(html()).crawl("https://en.wikipedia.org/wiki/Nepal")
+    assert isinstance(f, Fetch) and f and f.usable and f.crawler == "HTTPXCrawler"
     assert (f.status, f.content_type, f.page["title"]) == (200, "text/html", "Nepal earthquake - Wikipedia")
     assert f.words == len(f.page["text"].split()) and "<h1>" in f.body_head
 
 
-async def test_fetch_keeps_short_text_as_a_page_and_crawl_still_applies_min_words():
-    # a JavaScript shell: 200, html, almost no text. fetch reports it as it is; crawl keeps today's 100-word rule
+async def test_a_page_accept_turns_down_is_kept_and_marked_unusable():
+    # a JavaScript shell: 200, html, almost no text. The page stays as fetched; the 100-word rule marks it unusable
     shell = "<html><body><div id='root'></div><p>Loading...</p><script>app()</script></body></html>"
-    c = crawler(html(body=shell), min_words=100)
-    f = await c.fetch("https://spa.org")
-    assert (f.status, f.words, f.page["text"]) == (200, 1, "Loading...")
-    assert await c.crawl("https://spa.org") is None
+    f = await crawler(html(body=shell), min_words=100).crawl("https://spa.org")
+    assert (f.status, f.words, f.page["text"], f.usable) == (200, 1, "Loading...", False)
+    assert not f  # a page, but not a usable one
 
 
-async def test_fetch_records_error_statuses_with_the_start_of_the_body():
+async def test_crawl_records_error_statuses_with_the_start_of_the_body():
     challenge = "<html><title>Just a moment...</title><body>Checking your browser. cf-chl-bypass</body></html>"
-    f = await crawler(html(body=challenge, status=403)).fetch("https://publisher.org/paper")
+    f = await crawler(html(body=challenge, status=403)).crawl("https://publisher.org/paper")
     assert (f.status, f.page, f.content_type) == (403, None, "text/html") and "Just a moment" in f.body_head
-    f = await crawler(html(status=404)).fetch("https://x.org/missing")
-    assert (f.status, f.page) == (404, None)
+    f = await crawler(html(status=404)).crawl("https://x.org/missing")
+    assert (f.status, f.page, bool(f)) == (404, None, False)
 
 
-async def test_fetch_records_why_there_was_no_response():
+async def test_crawl_records_why_there_was_no_response():
     def boom(request):
         raise httpx.ConnectError("refused")
 
-    f = await crawler(boom).fetch("https://dead.org")
-    assert (f.status, f.page, f.error) == (None, None, "ConnectError")
+    f = await crawler(boom).crawl("https://dead.org")
+    assert (f.status, f.page, f.error, f.crawler) == (None, None, "ConnectError", "HTTPXCrawler")
 
 
-async def test_fetch_and_crawl_share_one_cached_request():
+async def test_a_url_is_fetched_once_and_then_cached():
     calls = []
 
     def counted(request):
@@ -175,7 +176,7 @@ async def test_fetch_and_crawl_share_one_cached_request():
         return httpx.Response(200, content=PAGE.encode(), headers={"content-type": "text/html"})
 
     c = crawler(counted)
-    await c.fetch("https://a.org"); await c.crawl("https://a.org"); await c.fetch("https://a.org")
+    await c.crawl("https://a.org"); await c.crawl("https://a.org")
     assert len(calls) == 1
 
 
@@ -185,11 +186,14 @@ class Counting(Crawler):
     """The browser: counts what it is asked to render, returns a page for everything."""
 
     def __init__(self):
+        super().__init__()
         self.asked = []
 
     async def crawl(self, url):
+        from factassessor.crawlers import Fetch
+
         self.asked.append(url)
-        return {"url": url, "title": "", "text": "rendered " * 200}
+        return self.mark(Fetch(url=url, status=200, words=200, page={"url": url, "title": "", "text": "rendered " * 200}))
 
 
 def responses(table):
@@ -222,8 +226,8 @@ async def test_when_sends_only_the_failures_it_names_and_the_successes_never():
     f = CascadedCrawler(crawler(responses(SITES), min_words=100), browser, when=NeedsBrowser())
     pages = {url: await f.crawl(url) for url in SITES}
     assert sorted(browser.asked) == ["https://pub.org/", "https://spa.org/"]  # the shell and the bot check only
-    assert pages["https://good.org/"]["text"].startswith("word") and pages["https://spa.org/"]["text"].startswith("rendered")
-    assert pages["https://gone.org/"] is None and pages["https://paid.org/"] is None  # no tab spent on them
+    assert pages["https://good.org/"].page["text"].startswith("word") and pages["https://spa.org/"].page["text"].startswith("rendered")
+    assert not pages["https://gone.org/"] and not pages["https://paid.org/"]  # no tab spent on them
 
 
 async def test_when_takes_an_async_predicate_too():
@@ -240,16 +244,18 @@ async def test_when_takes_an_async_predicate_too():
     assert browser.asked == ["https://spa.org/"]
 
 
-async def test_a_crawler_that_cannot_say_why_it_failed_always_passes_on():
-    from factassessor.crawlers import CascadedCrawler, NeedsBrowser
+async def test_a_failure_with_no_response_goes_on_only_if_when_says_so():
+    from factassessor.crawlers import CascadedCrawler, Fetch, NeedsBrowser
 
-    class Silent(Crawler):  # only crawl(): no fetch, so no reasons to decide on
+    class Dead(Crawler):  # no response at all: no status, no body
         async def crawl(self, url):
-            return None
+            return self.mark(Fetch(url=url, error="ConnectError"))
 
     browser = Counting()
-    await CascadedCrawler(Silent(), browser, when=NeedsBrowser()).crawl("https://x.org")
-    assert browser.asked == ["https://x.org"]
+    f = await CascadedCrawler(Dead(), browser, when=NeedsBrowser()).crawl("https://x.org")
+    assert browser.asked == [] and f.crawler == "Dead" and f.error == "ConnectError"  # the browser can't reach it either
+    await CascadedCrawler(Dead(), browser).crawl("https://x.org")
+    assert browser.asked == ["https://x.org"]  # when=None: every failure goes on
 
 
 def test_each_crawler_has_an_accept_rule_defaulting_to_todays_behaviour():
@@ -264,15 +270,17 @@ def test_each_crawler_has_an_accept_rule_defaulting_to_todays_behaviour():
     assert Crawl4AICrawler(accept=HasPage() & MinWords(100)).accept(long_page)
 
 
-async def test_a_crawler_that_only_fetches_gets_crawl_from_the_base_class():
+async def test_mark_records_the_crawler_and_applies_accept_and_no_rule_means_usable():
     from factassessor.crawlers import Fetch, MinWords
 
-    class OnlyFetch(Crawler):
-        async def fetch(self, url):
-            return Fetch(url=url, status=200, words=3, page={"url": url, "title": "", "text": "three words here"})
+    class Three(Crawler):
+        async def crawl(self, url):
+            return self.mark(Fetch(url=url, status=200, words=3, page={"url": url, "title": "", "text": "three words here"}))
 
-    assert (await OnlyFetch().crawl("u"))["text"] == "three words here"   # base accept: HasPage()
-    assert await OnlyFetch(accept=MinWords(10)).crawl("u") is None       # a stricter rule, per instance
+    f = await Three().crawl("u")
+    assert f and f.usable and f.crawler == "Three"           # no accept rule: whatever was fetched is usable
+    f = await Three(accept=MinWords(10)).crawl("u")
+    assert not f and not f.usable and f.page["text"] == "three words here"   # turned down, page kept
 
 
 def Fetch_(page, status, words=0):
@@ -285,35 +293,39 @@ async def test_when_is_checked_after_every_crawler_of_a_longer_cascade():
     from factassessor.crawlers import CascadedCrawler, Fetch, StatusIn
 
     class Reporting(Crawler):
-        """A crawler that reports why it failed: a page for the urls in `pages`, else the status given."""
+        """A page for the urls in `pages`, else the status given."""
 
         def __init__(self, pages, statuses):
+            super().__init__()
             self.pages, self.statuses, self.asked = pages, statuses, []
 
-        async def fetch(self, url):
+        async def crawl(self, url):
             self.asked.append(url)
             if url in self.pages:
-                return Fetch(url=url, status=200, page={"url": url, "title": "", "text": "text " * 200}, words=200)
-            return Fetch(url=url, status=self.statuses.get(url, 500))
-
-        async def crawl(self, url):
-            f = await self.fetch(url)
-            return f.page
+                return self.mark(Fetch(url=url, status=200, page={"url": url, "title": "", "text": "text " * 200}, words=200))
+            return self.mark(Fetch(url=url, status=self.statuses.get(url, 500)))
 
     first = Reporting({"a"}, {"b": 403, "c": 404, "d": 403})
     second = Reporting({"b"}, {"d": 404})
     third = Counting()
     cascade = CascadedCrawler(first, second, third, when=~StatusIn(404))  # pass on anything but a 404
-    pages = {u: await cascade.crawl(u) for u in "abcd"}
+    fetches = {u: await cascade.crawl(u) for u in "abcd"}
     assert first.asked == list("abcd")
     assert second.asked == ["b", "d"]          # a: first had it; c: first's 404 stops it
     assert third.asked == []                   # b: second had it; d: second's 404 stops it
-    assert pages["a"] and pages["b"] and pages["c"] is None and pages["d"] is None
-    # a crawler without fetch() works anywhere: as the last it is just tried
-    cascade = CascadedCrawler(first, Counting(), when=~StatusIn(404))
-    assert (await cascade.crawl("b"))["text"].startswith("rendered")
-    # cascades nest: the inner one's fetch reports why it failed, so the outer when can decide
+    assert fetches["a"] and fetches["b"] and not fetches["c"] and not fetches["d"]
+    assert (fetches["c"].status, fetches["d"].status) == (404, 404)   # why each stopped
+    # cascades nest: the inner one returns the Fetch it stopped at, so the outer when can decide
     outer_last = Counting()
     nested = CascadedCrawler(CascadedCrawler(first, second, when=~StatusIn(404)), outer_last, when=~StatusIn(404))
-    await nested.crawl("d")   # first 403 -> second 404: the inner cascade stops and reports the 404
+    await nested.crawl("d")   # first 403 -> second 404: the inner cascade stops and returns the 404
     assert outer_last.asked == []
+
+
+async def test_the_cascade_returns_the_fetch_of_the_crawler_it_stopped_at():
+    from factassessor.crawlers import CascadedCrawler, NeedsBrowser
+
+    f = await CascadedCrawler(crawler(responses(SITES), min_words=100), Counting(), when=NeedsBrowser()).crawl("https://spa.org/")
+    assert f.crawler == "Counting" and f.page["text"].startswith("rendered")
+    f = await CascadedCrawler(crawler(responses(SITES), min_words=100), Counting(), when=NeedsBrowser()).crawl("https://gone.org/")
+    assert f.crawler == "HTTPXCrawler" and f.status == 404 and not f
