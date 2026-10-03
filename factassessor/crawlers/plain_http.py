@@ -8,7 +8,8 @@ from typing import Any
 import httpx
 
 from factassessor.crawlers._base import Crawler
-from factassessor.crawlers.predicates import Fetch
+from factassessor.crawlers.predicates import Fetch, HasPage, MinWords
+from factassessor.pipeline import Predicate
 from factassessor.extract import extract
 from factassessor.utils import cache
 
@@ -38,7 +39,9 @@ class HTTPXCrawler(Crawler):
         max_pdf_bytes: int = 20_000_000,
         pdf_timeout: float = 8.0,
         min_words: int = 100,
+        accept: Predicate | None = None,  # what counts as a page; default: a 2xx with min_words of text
     ) -> None:
+        super().__init__(accept or HasPage() & MinWords(min_words))
         self.timeout = timeout
         self.connect_timeout = connect_timeout
         self.max_bytes = max_bytes  # stop reading huge pages; the useful text is near the top anyway
@@ -58,11 +61,6 @@ class HTTPXCrawler(Crawler):
                     return await self._fetch(url, deadline)
         except Exception as exc:  # timeouts, DNS/connection errors, bad encodings
             return Fetch(url=url, error=type(exc).__name__)
-
-    async def crawl(self, url: str) -> dict[str, Any] | None:
-        """The page, or None: a 2xx with at least `min_words` of text (the crawler's own rule, as before)."""
-        f = await self.fetch(url)
-        return f.page if f.page is not None and f.status is not None and f.status < 400 and f.words >= self.min_words else None
 
     async def start(self) -> None:
         if self._http is None:

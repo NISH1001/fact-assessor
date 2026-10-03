@@ -108,3 +108,43 @@ async def test_error_status_pages_are_dropped_so_the_snippet_stands():
     assert await crawler_with(forbidden).crawl("https://example.com/x") is None
     assert (await crawler_with(ok).crawl("https://en.wikipedia.org/wiki/Marie_Curie"))["title"] == "Marie Curie - Wikipedia"
     assert await crawler_with(lambda url: asyncio.sleep(0, result())).crawl("https://a.org") is not None  # no status: kept
+
+
+# --- fetch: every fact about the render, for the predicates --------------------------------------------------------
+
+async def test_fetch_records_the_rendered_page_and_its_status():
+    from factassessor.crawlers import Fetch, HasPage
+
+    async def ok(url):
+        r = result(); r.status_code = 200; r.html = "<html><h1>Marie Curie</h1></html>"
+        return r
+
+    f = await crawler_with(ok).fetch("https://en.wikipedia.org/wiki/Marie_Curie")
+    assert isinstance(f, Fetch) and HasPage()(f) and (f.status, f.content_type) == (200, "text/html")
+    assert f.words == len(f.page["text"].split()) and "<h1>" in f.body_head
+
+
+async def test_fetch_records_error_statuses_and_crawl_still_drops_them():
+    async def blocked(url):
+        r = result(markdown="Access denied"); r.status_code = 403; r.html = "<html>Just a moment...</html>"
+        return r
+
+    c = crawler_with(blocked)
+    f = await c.fetch("https://publisher.org/paper")
+    assert f.status == 403 and "Just a moment" in f.body_head
+    assert await c.crawl("https://publisher.org/paper") is None
+
+
+async def test_fetch_records_why_there_was_no_render():
+    async def boom(url):
+        raise RuntimeError("net::ERR_NAME_NOT_RESOLVED")
+
+    f = await crawler_with(boom).fetch("https://dead.org")
+    assert (f.status, f.page, f.error) == (None, None, "RuntimeError")
+
+
+async def test_a_successful_render_without_a_status_counts_as_200():
+    async def ok(url):
+        return result()  # crawl4ai sometimes reports no status_code for a page it loaded fine
+
+    assert (await crawler_with(ok).crawl("https://x.org"))["title"] == "Marie Curie - Wikipedia"

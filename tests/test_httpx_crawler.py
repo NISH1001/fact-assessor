@@ -240,9 +240,80 @@ async def test_when_takes_an_async_predicate_too():
     assert browser.asked == ["https://spa.org/"]
 
 
-async def test_when_needs_a_first_crawler_that_reports_why():
-    import pytest
+async def test_a_crawler_that_cannot_say_why_it_failed_always_passes_on():
     from factassessor.crawlers import CascadedCrawler, NeedsBrowser
 
-    with pytest.raises(TypeError, match="fetch"):
-        CascadedCrawler(Counting(), Counting(), when=NeedsBrowser())
+    class Silent(Crawler):  # only crawl(): no fetch, so no reasons to decide on
+        async def crawl(self, url):
+            return None
+
+    browser = Counting()
+    await CascadedCrawler(Silent(), browser, when=NeedsBrowser()).crawl("https://x.org")
+    assert browser.asked == ["https://x.org"]
+
+
+def test_each_crawler_has_an_accept_rule_defaulting_to_todays_behaviour():
+    from factassessor.crawlers import Crawl4AICrawler, HasPage, MinWords
+
+    long_page = Fetch_(page=True, status=200, words=150)
+    short_page = Fetch_(page=True, status=200, words=40)
+    assert HTTPXCrawler().accept(long_page) and not HTTPXCrawler().accept(short_page)    # 2xx + 100 words, as before
+    assert not HTTPXCrawler(min_words=200).accept(long_page)                              # min_words still works
+    assert HTTPXCrawler(accept=HasPage()).accept(short_page)                              # or any rule
+    assert Crawl4AICrawler().accept(short_page) and not Crawl4AICrawler().accept(Fetch_(page=False, status=200))
+    assert Crawl4AICrawler(accept=HasPage() & MinWords(100)).accept(long_page)
+
+
+async def test_a_crawler_that_only_fetches_gets_crawl_from_the_base_class():
+    from factassessor.crawlers import Fetch, MinWords
+
+    class OnlyFetch(Crawler):
+        async def fetch(self, url):
+            return Fetch(url=url, status=200, words=3, page={"url": url, "title": "", "text": "three words here"})
+
+    assert (await OnlyFetch().crawl("u"))["text"] == "three words here"   # base accept: HasPage()
+    assert await OnlyFetch(accept=MinWords(10)).crawl("u") is None       # a stricter rule, per instance
+
+
+def Fetch_(page, status, words=0):
+    from factassessor.crawlers import Fetch
+
+    return Fetch(url="u", status=status, words=words, page={"url": "u", "title": "", "text": "w " * words} if page else None)
+
+
+async def test_when_is_checked_after_every_crawler_of_a_longer_cascade():
+    from factassessor.crawlers import CascadedCrawler, Fetch, StatusIn
+
+    class Reporting(Crawler):
+        """A crawler that reports why it failed: a page for the urls in `pages`, else the status given."""
+
+        def __init__(self, pages, statuses):
+            self.pages, self.statuses, self.asked = pages, statuses, []
+
+        async def fetch(self, url):
+            self.asked.append(url)
+            if url in self.pages:
+                return Fetch(url=url, status=200, page={"url": url, "title": "", "text": "text " * 200}, words=200)
+            return Fetch(url=url, status=self.statuses.get(url, 500))
+
+        async def crawl(self, url):
+            f = await self.fetch(url)
+            return f.page
+
+    first = Reporting({"a"}, {"b": 403, "c": 404, "d": 403})
+    second = Reporting({"b"}, {"d": 404})
+    third = Counting()
+    cascade = CascadedCrawler(first, second, third, when=~StatusIn(404))  # pass on anything but a 404
+    pages = {u: await cascade.crawl(u) for u in "abcd"}
+    assert first.asked == list("abcd")
+    assert second.asked == ["b", "d"]          # a: first had it; c: first's 404 stops it
+    assert third.asked == []                   # b: second had it; d: second's 404 stops it
+    assert pages["a"] and pages["b"] and pages["c"] is None and pages["d"] is None
+    # a crawler without fetch() works anywhere: as the last it is just tried
+    cascade = CascadedCrawler(first, Counting(), when=~StatusIn(404))
+    assert (await cascade.crawl("b"))["text"].startswith("rendered")
+    # cascades nest: the inner one's fetch reports why it failed, so the outer when can decide
+    outer_last = Counting()
+    nested = CascadedCrawler(CascadedCrawler(first, second, when=~StatusIn(404)), outer_last, when=~StatusIn(404))
+    await nested.crawl("d")   # first 403 -> second 404: the inner cascade stops and reports the 404
+    assert outer_last.asked == []
