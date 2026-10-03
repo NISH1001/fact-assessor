@@ -80,7 +80,7 @@ lifecycle) around your one method; no abstract base classes anywhere.
 | `ClaimFilter` | `score(atoms)` -> P(factual claim) | `DecisionClaimFilter` (one decision per atom, on any runner) | `claim_filters/` |
 | `Searcher` | `search(query) -> list[hit]` | `SerperSearcher` (web or Google Scholar), `SearxngSearcher` (self-hosted; general or science engines), `DuckDuckGoSearcher`, `DocumentSearcher` (given documents: in-domain checks) | `search/` |
 | `Resolver` (Protocol) | `resolve(url) -> list[str]` | `ArxivResolver`, `OpenAlexResolver`, `CompositeResolver` | `resolvers.py` |
-| `Crawler` | `crawl(url) -> page \| None` | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `FallbackCrawler` (waterfall), `NoCrawler` | `crawlers/` |
+| `Crawler` | `crawl(url) -> page \| None` | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `CascadedCrawler` (waterfall), `NoCrawler` | `crawlers/` |
 | `Judge` (Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge` (one decision per (claim, passage), on any runner) | `judges/` |
 | `Ranker` (Protocol) | `top(claim, chunks, k) -> list[str]` | `BM25Ranker` (default), `EmbeddingRanker` (model2vec), `HybridRanker` | `rankers.py` |
 | `Policy` (Protocol) | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` | `verify.py` |
@@ -252,11 +252,11 @@ needs 300. Words, not characters: links and markup leftovers inflate character c
 | atomizer | `openai:gpt-5.6-luna` (reasoning as low as the model allows), no source query | `openai:gpt-6-luna` (same atoms, half the price; gpt-5-nano can't atomize), `source_query=True` |
 | search | Serper (web) | self-hosted SearXNG |
 | resolver | none | `CompositeResolver(ArxivResolver(), OpenAlexResolver())` |
-| crawler | `Crawl4AICrawler(timeout=2.5)` | `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())` |
+| crawler | `Crawl4AICrawler(timeout=2.5)` | `CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())` |
 | judge / policy | `DecisionJudge()`, `WeightedPolicy(strong=0.7, early_exit=0.9)` | same |
 
 ```python
-from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, FactAssessor, FallbackCrawler,
+from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, FactAssessor, CascadedCrawler,
                           HTTPXCrawler, OpenAlexResolver, SearxngSearcher, Take, not_blocked)
 
 fa = FactAssessor(
@@ -264,7 +264,7 @@ fa = FactAssessor(
     source_query=True,
     searcher=SearxngSearcher("http://localhost:8080", num=10) >> not_blocked() >> Take(5),
     resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver()),
-    crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()),
+    crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()),
 )
 ```
 
@@ -273,7 +273,7 @@ fa = FactAssessor(
 - **A source of free copies**: a class with `async resolve(url) -> list[str]` (return `[]` for URLs that aren't
   yours, never raise), added to `CompositeResolver`. Give it `aload` / `aclose` if it holds a client.
 - **A way to fetch**: subclass `Crawler`, implement `crawl(url)`, use `extract()` for the bytes, return None on
-  failure. Combine with `FallbackCrawler`.
+  failure. Combine with `CascadedCrawler`.
 - **A search backend**: subclass `Searcher`, implement `search(query)`; chain `>> not_blocked() >> Take(k)`.
 - **A passage ranker**: a class with `top(claim, chunks, k)` (best first; `k=None` for all, ranked), passed as
   `ranker=` to any judge. `HybridRanker(alpha=)` already mixes BM25 with embeddings.

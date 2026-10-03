@@ -16,7 +16,7 @@ from factassessor.utils import cache
 class HTTPXCrawler(Crawler):
     """A plain HTTP GET plus `extract()`: HTML pages and PDFs (by content type, or the bytes when the type is
     missing or generic). No browser, so no JavaScript: pages that build their content client-side come back empty
-    (None); pair it with `FallbackCrawler` to catch those. PDFs need `fact-assessor[pdf]`.
+    (None); pair it with `CascadedCrawler` to catch those. PDFs need `fact-assessor[pdf]`.
 
     Less than `min_words` is not a page: on 2,748 crawled pages, those under 100 words were login walls,
     "Loading..." shells and browser checks. (Scripts written without spaces, like Chinese, count low.)

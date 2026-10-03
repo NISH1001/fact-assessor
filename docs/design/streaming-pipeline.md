@@ -168,7 +168,7 @@ factassessor/
   atomizer.py        Atomizer (LLM, streaming)
   filters.py         Filter, predicate combinators, LayaCheckworthy
   search/            Searcher, SerperSearcher, SearxngSearcher, DuckDuckGoSearcher, DocumentSearcher
-  crawlers/          Crawler, Crawl4AICrawler, HTTPXCrawler (+ resolvers), FallbackCrawler
+  crawlers/          Crawler, Crawl4AICrawler, HTTPXCrawler (+ resolvers), CascadedCrawler
   wrappers.py        Hedged, Timeout, Retry
   judges/            Judge, DecisionJudge (on any DecisionRunner) (+ passages.py for chunking/BM25/cleaning)
   verify.py          Verify step, VerdictPolicy, WeightedPolicy

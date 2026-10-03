@@ -28,27 +28,29 @@ class NoCrawler(Crawler):
         return None
 
 
-class FallbackCrawler(Crawler):
-    """Try each crawler in turn; the first page with text wins. `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())`
-    fetches most pages the fast way and only opens a browser for the ones that need JavaScript (or failed).
+class CascadedCrawler(Crawler):
+    """Crawlers in a cascade: the first one's page wins; a URL it can't read goes on to the next.
+    `CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())` reads most pages the fast way and opens a browser only for
+    the rest.
 
-    `escalate`: which failures of the first crawler go on to the others, a predicate over its `Fetch` (sync or
-    async), e.g. `NeedsBrowser()`: a JavaScript shell or a bot check yes, a 404 or a paywall no, so no browser tab
-    is spent on a page no browser can read. None (the default): every failure goes on, as before. The first crawler
-    must report why it failed (`fetch(url) -> Fetch`, as `HTTPXCrawler` does)."""
+    `when`: which failures of the first crawler go on, a predicate over its `Fetch` (sync or async). None (the
+    default): every failure goes on. A rule like `(JavaScriptShell() & ~Paywalled()) | BotChallenge() | StatusIn(405)`
+    (also named `NeedsBrowser()`) sends a JavaScript shell or a bot check on but not a 404 or a paywall, so no
+    browser tab is spent on a page no browser can read. The first crawler must report why it failed
+    (`fetch(url) -> Fetch`, as `HTTPXCrawler` does)."""
 
-    def __init__(self, *crawlers: Crawler, escalate: Any = None) -> None:
-        if escalate is not None and not callable(getattr(crawlers[0] if crawlers else None, "fetch", None)):
-            raise TypeError("FallbackCrawler(escalate=...) needs a first crawler with fetch(url) -> Fetch, like HTTPXCrawler")
+    def __init__(self, *crawlers: Crawler, when: Any = None) -> None:
+        if when is not None and not callable(getattr(crawlers[0] if crawlers else None, "fetch", None)):
+            raise TypeError("CascadedCrawler(when=...) needs a first crawler with fetch(url) -> Fetch, like HTTPXCrawler")
         self.crawlers = list(crawlers)
-        self.escalate = escalate
+        self.when = when
 
     async def crawl(self, url: str) -> dict[str, Any] | None:
         first, *rest = self.crawlers
         if (page := await first.crawl(url)) is not None:
             return page
-        if self.escalate is not None:
-            decision = self.escalate(await first.fetch(url))  # cached: the same request crawl() just made
+        if self.when is not None:
+            decision = self.when(await first.fetch(url))  # cached: the same request crawl() just made
             if inspect.isawaitable(decision):
                 decision = await decision
             if not decision:

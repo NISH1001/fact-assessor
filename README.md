@@ -299,7 +299,7 @@ come for free.
 | `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` on Laya; `DecisionClaimFilter(runner)` for another model |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | none; `CompositeResolver(ArxivResolver(), OpenAlexResolver())` for papers |
-| `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `FallbackCrawler` |
+| `crawler=` | `Crawler` | `crawl(url) -> page or None`, pages `{"url", "title", "text"}` | `Crawl4AICrawler(timeout=2.5)`; also `HTTPXCrawler`, `CascadedCrawler` |
 | `judge=` | `Judge` (a Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()` on Laya; `DecisionJudge(LLMRunner())`, `DecisionJudge(SystemOneRunner())`, `DecisionJudge(GlinerRunner())` for other models. Takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
 | `policy=` | `Policy` (a Protocol) | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 
@@ -347,7 +347,7 @@ from factassessor import (
     FactAssessor, LLMAtomizer,                                      # atomizer
     DecisionClaimFilter,                                            # claim filter
     SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, Take,  # searcher
-    Crawl4AICrawler, HTTPXCrawler, FallbackCrawler,                 # crawler
+    Crawl4AICrawler, HTTPXCrawler, CascadedCrawler,                 # crawler
     DecisionJudge,                                                  # judge
     LayaRunner, SystemOneRunner, LLMRunner, GlinerRunner,           # the model behind the filter and the judge
     WeightedPolicy,                                                 # policy
@@ -357,7 +357,7 @@ FactAssessor(
     atomizer=LLMAtomizer("openai:gpt-6-luna"),                       # any pydantic-ai model
     claim_filter=DecisionClaimFilter(threshold=0.4),                 # Laya; or DecisionClaimFilter(GlinerRunner()), or None (no filter)
     searcher=SerperSearcher() >> not_blocked() >> Take(5),           # or DuckDuckGoSearcher(), SearxngSearcher(url)
-    crawler=Crawl4AICrawler(timeout=2.5),                            # or HTTPXCrawler(), FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())
+    crawler=Crawl4AICrawler(timeout=2.5),                            # or HTTPXCrawler(), CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())
     judge=DecisionJudge(),                                           # Laya; or DecisionJudge(LLMRunner()), DecisionJudge(SystemOneRunner()), DecisionJudge(GlinerRunner())
     policy=WeightedPolicy(strong=0.7, early_exit=0.9),
 )
@@ -367,20 +367,20 @@ Keep `>> not_blocked() >> Take(top_k)` when you pass your own searcher: `FactAss
 default Serper searcher. The same components chain by hand too (see "Compose your own pipeline" above).
 
 **Faster crawling.** `HTTPXCrawler` fetches pages with a plain HTTP request (no browser, no JavaScript);
-`FallbackCrawler` tries crawlers in order and keeps the first page with text:
+`CascadedCrawler` tries crawlers in order and keeps the first page with text:
 
 ```python
-from factassessor import Crawl4AICrawler, FallbackCrawler, HTTPXCrawler
+from factassessor import Crawl4AICrawler, CascadedCrawler, HTTPXCrawler
 
 FactAssessor(crawler=HTTPXCrawler())                                          # fastest; misses JavaScript pages
-FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))      # fast first, browser only if needed
+FactAssessor(crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()))      # fast first, browser only if needed
 ```
 
 | Crawler (same 20 live search-result URLs) | Pages read | All 20 at once | Per page (median) |
 |---|---|---|---|
 | `Crawl4AICrawler` (default) | 16/20 | 4.8s | 2.14s |
 | `HTTPXCrawler` | 11/20 | 1.0s | 0.15s |
-| `FallbackCrawler(HTTPX, browser)` | 16/20 | 2.9s | 1.15s |
+| `CascadedCrawler(HTTPX, browser)` | 16/20 | 2.9s | 1.15s |
 
 **Scientific papers: read in full, even behind bot protection.** Publishers like Wiley and IOP block headless
 browsers (0 of 15 paper pages crawled on a scientific eval set, even with a 10s timeout), and an arXiv or publisher
@@ -389,13 +389,13 @@ hit can be read in full (`async resolve(url) -> list[str]`, the `Resolver` proto
 it just crawls those locations in order (`fact-assessor[pdf]` for PDFs):
 
 ```python
-from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, FallbackCrawler, HTTPXCrawler,
+from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, CascadedCrawler, HTTPXCrawler,
                           HybridRanker, DecisionJudge, OpenAlexResolver)
 
 FactAssessor(
     source_query=True,                          # the atomizer also writes one search for the text's source document
     resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver()),   # papers: free full-text copies first
-    crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()),        # plain HTTP (HTML and PDF), browser only if needed
+    crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()),        # plain HTTP (HTML and PDF), browser only if needed
     judge=DecisionJudge(passages_per_page=3),       # 3 passages per page: +0.10 F1 on the paper eval, ~3s more per text
 )
 
@@ -582,7 +582,7 @@ factassessor/
     duckduckgo.py    DuckDuckGoSearcher (no key)
     documents.py     DocumentSearcher (given documents: in-domain checks)
   crawlers/          url -> clean page text
-    _base.py         Crawler (role), FallbackCrawler, NoCrawler
+    _base.py         Crawler (role), CascadedCrawler, NoCrawler
     browser.py       Crawl4AICrawler (headless browser, JavaScript)
     plain_http.py    HTTPXCrawler (plain HTTP, fast; HTML and PDF)
   resolvers.py       Resolver (role, a Protocol): url -> where to read it in full; Arxiv, OpenAlex, Composite
@@ -611,7 +611,7 @@ produced; that dataset is not in the repo.
 
 - **Streaming atomizer**: emit claims while the LLM is still writing them (the pipeline already streams from there
   on), so the first verdict arrives ~1s sooner.
-- **Default crawler**: consider `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())` plus the resolvers as the
+- **Default crawler**: consider `CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())` plus the resolvers as the
   default once more end-to-end runs confirm it's faster.
 - **Overfetch as the default**: `FactAssessor(overfetch=1.0)` keeps twice as many hits as pages and judges the
   first `top_k` that turn out readable (`Take` after the crawl, the rest cancelled), so paywalled or blocked hits

@@ -182,7 +182,7 @@ def _(mo):
     | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
     | `ClaimFilter` | `score(atom)` → P(factual claim) | `DecisionClaimFilter` (on any runner) |
     | `Searcher` | `search(query)` | `SerperSearcher` (default), `DuckDuckGoSearcher` (no key, used here), `SearxngSearcher` |
-    | `Crawler` | `crawl(url)` | `Crawl4AICrawler` (also `HTTPXCrawler`, `FallbackCrawler`) |
+    | `Crawler` | `crawl(url)` | `Crawl4AICrawler` (also `HTTPXCrawler`, `CascadedCrawler`) |
     | `Judge` | `judge(claim, docs)` | `DecisionJudge` (on any runner: `LayaRunner`, `LLMRunner`, `GlinerRunner`, `SystemOneRunner`) |
     | `Policy` | `settled`, `verdict` | `WeightedPolicy` |
 
@@ -337,7 +337,7 @@ async def _(mo, raw_hits):
 def _(mo):
     mo.md("""
     **Faster crawlers.** `Crawler` is a role too. `HTTPXCrawler` fetches with a plain HTTP request (no browser, no
-    JavaScript): much faster, but it can't read pages built by JavaScript. `FallbackCrawler(fast, browser)` tries the fast
+    JavaScript): much faster, but it can't read pages built by JavaScript. `CascadedCrawler(fast, browser)` tries the fast
     one first and opens the browser only for pages it couldn't read. The same search hits through each:
     """)
     return
@@ -345,7 +345,7 @@ def _(mo):
 
 @app.cell
 async def _(asyncio, crawler, mo, raw_hits, time):
-    from factassessor import FallbackCrawler, HTTPXCrawler
+    from factassessor import CascadedCrawler, HTTPXCrawler
 
     _urls = [h["url"] for h in raw_hits[:5]]
     _fast = HTTPXCrawler(timeout=2.5)
@@ -353,7 +353,7 @@ async def _(asyncio, crawler, mo, raw_hits, time):
     for _name, _crawler in (
         ("Crawl4AICrawler (browser)", crawler),
         ("HTTPXCrawler", _fast),
-        ("FallbackCrawler(HTTPXCrawler, browser)", FallbackCrawler(_fast, crawler)),
+        ("CascadedCrawler(HTTPXCrawler, browser)", CascadedCrawler(_fast, crawler)),
     ):
         _t = time.perf_counter()
         _pages = await asyncio.gather(*(_crawler.crawl(u) for u in _urls))

@@ -197,7 +197,7 @@ for 5/5 test queries, 0.7-3.3s each (Serper ~0.8s); an end-to-end check with it 
 
 Same 20 live search-result URLs: `Crawl4AICrawler` 16/20 pages in 4.8s (2.14s per page median, 10 concurrent tabs);
 `HTTPXCrawler` 11/20 in 1.0s (0.15s per page; it can't read JavaScript-rendered or bot-blocking pages);
-`FallbackCrawler(HTTPX, browser)` 16/20 in 2.9s. Extracted text size was the same (~6.2-6.3k chars median).
+`CascadedCrawler(HTTPX, browser)` 16/20 in 2.9s. Extracted text size was the same (~6.2-6.3k chars median).
 End to end, 3 alternating rounds: Nepal 6.1s → 5.2s median, mixed 5.8s → 6.0s, same verdicts. The early exit means
 crawling often isn't what a check waits on, so the browser stays the default until more runs confirm the gain.
 

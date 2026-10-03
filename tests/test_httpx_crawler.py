@@ -2,7 +2,7 @@ import asyncio
 
 import httpx
 
-from factassessor import Crawler, FallbackCrawler, HTTPXCrawler, collect
+from factassessor import Crawler, CascadedCrawler, HTTPXCrawler, collect
 from tests.pdfs import minimal_pdf
 
 PAGE = """<html><head><title>Nepal earthquake - Wikipedia</title><script>var x = 1;</script>
@@ -104,7 +104,7 @@ async def test_fallback_uses_the_next_crawler_only_when_the_first_fails():
     fast = Fake({"https://static.org": {"url": "https://static.org", "title": "", "text": "fast"}})
     browser = Fake({"https://static.org": {"url": "https://static.org", "title": "", "text": "slow"},
                     "https://spa.org": {"url": "https://spa.org", "title": "", "text": "rendered"}})
-    both = FallbackCrawler(fast, browser)
+    both = CascadedCrawler(fast, browser)
     assert (await both.crawl("https://static.org"))["text"] == "fast"
     assert (await both.crawl("https://spa.org"))["text"] == "rendered"
     assert await both.crawl("https://dead.org") is None
@@ -179,7 +179,7 @@ async def test_fetch_and_crawl_share_one_cached_request():
     assert len(calls) == 1
 
 
-# --- FallbackCrawler(escalate=...): which failures go on to the next crawler --------------------------------------
+# --- CascadedCrawler(when=...): which failures go on to the next crawler --------------------------------------
 
 class Counting(Crawler):
     """The browser: counts what it is asked to render, returns a page for everything."""
@@ -205,44 +205,44 @@ SITES = {
 }
 
 
-async def test_escalate_none_sends_every_failure_on_as_before():
-    from factassessor.crawlers import FallbackCrawler
+async def test_when_none_sends_every_failure_on_as_before():
+    from factassessor.crawlers import CascadedCrawler
 
     browser = Counting()
-    f = FallbackCrawler(crawler(responses(SITES), min_words=100), browser)
+    f = CascadedCrawler(crawler(responses(SITES), min_words=100), browser)
     for url in SITES:
         await f.crawl(url)
     assert sorted(browser.asked) == sorted(u for u in SITES if u != "https://good.org/")
 
 
-async def test_escalate_sends_only_the_failures_it_names_and_the_successes_never():
-    from factassessor.crawlers import FallbackCrawler, NeedsBrowser
+async def test_when_sends_only_the_failures_it_names_and_the_successes_never():
+    from factassessor.crawlers import CascadedCrawler, NeedsBrowser
 
     browser = Counting()
-    f = FallbackCrawler(crawler(responses(SITES), min_words=100), browser, escalate=NeedsBrowser())
+    f = CascadedCrawler(crawler(responses(SITES), min_words=100), browser, when=NeedsBrowser())
     pages = {url: await f.crawl(url) for url in SITES}
     assert sorted(browser.asked) == ["https://pub.org/", "https://spa.org/"]  # the shell and the bot check only
     assert pages["https://good.org/"]["text"].startswith("word") and pages["https://spa.org/"]["text"].startswith("rendered")
     assert pages["https://gone.org/"] is None and pages["https://paid.org/"] is None  # no tab spent on them
 
 
-async def test_escalate_takes_an_async_predicate_too():
+async def test_when_takes_an_async_predicate_too():
     from factassessor import Predicate
-    from factassessor.crawlers import FallbackCrawler
+    from factassessor.crawlers import CascadedCrawler
 
     async def only_spa(fetch):
         return "spa" in fetch.url
 
     browser = Counting()
-    f = FallbackCrawler(crawler(responses(SITES), min_words=100), browser, escalate=Predicate(only_spa))
+    f = CascadedCrawler(crawler(responses(SITES), min_words=100), browser, when=Predicate(only_spa))
     for url in SITES:
         await f.crawl(url)
     assert browser.asked == ["https://spa.org/"]
 
 
-async def test_escalate_needs_a_first_crawler_that_reports_why():
+async def test_when_needs_a_first_crawler_that_reports_why():
     import pytest
-    from factassessor.crawlers import FallbackCrawler, NeedsBrowser
+    from factassessor.crawlers import CascadedCrawler, NeedsBrowser
 
     with pytest.raises(TypeError, match="fetch"):
-        FallbackCrawler(Counting(), Counting(), escalate=NeedsBrowser())
+        CascadedCrawler(Counting(), Counting(), when=NeedsBrowser())

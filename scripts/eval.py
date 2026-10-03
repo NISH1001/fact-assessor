@@ -316,7 +316,7 @@ async def fetch_papers(xlsx: str, links_sheet: str, min_words: int = 500) -> Non
 
 async def recrawl_open_access() -> None:
     """Pages that failed to crawl: read them over plain HTTP, papers from their free copies first (arXiv, DOIs via
-    OpenAlex; PDFs too), as `FallbackCrawler(Crawl4AICrawler(), paper_crawler())` would have while recording.
+    OpenAlex; PDFs too), as `CascadedCrawler(Crawl4AICrawler(), paper_crawler())` would have while recording.
     Keeps a backup."""
     import shutil
 
@@ -356,7 +356,7 @@ async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str
     from pydantic import BaseModel
     from pydantic_ai import Agent
 
-    from factassessor import FallbackCrawler
+    from factassessor import CascadedCrawler
 
     class Query(BaseModel):
         query: str
@@ -370,7 +370,7 @@ async def requery(tag: str, searcher_name: str, searxng_url: str, llm_model: str
     paid = 0
     agent = Agent(llm_model, output_type=Query, instructions=QUERY_INSTRUCTIONS, model_settings=llm_settings(llm_model))
     searcher = make_searcher(searcher_name, searxng_url, search_type)
-    crawler = FallbackCrawler(Crawl4AICrawler(), paper_crawler())  # browser first, like the recorded evidence
+    crawler = CascadedCrawler(Crawl4AICrawler(), paper_crawler())  # browser first, like the recorded evidence
     slots = asyncio.Semaphore(3)
 
     async def query_for(claim: str) -> str:

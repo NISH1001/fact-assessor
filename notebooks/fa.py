@@ -107,8 +107,8 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
         "Browser (Crawl4AI)": ({"Crawl4AICrawler"}, "Crawl4AICrawler(timeout=2.5)"),
         "HTTPX (fast, no JavaScript)": ({"HTTPXCrawler"}, "HTTPXCrawler(timeout=2.5)"),
         "HTTPX, then browser if needed": (
-            {"HTTPXCrawler", "Crawl4AICrawler", "FallbackCrawler"},
-            "FallbackCrawler(HTTPXCrawler(timeout=2.5), Crawl4AICrawler(timeout=2.5))",
+            {"HTTPXCrawler", "Crawl4AICrawler", "CascadedCrawler"},
+            "CascadedCrawler(HTTPXCrawler(timeout=2.5), Crawl4AICrawler(timeout=2.5))",
         ),
     }[crawler_choice.value]
     _imports |= _crawl[0]
@@ -152,7 +152,7 @@ def _():
         Crawl4AICrawler,
         DuckDuckGoSearcher,
         FactAssessor,
-        FallbackCrawler,
+        CascadedCrawler,
         GlinerRunner,
         HTTPXCrawler,
         DecisionClaimFilter,
@@ -196,7 +196,7 @@ def _():
         crawler = {
             "Browser (Crawl4AI)": browser,
             "HTTPX (fast, no JavaScript)": fast_fetch,
-            "HTTPX, then browser if needed": FallbackCrawler(fast_fetch, browser),
+            "HTTPX, then browser if needed": CascadedCrawler(fast_fetch, browser),
         }[crawler_name]
         return FactAssessor(
             atomizer=LLMAtomizer(),
@@ -337,7 +337,7 @@ def _(mo):
     FactAssessor(judge=DecisionJudge(LLMRunner("openai:gpt-6-luna")))     # most accurate judge
     gliner = GlinerRunner()
     FactAssessor(claim_filter=DecisionClaimFilter(gliner), judge=DecisionJudge(gliner))   # GLiNER for both
-    FactAssessor(crawler=FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler()))   # fast fetch, browser if needed
+    FactAssessor(crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()))   # fast fetch, browser if needed
     ```
 
     **4. Chain steps with `>>`.** A condition (`Predicate`) filters, a plain function transforms, `Take(n)` caps:
@@ -379,7 +379,7 @@ def _(mo):
     | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
     | `ClaimFilter` | `score(atom) -> P(claim)` | `DecisionClaimFilter` (on any runner) |
     | `Searcher` | `search(query)` | `SerperSearcher`, `DuckDuckGoSearcher`, `SearxngSearcher` |
-    | `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `FallbackCrawler` |
+    | `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `CascadedCrawler` |
     | `Judge` | `judge(claim, docs)` | `DecisionJudge` (on `LayaRunner`, `LLMRunner`, `GlinerRunner`, `SystemOneRunner`) |
     | `Policy` | `settled(ev)`, `verdict(ev)` | `WeightedPolicy` |
     """)

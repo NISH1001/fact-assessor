@@ -8,7 +8,7 @@ from factassessor import kg  # noqa: E402
 from factassessor.assessor import FactAssessor
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
-from factassessor.crawlers import Crawl4AICrawler, Crawler, FallbackCrawler, HTTPXCrawler, NoCrawler
+from factassessor.crawlers import Crawl4AICrawler, Crawler, CascadedCrawler, HTTPXCrawler, NoCrawler
 from factassessor.decisions import Answer, DecisionRequest, DecisionResponse, DecisionRunner, LLMRunner, DecisionPacking, Question, SystemOneRunner
 from factassessor.gliner import GlinerRunner
 from factassessor.judges import DecisionJudge, Judge
@@ -47,7 +47,7 @@ __all__ = [
     "Atomizer", "LLMAtomizer",
     "ClaimFilter", "DecisionClaimFilter",
     "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher", "DocumentSearcher", "SearchType",
-    "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "FallbackCrawler", "NoCrawler",
+    "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "CascadedCrawler", "NoCrawler",
     "Resolver", "ArxivResolver", "OpenAlexResolver", "CompositeResolver",
     "Ranker", "BM25Ranker", "EmbeddingRanker", "HybridRanker",
     "Judge", "DecisionJudge",

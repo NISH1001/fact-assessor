@@ -46,7 +46,7 @@ from pydantic_ai import Agent
 
 from factassessor import (
     ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, DecisionRequest,
-    FallbackCrawler, HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, Question, SearxngSearcher,
+    CascadedCrawler, HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, Question, SearxngSearcher,
     SerperSearcher, Step, SystemOneRunner, Take, Verify, WeightedPolicy, collect, not_blocked, once,
 )
 from factassessor._llm import reasoning_off
@@ -349,7 +349,7 @@ class Pipeline:
             base_search = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type, hedge_after=None)
         searcher = base_search >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
         self.resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
-        self.crawler = FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler(timeout=2.5))
+        self.crawler = CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler(timeout=2.5))
         save_hits = lambda: _save(run_dir / "hits.json.gz", hits)  # noqa: E731  # every paid search on disk at once
         self.verify = Verify(
             TimedSearch(searcher, hits, slots=16 if args.searcher == "serper" else 4, save=save_hits),  # SearXNG's engines suspend bursts

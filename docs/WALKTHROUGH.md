@@ -90,7 +90,7 @@ Each component has a **role** (a base type) and implementations; to make your ow
 | `Atomizer` | `atomize(text)` | `LLMAtomizer` |
 | `ClaimFilter` | `score(atom)` → P(factual claim) | `DecisionClaimFilter` (on any runner) |
 | `Searcher` | `search(query)` | `SerperSearcher` (default), `DuckDuckGoSearcher` (no key, used here), `SearxngSearcher` |
-| `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `FallbackCrawler` |
+| `Crawler` | `crawl(url)` | `Crawl4AICrawler`, `HTTPXCrawler`, `CascadedCrawler` |
 | `Judge` | `judge(claim, docs)` | `DecisionJudge` (on any runner: `LayaRunner`, `LLMRunner`, `GlinerRunner`, `SystemOneRunner`) |
 | `Policy` | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` |
 
@@ -162,7 +162,7 @@ The same 5 search hits through each crawler:
 |---|---|---|
 | `Crawl4AICrawler` (browser) | 4/5 | 3.1s |
 | `HTTPXCrawler` (plain HTTP, no JavaScript) | 3/5 | 1.5s |
-| `FallbackCrawler(HTTPXCrawler(), Crawl4AICrawler())` | 5/5 | 0.7s (browser already warm) |
+| `CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())` | 5/5 | 0.7s (browser already warm) |
 
 On 20 fresh URLs: browser 16/20 in 4.8s, HTTPX 11/20 in 1.0s, fallback 16/20 in 2.9s.
 
