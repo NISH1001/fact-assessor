@@ -231,8 +231,9 @@ resolver, on 600 hits: 350 read (httpx then browser) vs about 395 (httpx, impit,
 Accuracy, all 8,481 hits of the Serper eval crawled the same day from the same IP and replayed with Jev: old cascade
 F1 0.752, new 0.755 (FactReasoner 0.731). The headline 0.779 was crawled on 2026-09-30; by 2026-10-04 MDPI and IOP
 blocked this machine for every crawler (after a day of repeated crawling), which costs both cascades alike. Live, 10
-answers at once with a 30s claim deadline: F1 0.692 vs 0.605 for the old crawling (6 at once, 42s). End to end,
-`FactAssessor` with Jev on 10 SciELF texts: 10 at once p50 21.4s / p90 22.6s (was 71s / 76s), one at a time p50 9.1s.
+answers at once with a 30s claim deadline: F1 0.692 vs 0.605 for the old crawling (6 at once, 42s). End-to-end
+latency is still to be re-measured: a run giving 10 texts at once p50 21.4s / p90 22.6s most likely had the atomizer
+falling back to sentences (OpenAI credits ran out), with no LLM call and no source-paper search, so it is not counted.
 
 ## LLM judge, claim filters, shared models
 
