@@ -26,7 +26,7 @@ from typing import Any
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
 from factassessor.atomizer import LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
-from factassessor.crawlers import CascadedCrawler, Crawl4AICrawler, HTTPXCrawler
+from factassessor.crawlers import CascadedCrawler, ContentType, Crawl4AICrawler, HTTPXCrawler, ImpitCrawler, StatusIn
 from factassessor.judges import DecisionJudge, Judge
 from factassessor.laya import LayaRunner
 from factassessor.pipeline import Cache, Map, Step, Take, dropped, once
@@ -88,8 +88,11 @@ class FactAssessor:
             >> not_blocked(blocked_domains)  # and dropped after search as the guarantee
             >> Take(candidates)
         )
-        self.crawler = crawler or CascadedCrawler(  # plain HTTP first, a headless browser for what it can't read
-            HTTPXCrawler(timeout=crawl_timeout), Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls)
+        self.crawler = crawler or CascadedCrawler(  # honest HTTP, then HTTP that looks like Firefox, then a real browser
+            HTTPXCrawler(timeout=crawl_timeout),
+            ImpitCrawler(timeout=crawl_timeout),
+            Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls),
+            when=~(StatusIn(404, 410) | ContentType("pdf")),  # not for a page that is gone, or a PDF (no browser reads those)
         )
         resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver()) if resolver is _DEFAULT else resolver
         self.judge = judge or DecisionJudge(laya, passages_per_page=passages_per_page)

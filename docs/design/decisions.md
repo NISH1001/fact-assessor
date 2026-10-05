@@ -201,6 +201,39 @@ Same 20 live search-result URLs: `Crawl4AICrawler` 16/20 pages in 4.8s (2.14s pe
 End to end, 3 alternating rounds: Nepal 6.1s → 5.2s median, mixed 5.8s → 6.0s, same verdicts. The early exit means
 crawling often isn't what a check waits on, so the browser stays the default until more runs confirm the gain.
 
+### Crawling under load (2026-10-04)
+
+Under load (600 URLs at once, about 10 texts), crawling was CPU-bound, not network-bound: BeautifulSoup parsing maxed
+one core (102%), parsing ran inside the HTTP slot and the 2.5s deadline, so downloads waited a median 16.7s for a slot
+and pages that had arrived timed out mid-parse. Raising the HTTP cap made it worse (100 slots: 230 pages read vs 626).
+
+- **Parser**: lxml directly instead of BeautifulSoup on lxml: identical text on 258 crawled pages, 8.5x faster parse.
+  `clean_text` skips lines without a letter or digit before any regex: identical output, 5x faster. Together about 7x
+  less CPU per page. Parsing now happens after the slot and the deadline are released.
+- **Impit in the middle**: impit is an HTTP client with a real browser's TLS fingerprint. httpx with our honest bot
+  user agent and impit get through different sites (impit as Chrome even drew JavaScript challenges where httpx got the
+  page), so they cascade: on 313 pages httpx couldn't read, impit as Firefox read 62 (as Chrome: 23, the browser: 80
+  in 3x the time). Crawlee (which ships impit) itself was slower for us: its scheduler ramps up for large crawls (98s vs
+  35s on the same 600 URLs).
+- **Browser user agent**: crawl4ai's default claims Chrome 116 on Linux. A current desktop Chrome user agent rescued
+  66/64 of 280 pages vs 52/47 (two runs), same speed. Stealth mode added nothing; Firefox read 27 in twice the time,
+  WebKit 52 in 30% more time. More tabs (20) rescued fewer: Chromium slows and pages hit the 2.5s timeout.
+- **`when=~(StatusIn(404, 410) | ContentType("pdf"))`**: the browser rescued 0 of 95 unreadable PDFs and 0 of 2 404s.
+  Every other kind of HTTP failure had some rescues (403 challenge 7%, bare 403 22%, timeout 18%, short HTML 49%), so
+  any further rule trades pages for speed. Whether the browser works depends mostly on the site (ResearchGate 0/110,
+  ScienceDirect 0/74, PMC 26/27); a site list was judged not worth its upkeep.
+- **PDF limit 50 MB** (was 20): a PDF cut short can't be read at all, and theses run 25-35 MB.
+- **HTTP cap 50** (was 20, connections only now): on 600 URLs, 319-327 pages by 20s vs 275, but fewer in total
+  (335-355 vs 377-383): slow pages that would have arrived late anyway.
+
+Results, 600 URLs at once: 50s → 38s wall, CPU 102% → 55%, 335 → 377 pages, 81 → 140 within 10s. With the
+resolver, on 600 hits: 350 read (httpx then browser) vs about 395 (httpx, impit, browser), 17% fewer browser renders.
+Accuracy, all 8,481 hits of the Serper eval crawled the same day from the same IP and replayed with Jev: old cascade
+F1 0.752, new 0.755 (FactReasoner 0.731). The headline 0.779 was crawled on 2026-09-30; by 2026-10-04 MDPI and IOP
+blocked this machine for every crawler (after a day of repeated crawling), which costs both cascades alike. Live, 10
+answers at once with a 30s claim deadline: F1 0.692 vs 0.605 for the old crawling (6 at once, 42s). End to end,
+`FactAssessor` with Jev on 10 SciELF texts: 10 at once p50 21.4s / p90 22.6s (was 71s / 76s), one at a time p50 9.1s.
+
 ## LLM judge, claim filters, shared models
 
 The LLM judge (then `LLMJudge` with a fact-checking prompt; now `DecisionJudge(LLMRunner())`, which renders any

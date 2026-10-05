@@ -4,7 +4,7 @@ files, the eval). Format handling lives here once, so every crawler reads PDFs t
 - `extract(body, content_type)`: decides the format from the content type or the bytes themselves (`%PDF`, `<html`),
   returns `(title, text)` with the text cleaned (`passages.clean_text`), or None if it's unreadable or empty.
 - `pdf_text(data)`: PDFium (pypdfium2, `fact-assessor[pdf]`); thread-safe.
-- `html_text(html)`: BeautifulSoup + lxml, without scripts, menus, headers, footers; formulas as their TeX.
+- `html_text(html)`: lxml, without scripts, menus, headers, footers; formulas as their TeX.
 
 All are synchronous and CPU-bound: call them from async code with `asyncio.to_thread`.
 """
@@ -157,22 +157,39 @@ _WORKERS = _WorkerPool()
 _NOT_CONTENT = ["script", "style", "noscript", "template", "svg", "iframe", "nav", "header", "footer", "aside", "form"]
 
 
+_HTML = None  # lxml parsers, made on first use: (bytes in the page's own charset, text re-encoded as UTF-8)
+
+
 def html_text(html: str | bytes) -> tuple[str, str]:
-    """HTML -> (title, text), without scripts, styles, menus, headers, footers, or forms. Bytes are decoded by
-    BeautifulSoup (from the page's own `<meta charset>`).
+    """HTML -> (title, text), without scripts, styles, menus, headers, footers, or forms. Bytes are decoded from the
+    page's own `<meta charset>`.
 
-    Formulas (MathML, as in arXiv's HTML papers) become their TeX (`alttext`) once: `get_text()` alone would print
-    every MathML token on its own line and then the TeX annotation again."""
-    from bs4 import BeautifulSoup
+    lxml directly, not BeautifulSoup on lxml: the same text on 258 crawled pages, parsed 8.5x faster (BeautifulSoup
+    builds a Python object per tag, and parsing was what capped crawling under load).
 
-    soup = BeautifulSoup(html, "lxml")
-    title = soup.title.get_text(strip=True) if soup.title else ""
-    for tag in soup(_NOT_CONTENT):
-        tag.decompose()
-    for math in soup("math"):
-        tex = math.get("alttext") or (math.find("annotation") or math).get_text(" ", strip=True)
-        math.replace_with(f" {tex} ")
-    return title, soup.get_text("\n")
+    Formulas (MathML, as in arXiv's HTML papers) become their TeX (`alttext`) once: the text alone would print every
+    MathML token on its own line and then the TeX annotation again."""
+    global _HTML
+    import lxml.etree
+    import lxml.html
+
+    if _HTML is None:
+        _HTML = (lxml.html.HTMLParser(remove_comments=True, remove_pis=True),
+                 lxml.html.HTMLParser(remove_comments=True, remove_pis=True, encoding="utf-8"))
+    if isinstance(html, str):  # lxml won't take text that still declares an encoding: hand it UTF-8 bytes
+        root = lxml.html.document_fromstring(html.encode("utf-8"), parser=_HTML[1])
+    else:
+        root = lxml.html.document_fromstring(html, parser=_HTML[0])
+    title_tag = root.find(".//title")
+    title = title_tag.text_content().strip() if title_tag is not None else ""
+    for math in list(root.iter("math", "{http://www.w3.org/1998/Math/MathML}math")):
+        annotation = next(math.iter("annotation", "{http://www.w3.org/1998/Math/MathML}annotation"), None)
+        tex = math.get("alttext") or " ".join(" ".join((annotation if annotation is not None else math).itertext()).split())
+        tail = math.tail
+        math.clear()
+        math.tag, math.text, math.tail = "span", f" {tex} ", tail
+    lxml.etree.strip_elements(root, *_NOT_CONTENT, with_tail=False)
+    return title, "\n".join(root.itertext())
 
 
 def _is_pdf(body: bytes, content_type: str) -> bool:

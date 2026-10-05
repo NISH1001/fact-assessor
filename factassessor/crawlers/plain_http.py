@@ -34,9 +34,9 @@ class HTTPXCrawler(Crawler):
         self,
         timeout: float = 2.5,
         connect_timeout: float = 1.0,
-        max_concurrent: int = 20,
+        max_concurrent: int = 50,  # connections only (text is extracted after): 600 URLs at once, 50 had 319-327 pages by 20s vs 275 at 20
         max_bytes: int = 3_000_000,
-        max_pdf_bytes: int = 20_000_000,
+        max_pdf_bytes: int = 50_000_000,  # a PDF cut short can't be read at all; theses run 25-35 MB
         pdf_timeout: float = 8.0,
         min_words: int = 100,
         accept: Predicate | None = None,  # what counts as a page; default: a 2xx with min_words of text
@@ -54,14 +54,22 @@ class HTTPXCrawler(Crawler):
     @cache(maxsize=2048, ttl=600)  # a page fetched and extracted once, shared by every claim (half of all hits repeat)
     async def crawl(self, url: str) -> Fetch:
         """One GET, and everything it showed: the page when a 2xx gave text (however short), the status, the type,
-        the word count and the start of the body; `usable` by `accept`. Never raises."""
+        the word count and the start of the body; `usable` by `accept`. Never raises.
+
+        The slot and the deadline cover the network only: the text is extracted after both are released. Inside
+        them, 600 URLs at once had downloads waiting a median 16.7s behind the CPU, and pages that had arrived
+        timing out mid-parse."""
         try:
             async with self._slots:  # waiting for a slot doesn't count toward the deadline
                 async with asyncio.timeout(self.timeout) as deadline:
-                    f = await self._fetch(url, deadline)
-        except Exception as exc:  # timeouts, DNS/connection errors, bad encodings
-            f = Fetch(url=url, error=type(exc).__name__)
-        return self.mark(f)
+                    fetched, body, encoding = await self._download(url, deadline)
+        except Exception as exc:  # timeouts, DNS/connection errors
+            return self.mark(Fetch(url=url, error=type(exc).__name__))
+        if body is not None:
+            got = await asyncio.to_thread(extract, body, fetched.content_type, encoding)
+            if got:
+                fetched = fetched.model_copy(update={"page": {"url": url, "title": got[0], "text": got[1]}, "words": len(got[1].split())})
+        return self.mark(fetched)
 
     async def start(self) -> None:
         if self._http is None:
@@ -76,10 +84,12 @@ class HTTPXCrawler(Crawler):
             await self._http.aclose()
             self._http = None
 
-    async def _fetch(self, url: str, deadline: asyncio.Timeout) -> Fetch:
+    async def _download(self, url: str, deadline: asyncio.Timeout) -> tuple[Fetch, bytes | None, str | None]:
+        """(the response's facts, the body to extract text from or None, its declared charset)."""
         await self.start()
         async with self._http.stream("GET", url) as response:
             kind = response.headers.get("content-type", "").split(";")[0].strip().lower()
+            encoding = charset(response.headers.get("content-type", ""))  # only what the server declared; else the page's <meta>
             status = response.status_code
             readable = status < 400 and _maybe_readable(kind)
             maybe_pdf = "pdf" in kind or "octet-stream" in kind
@@ -91,15 +101,38 @@ class HTTPXCrawler(Crawler):
                 body += piece
                 if len(body) >= limit:
                     break
-            encoding = response.charset_encoding  # only what the server declared; else the page's own <meta>
         head = bytes(body[: self.HEAD_BYTES]).decode(encoding or "utf-8", "ignore") if "pdf" not in kind else ""
         fetched = Fetch(url=url, status=status, content_type=kind, body_head=head)
-        if not readable:
-            return fetched
-        got = await asyncio.to_thread(extract, bytes(body[:limit]), kind, encoding)  # a single chunk can overshoot
-        if not got:
-            return fetched
-        return fetched.model_copy(update={"page": {"url": url, "title": got[0], "text": got[1]}, "words": len(got[1].split())})
+        return fetched, bytes(body[:limit]) if readable else None, encoding  # a single chunk can overshoot the limit
+
+
+class ImpitCrawler(HTTPXCrawler):
+    """`HTTPXCrawler` over impit, an HTTP client that looks like a real browser down to the TLS handshake (where
+    bot checks look first; a browser user agent on httpx's own handshake is a mismatch). In the cascade after
+    `HTTPXCrawler`: the honest bot gets the real page from sites that challenge browsers, this one gets past many
+    403s that block bots. On 313 pages httpx couldn't read, the Firefox fingerprint read 62 (Chrome's: 23)."""
+
+    def __init__(self, browser: str = "firefox", **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.browser = browser
+
+    async def start(self) -> None:
+        if self._http is None:
+            import impit
+
+            self._http = impit.AsyncClient(browser=self.browser, timeout=self.timeout, follow_redirects=True)
+
+    async def stop(self) -> None:
+        self._http = None  # impit's client holds no pool to close
+
+
+def charset(content_type: str) -> str | None:
+    """The charset a Content-Type header declares (`text/html; charset=UTF-8` -> "utf-8"), or None."""
+    for part in content_type.split(";")[1:]:
+        key, _, value = part.partition("=")
+        if key.strip().lower() == "charset" and value.strip().strip('"'):
+            return value.strip().strip('"').lower()
+    return None
 
 
 def _maybe_readable(content_type: str) -> bool:
