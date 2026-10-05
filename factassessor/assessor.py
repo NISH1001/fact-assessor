@@ -33,7 +33,7 @@ from factassessor.pipeline import Cache, Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
 from factassessor.verify import Policy, Verify, WeightedPolicy
-from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, Resolver
+from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, PMCResolver, Resolver
 
 _END = object()
 _DEFAULT: Any = object()  # "build the default" (so claim_filter=None can mean "no filter")
@@ -94,7 +94,7 @@ class FactAssessor:
             Crawl4AICrawler(timeout=crawl_timeout, max_concurrent=max_concurrent_crawls),
             when=~(StatusIn(404, 410) | ContentType("pdf")),  # not for a page that is gone, or a PDF (no browser reads those)
         )
-        resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver()) if resolver is _DEFAULT else resolver
+        resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()) if resolver is _DEFAULT else resolver
         self.judge = judge or DecisionJudge(laya, passages_per_page=passages_per_page)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf)
         claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}

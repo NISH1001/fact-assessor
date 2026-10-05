@@ -15,7 +15,7 @@ from factassessor.judges import DecisionJudge, Judge
 from factassessor.laya import LayaRunner
 from factassessor.pipeline import Cache, Chain, Filter, FlatMap, Map, Predicate, Scan, Step, Take, TakeUntil, collect, last, once
 from factassessor.rankers import BM25Ranker, EmbeddingRanker, HybridRanker, Ranker
-from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, Resolver
+from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, PMCResolver, Resolver
 from factassessor.schema import (
     Atom,
     AtomResult,
@@ -48,7 +48,7 @@ __all__ = [
     "ClaimFilter", "DecisionClaimFilter",
     "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher", "DocumentSearcher", "SearchType",
     "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "ImpitCrawler", "CascadedCrawler", "NoCrawler", "Fetch",
-    "Resolver", "ArxivResolver", "OpenAlexResolver", "CompositeResolver",
+    "Resolver", "ArxivResolver", "OpenAlexResolver", "PMCResolver", "CompositeResolver",
     "Ranker", "BM25Ranker", "EmbeddingRanker", "HybridRanker",
     "Judge", "DecisionJudge",
     "Policy", "WeightedPolicy",

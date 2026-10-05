@@ -58,7 +58,7 @@ from factassessor import Atom, Crawl4AICrawler, DecisionClaimFilter, DecisionJud
 from factassessor._llm import reasoning_off
 from factassessor.atomizer import Atomizer, LLMAtomizer
 from factassessor.crawlers import Crawler, Fetch, HTTPXCrawler
-from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, locations
+from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, PMCResolver, locations
 from factassessor.verify import read_first
 from factassessor.pipeline import Take
 from factassessor.search import DuckDuckGoSearcher, Searcher, SearxngSearcher, is_blocked, not_blocked
@@ -460,7 +460,7 @@ class PaperReader(Crawler):
     then the page itself, over plain HTTP."""
 
     def __init__(self, min_words: int = 300, **http: Any) -> None:
-        self.resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver())
+        self.resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())
         self.http = HTTPXCrawler(**http)
         self.min_words = min_words
 

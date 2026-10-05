@@ -188,3 +188,23 @@ def test_locations_direct_pdf_hit_first_ordinary_page_last():
     assert locations("https://en.wikipedia.org/wiki/NASA", []) == ["https://en.wikipedia.org/wiki/NASA"]
     assert locations("https://arxiv.org/pdf/1706.03762", ["https://arxiv.org/html/1706.03762", "https://arxiv.org/pdf/1706.03762"]) == [
         "https://arxiv.org/pdf/1706.03762", "https://arxiv.org/html/1706.03762"]  # listed once
+
+
+async def test_a_pmc_article_resolves_to_its_europe_pmc_full_text_with_no_request():
+    # PMC served reCAPTCHA pages to bursts of requests; Europe PMC mirrors every PMC article, and its full-text
+    # endpoint read over plain HTTP on 3 of 4 sampled papers (10-14k words each)
+    from factassessor.resolvers import PMCResolver
+
+    r = PMCResolver()
+    assert isinstance(r, Resolver)
+    url = "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC12375767/fullTextXML"
+    assert await r.resolve("https://pmc.ncbi.nlm.nih.gov/articles/PMC12375767/") == [url]
+    assert await r.resolve("https://www.ncbi.nlm.nih.gov/pmc/articles/PMC12375767") == [url]
+    assert await r.resolve("https://example.org/paper") == []
+
+
+def test_the_default_resolver_includes_pmc():
+    from factassessor import FactAssessor
+    from factassessor.resolvers import PMCResolver
+
+    assert any(isinstance(r, PMCResolver) for r in FactAssessor().verify.resolver.resolvers)
