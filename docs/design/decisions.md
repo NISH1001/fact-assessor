@@ -235,6 +235,23 @@ answers at once with a 30s claim deadline: F1 0.692 vs 0.605 for the old crawlin
 latency is still to be re-measured: a run giving 10 texts at once p50 21.4s / p90 22.6s most likely had the atomizer
 falling back to sentences (OpenAI credits ran out), with no LLM call and no source-paper search, so it is not counted.
 
+**Live crawl at fixed searches (2026-10-05).** `eval_atoms.py replay --live-crawl`: FactReasoner's 1,667 labelled atoms,
+the 2026-09-30 run's Serper results and source queries (no atomizer, no Serper), resolved, crawled and judged (Jev)
+live under the 30s claim deadline. Two runs each, reported F1:
+
+| answers at once | crawling | F1 combined | F1 corrupted | timeouts | claim p90 |
+|---|---|---|---|---|---|
+| 3 (about the claims of 10 product texts) | new | 0.732, 0.749 | 0.712, 0.719 | 93, 154 | 22.9s, 29.6s |
+| 3 | new + 6 per host | 0.733 | 0.713 | 139 | 25.4s |
+| 3 | before impit (httpx 20, crawl4ai's user agent) | 0.751, 0.744 | 0.734, 0.717 | 196, 193 | 30.0s, 30.0s |
+| 10 (about 25 texts' claims) | new | 0.666 | 0.654 | 1,042 | 38.1s |
+| FactReasoner (no clock) | | 0.731 | 0.694 | | |
+
+The cascades are within run-to-run noise on accuracy (spread 0.017); the new one times out less. At 10 answers at once
+(about 167 claims) the machine is overloaded and claims wait on the crawl (p50 25s). The 6-per-host limit (Scrapy's
+default is 8) is kept to avoid bursts at one site: PMC served reCAPTCHA pages mid-run, and after a day of crawling
+MDPI and IOP blocked this machine for every crawler.
+
 ## LLM judge, claim filters, shared models
 
 The LLM judge (then `LLMJudge` with a fact-checking prompt; now `DecisionJudge(LLMRunner())`, which renders any

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -39,7 +40,8 @@ class HTTPXCrawler(Crawler):
         max_pdf_bytes: int = 50_000_000,  # a PDF cut short can't be read at all; theses run 25-35 MB
         pdf_timeout: float = 8.0,
         min_words: int = 100,
-        accept: Predicate | None = None,  # what counts as a page; default: a 2xx with min_words of text
+        accept: Predicate | None = None,
+        max_per_host: int = 6,  # sites throttle bursts: PMC served reCAPTCHA pages mid-run (Scrapy's default per domain: 8)  # what counts as a page; default: a 2xx with min_words of text
     ) -> None:
         super().__init__(accept or HasPage() & MinWords(min_words))
         self.timeout = timeout
@@ -49,6 +51,8 @@ class HTTPXCrawler(Crawler):
         self.pdf_timeout = pdf_timeout
         self.min_words = min_words
         self._slots = asyncio.Semaphore(max_concurrent)
+        self.max_per_host = max_per_host
+        self._host_slots: dict[str, asyncio.Semaphore] = {}
         self._http: httpx.AsyncClient | None = None
 
     @cache(maxsize=2048, ttl=600)  # a page fetched and extracted once, shared by every claim (half of all hits repeat)
@@ -60,7 +64,8 @@ class HTTPXCrawler(Crawler):
         them, 600 URLs at once had downloads waiting a median 16.7s behind the CPU, and pages that had arrived
         timing out mid-parse."""
         try:
-            async with self._slots:  # waiting for a slot doesn't count toward the deadline
+            # the site's slot first, then a connection: a request waiting on its site holds no connection meanwhile
+            async with self._host_slot(url), self._slots:  # waiting for either doesn't count toward the deadline
                 async with asyncio.timeout(self.timeout) as deadline:
                     fetched, body, encoding = await self._download(url, deadline)
         except Exception as exc:  # timeouts, DNS/connection errors
@@ -70,6 +75,12 @@ class HTTPXCrawler(Crawler):
             if got:
                 fetched = fetched.model_copy(update={"page": {"url": url, "title": got[0], "text": got[1]}, "words": len(got[1].split())})
         return self.mark(fetched)
+
+    def _host_slot(self, url: str) -> asyncio.Semaphore:
+        host = urlsplit(url).hostname or ""
+        if host not in self._host_slots:
+            self._host_slots[host] = asyncio.Semaphore(self.max_per_host)
+        return self._host_slots[host]
 
     async def start(self) -> None:
         if self._http is None:

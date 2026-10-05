@@ -46,7 +46,7 @@ text
 | Atomize + decontextualize | `LLMAtomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning as low as the model allows) | API, ~2s |
 | Claim filter | `DecisionClaimFilter`: one `choice` decision per atom (is this a factual claim?) on a decision runner, [Laya](https://github.com/NandhaKishorM/laya) by default | local (MPS / CUDA / CPU) |
 | Search | [Serper](https://serper.dev); social media and video sites excluded in the query (`-site:`, so Google fills those slots) and filtered after | API, ~1s |
-| Resolve (optional) | `CompositeResolver(ArxivResolver(), OpenAlexResolver())`: a paper's full text from its free copies | network, ~0.2s/paper |
+| Resolve (optional) | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())`: a paper's full text from its free copies | network, ~0.2s/paper |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text; or `HTTPXCrawler` (HTML and PDF) | network, ~1s/page |
 | Rank passages | `Ranker`: which chunks of a page the judge sees. `BM25Ranker` (default, word overlap); `HybridRanker` adds 8M-parameter static embeddings for paraphrase (`fact-assessor[embed]`) | local, ms |
 | Evidence judge | `DecisionJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages cut into 90-word windows, the ranker's top passages per page, one decision each on the same runner | local |
@@ -298,7 +298,7 @@ come for free.
 | `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer()` |
 | `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` on Laya; `DecisionClaimFilter(runner)` for another model |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
-| `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | `CompositeResolver(ArxivResolver(), OpenAlexResolver())`; `None` turns it off |
+| `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())`; `None` turns it off |
 | `crawler=` | `Crawler` | `crawl(url) -> Fetch`: the page `{"url", "title", "text"}`, the status, and `usable` (its `accept` rule) | `CascadedCrawler(HTTPXCrawler(), ImpitCrawler(), Crawl4AICrawler(), when=~(StatusIn(404, 410) \| ContentType("pdf")))`: plain HTTP, then HTTP that looks like Firefox (gets past many 403s), then a real browser; gone pages and PDFs skip the browser |
 | `judge=` | `Judge` (a Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()` on Laya; `DecisionJudge(LLMRunner())`, `DecisionJudge(SystemOneRunner())`, `DecisionJudge(GlinerRunner())` for other models. Takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
 | `policy=` | `Policy` (a Protocol) | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
@@ -395,7 +395,7 @@ from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, Cas
 
 FactAssessor(
     source_query=True,                          # the atomizer also writes one search for the text's source document
-    resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver()),   # papers: free full-text copies first
+    resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()),   # papers: free full-text copies first
     crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()),        # plain HTTP (HTML and PDF), browser only if needed
     judge=DecisionJudge(passages_per_page=3),       # 3 passages per page: +0.10 F1 on the paper eval, ~3s more per text
 )

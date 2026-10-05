@@ -251,7 +251,7 @@ needs 300. Words, not characters: links and markup leftovers inflate character c
 |---|---|---|
 | atomizer | `openai:gpt-5.6-luna` (reasoning as low as the model allows), no source query | `openai:gpt-6-luna` (same atoms, half the price; gpt-5-nano can't atomize), `source_query=True` |
 | search | Serper (web) | self-hosted SearXNG |
-| resolver | none | `CompositeResolver(ArxivResolver(), OpenAlexResolver())` |
+| resolver | none | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())` |
 | crawler | `Crawl4AICrawler(timeout=2.5)` | `CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())` |
 | judge / policy | `DecisionJudge()`, `WeightedPolicy(strong=0.7, early_exit=0.9)` | same |
 
@@ -263,7 +263,7 @@ fa = FactAssessor(
     atomizer_model="openai:gpt-6-luna",
     source_query=True,
     searcher=SearxngSearcher("http://localhost:8080", num=10) >> not_blocked() >> Take(5),
-    resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver()),
+    resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()),
     crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()),
 )
 ```

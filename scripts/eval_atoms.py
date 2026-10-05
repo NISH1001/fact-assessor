@@ -52,7 +52,7 @@ from factassessor import (
 )
 from factassessor._llm import reasoning_off
 from factassessor.rankers import HybridRanker
-from factassessor.resolvers import locations
+from factassessor.resolvers import PMCResolver, locations
 
 OUT = Path("tmp/eval_atoms")
 TOP_K = 5
@@ -349,11 +349,11 @@ class Pipeline:
         else:
             base_search = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type, hedge_after=None)
         searcher = base_search >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
-        self.resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver())
+        self.resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())
         self.crawler = FactAssessor(claim_filter=None, judge=self.judge).crawler  # the library's default cascade
         save_hits = lambda: _save(run_dir / "hits.json.gz", hits)  # noqa: E731  # every paid search on disk at once
         self.verify = Verify(
-            TimedSearch(searcher, hits, slots=16 if args.searcher == "serper" else 4, save=save_hits),  # SearXNG's engines suspend bursts
+            TimedSearch(searcher, hits, slots=50 if args.searcher == "serper" else 4, save=save_hits),  # Serper: its own limit, 50/s; SearXNG's engines suspend bursts
             TimedCrawler(self.crawler), TimedJudge(self.judge, pages), WeightedPolicy(strong=args.strong), timeout=args.timeout,
             resolver=TimedResolver(self.resolver) if self.resolver else None,
             pages_per_claim=TOP_K * (1 if args.no_source_query else 2) if args.overfetch else None,
@@ -384,6 +384,10 @@ async def live(args: argparse.Namespace) -> None:
         async with slots:
             t0 = time.perf_counter()
             ours = await atomizer.atomize(answer["text"])  # timed only: scoring uses the labelled atoms
+            if not args.no_source_query and not (ours and ours[0].source_query):
+                # the atomizer fell back to sentences (an API outage, no credits): no source query, so no search for the
+                # source paper, and the run would quietly measure something else (2026-10-04: credits ran out mid-session)
+                raise SystemExit(f"{answer['id']}: the atomizer returned no source query (see its warning above); stopping")
             t1 = time.perf_counter()
             kept = await collect(pipe.claim_filter(_stream(ours)))
             t2 = time.perf_counter()
@@ -537,8 +541,19 @@ async def replay(args: argparse.Namespace) -> None:
     await judge.aload()
     source_queries = [r["source_query"] for r in live_results if r.get("source_query")]
     caps = {q: args.source_hits for q in source_queries} if args.source_hits else {}
-    verify = Verify(CachedSearch(hits, caps, limit=args.hits), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong), timeout=120,
-                    pages_per_claim=args.pages_per_claim)
+    resolver = crawler = None
+    if args.live_crawl:  # the run's searches and source queries; resolved, crawled and judged live, under the claim deadline
+        resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())
+        crawler = FactAssessor(claim_filter=None, judge=judge).crawler  # the library's default cascade
+        if args.crawler == "before-impit":  # the cascade before 2026-10-04: httpx (20 connections) then the browser, crawl4ai's own user agent
+            crawler = CascadedCrawler(HTTPXCrawler(max_concurrent=20), Crawl4AICrawler(
+                user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36"))
+        verify = Verify(CachedSearch(hits, caps, limit=args.hits), TimedCrawler(crawler), TimedJudge(judge, {}),
+                        WeightedPolicy(strong=args.strong), timeout=args.timeout, resolver=TimedResolver(resolver),
+                        pages_per_claim=args.pages_per_claim or TOP_K * (1 if args.no_source_query else 2))  # as live
+    else:
+        verify = Verify(CachedSearch(hits, caps, limit=args.hits), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong),
+                        timeout=120, pages_per_claim=args.pages_per_claim)
     start = time.perf_counter()
     slots = asyncio.Semaphore(args.parallel)  # answers at once: several answers' passages fill the runner's batches
 
@@ -557,6 +572,9 @@ async def replay(args: argparse.Namespace) -> None:
 
     out = list(await asyncio.gather(*(one(r) for r in live_results)))
     await judge.aclose()
+    if crawler is not None:
+        await crawler.aclose()
+        await resolver.aclose()
     print(f"replayed {len(out)} answers in {time.perf_counter() - start:.0f}s ({args.parallel} at a time; judge {args.judge}{_cost(judge)})")
     _write_meta(OUT / args.out, args)
     _save(OUT / args.out / "results.json.gz", out)
@@ -642,6 +660,9 @@ def main() -> None:
     rp.add_argument("--no-source-query", action="store_true", help="claims judged on their own hits only")
     rp.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"], help="which chunks of a page the judge sees")
     rp.add_argument("--alpha", type=float, default=0.5, help="hybrid ranker: BM25's weight (1 - alpha for embeddings)")
+    rp.add_argument("--live-crawl", action="store_true", help="resolve, crawl and judge live under --timeout (searches and source queries from the run)")
+    rp.add_argument("--crawler", default="default", choices=["default", "before-impit"], help="with --live-crawl: the cascade to crawl with")
+    rp.add_argument("--timeout", type=float, default=30.0, help="per-claim deadline with --live-crawl (the library default)")
     rp.add_argument("--parallel", type=int, default=4, help="answers judged at once (a replay has no network: the judge's runner is the floor)")
     sy = sub.add_parser("synth", help="end to end on our own atoms: atomize, corrupt one detail per atom, check both")
     sy.add_argument("--data", required=True)

@@ -415,3 +415,23 @@ def test_the_charset_comes_from_the_content_type_header():
     assert charset("text/html; charset=ISO-8859-1") == "iso-8859-1"
     assert charset('text/html;charset="utf-8"') == "utf-8"
     assert charset("text/html") is None and charset("") is None
+
+
+async def test_at_most_max_per_host_requests_to_one_site_at_once():
+    # 50 connections at once could all go to one site, and sites throttle bursts: PMC answered with reCAPTCHA pages
+    # mid-run, and pages the old 20-connection cascade had read went missing. Scrapy and Crawlee also cap per domain.
+    running, peak = {}, {}
+
+    async def handler(request):
+        host = request.url.host
+        running[host] = running.get(host, 0) + 1
+        peak[host] = max(peak.get(host, 0), running[host])
+        await asyncio.sleep(0.02)
+        running[host] -= 1
+        return httpx.Response(200, content=PAGE.encode(), headers={"content-type": "text/html"})
+
+    c = crawler(handler, max_concurrent=50, max_per_host=3)
+    urls = [f"https://pmc.org/{i}" for i in range(12)] + [f"https://other{i}.org/" for i in range(6)]
+    await asyncio.gather(*(c.crawl(u) for u in urls))
+    assert peak["pmc.org"] == 3 and all(peak[f"other{i}.org"] == 1 for i in range(6))
+    assert HTTPXCrawler().max_per_host == 6

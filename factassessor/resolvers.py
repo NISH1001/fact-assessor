@@ -7,6 +7,7 @@ page just moves on to the next. A URL that isn't the resolver's kind gets `[]` a
 
 - `ArxivResolver`: any arXiv link -> its full paper, `arxiv.org/html/<id>` then `arxiv.org/pdf/<id>`; no request.
 - `OpenAlexResolver`: a URL with a DOI -> the paper's open-access copies (one free OpenAlex lookup).
+- `PMCResolver`: a PubMed Central article -> its full text on Europe PMC; no request.
 - `CompositeResolver(a, b, ...)`: every resolver at once, their candidates joined in order.
 
 `locations(url, candidates)` is the order the crawl stage tries them in: a hit that is itself a PDF first (exactly
@@ -103,6 +104,22 @@ class ArxivResolver:
             return []
         html, pdf = f"https://arxiv.org/html/{id}", f"https://arxiv.org/pdf/{id}"
         return [html, pdf] if self.prefer == "html" else [pdf, html]
+
+
+_PMC = re.compile(r"/(PMC\d+)", re.IGNORECASE)
+
+
+class PMCResolver:
+    """A PubMed Central article -> its full text on Europe PMC, which mirrors every PMC article; no request. PMC itself
+    serves reCAPTCHA pages to bursts of requests; the Europe PMC endpoint read over plain HTTP on 3 of 4 sampled
+    papers (10-14k words). Where Europe PMC has no full text, the crawler moves on to the PMC page."""
+
+    URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/{}/fullTextXML"
+
+    async def resolve(self, url: str) -> list[str]:
+        if "ncbi.nlm.nih.gov" not in url or (m := _PMC.search(url)) is None:
+            return []
+        return [self.URL.format(m.group(1).upper())]
 
 
 # --- DOIs, via OpenAlex ------------------------------------------------------------------------------------------
