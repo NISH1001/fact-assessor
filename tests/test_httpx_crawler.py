@@ -329,3 +329,89 @@ async def test_the_cascade_returns_the_fetch_of_the_crawler_it_stopped_at():
     assert f.crawler == "Counting" and f.page["text"].startswith("rendered")
     f = await CascadedCrawler(crawler(responses(SITES), min_words=100), Counting(), when=NeedsBrowser()).crawl("https://gone.org/")
     assert f.crawler == "HTTPXCrawler" and f.status == 404 and not f
+
+
+# --- the network is timed and capped; parsing is not --------------------------------------------------------
+
+async def test_parsing_neither_holds_a_connection_slot_nor_counts_against_the_deadline(monkeypatch):
+    # under load, pages parsed inside the slot and the deadline made downloads queue behind the CPU (16.7s median
+    # wait at 600 URLs) and pages that had downloaded fine time out mid-parse
+    import time
+
+    import factassessor.crawlers.plain_http as ph
+
+    real = ph.extract
+    held = []
+
+    def slow_extract(body, kind, encoding=None):
+        held.append(c._slots._value)  # free slots while parsing
+        time.sleep(0.3)  # a big page: longer than the deadline below
+        return real(body, kind, encoding)
+
+    monkeypatch.setattr(ph, "extract", slow_extract)
+    c = crawler(html(), timeout=0.2, max_concurrent=1)
+    f = await c.crawl("https://big.org")
+    assert f and f.page["title"] == "Nepal earthquake - Wikipedia"  # read, not a TimeoutError
+    assert held == [1]  # the one slot was free again while parsing
+
+
+# --- ImpitCrawler: the same crawler, over a client that looks like a real browser at the TLS level ---------------
+
+class FakeImpit:
+    """impit's client surface as HTTPXCrawler uses it: stream() -> status, headers, aiter_bytes()."""
+
+    def __init__(self, status=200, body=PAGE.encode(), ctype="text/html; charset=utf-8"):
+        self.status, self.body, self.ctype = status, body, ctype
+
+    def stream(self, method, url):
+        test = self
+
+        class Response:
+            status_code, headers = test.status, {"content-type": test.ctype}
+
+            async def aiter_bytes(self):
+                yield test.body
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return Response()
+
+    async def aclose(self):
+        pass
+
+
+async def test_impit_crawler_reads_pages_like_the_httpx_one_and_names_itself():
+    from factassessor.crawlers import ImpitCrawler
+
+    c = ImpitCrawler(min_words=0)
+    c._http = FakeImpit()
+    f = await c.crawl("https://journal.org/paper")
+    assert f and f.crawler == "ImpitCrawler" and f.page["title"] == "Nepal earthquake - Wikipedia"
+    c._http = FakeImpit(status=403, body=b"<html>Access Denied</html>")
+    f = await c.crawl("https://journal.org/other")
+    assert (f.status, bool(f)) == (403, False)
+
+
+async def test_impit_crawler_impersonates_firefox_by_default():
+    # on 313 pages plain httpx couldn't read: Firefox's fingerprint read 62, Chrome's 23 (Chrome's drew JS checks)
+    from factassessor.crawlers import ImpitCrawler
+
+    c = ImpitCrawler()
+    assert c.browser == "firefox" and ImpitCrawler(browser="chrome").browser == "chrome"
+    await c.start()
+    import impit
+
+    assert isinstance(c._http, impit.AsyncClient)
+    await c.stop()
+
+
+def test_the_charset_comes_from_the_content_type_header():
+    from factassessor.crawlers.plain_http import charset
+
+    assert charset("text/html; charset=ISO-8859-1") == "iso-8859-1"
+    assert charset('text/html;charset="utf-8"') == "utf-8"
+    assert charset("text/html") is None and charset("") is None

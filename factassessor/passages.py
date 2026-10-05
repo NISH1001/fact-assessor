@@ -18,6 +18,8 @@ _TABLE_RULE = re.compile(r"^\|?[\s:|-]+\|?$")  # |---|:---:|
 _BULLET = re.compile(r"^[*+-]\s+")
 _TAG = re.compile(r"</?[a-zA-Z][^>]*>")
 _JSON_LINE = re.compile(r'^\s*[\[{].*["\]}]\s*$')  # a line that's a JSON object/array, e.g. JSON-LD metadata
+_ALNUM = re.compile(r"[^\W_]")  # a letter or digit (str.isalnum), found in C instead of a Python loop
+_SPACE_PUNCT = re.compile(r" ([,.;:!?])")
 
 
 _MINUS = str.maketrans({"\u2212": "-", "\u2010": "-", "\u2011": "-"})  # minus sign, hyphen, non-breaking hyphen
@@ -32,25 +34,37 @@ def normalize_text(text: str) -> str:
 
 
 def clean_text(markdown: str) -> str:
-    """Crawled markdown -> plain text: no formatting, citations, table pipes, or menu/share-button lines."""
+    """Crawled markdown -> plain text: no formatting, citations, table pipes, or menu/share-button lines.
+
+    Every rule only removes characters, so a line without a letter or digit is dropped before any of them run, and
+    each rule runs only on lines with its marker: the same output as running all of them, 5x faster on 258 pages."""
     lines = []
     for line in markdown.splitlines():
-        if "<script" in line.lower() or "<style" in line.lower():
-            continue  # a leaked <script>/<style> block (e.g. JSON-LD): markup, not content
-        line = _TAG.sub("", line).strip()
-        if _JSON_LINE.match(line) and line.count('"') >= 4:
+        if not _ALNUM.search(line):
             continue
-        if _TABLE_RULE.match(line):
+        if "<" in line:
+            low = line.lower()
+            if "<script" in low or "<style" in low:
+                continue  # a leaked <script>/<style> block (e.g. JSON-LD): markup, not content
+            line = _TAG.sub("", line)
+        line = line.strip()
+        if line[:1] in ("[", "{") and _JSON_LINE.match(line) and line.count('"') >= 4:
             continue
-        if line.count("|") >= 2:  # table row, wherever it starts
-            line = " ".join(cell.strip() for cell in line.split("|") if cell.strip())
-        if _BULLET.match(line):
+        if "|" in line:
+            if _TABLE_RULE.match(line):
+                continue
+            if line.count("|") >= 2:  # table row, wherever it starts
+                line = " ".join(cell.strip() for cell in line.split("|") if cell.strip())
+        if line[:1] in ("*", "+", "-") and _BULLET.match(line):
             line = _BULLET.sub("", line)
             if len(line.split()) <= 2:  # "Facebook", "Next page": navigation, not content
                 continue
         line = line.lstrip("#").strip()
-        line = _EMPHASIS.sub("", _CITATION.sub("", line))
-        line = re.sub(r"\s+([,.;:!?])", r"\1", re.sub(r"\s+", " ", line)).strip()
+        if "[" in line:
+            line = _CITATION.sub("", line)
+        if "*" in line or "_" in line:
+            line = _EMPHASIS.sub("", line)
+        line = _SPACE_PUNCT.sub(r"\1", " ".join(line.split()))
         if any(ch.isalnum() for ch in line):
             lines.append(line)
     return "\n".join(lines)

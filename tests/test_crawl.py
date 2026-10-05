@@ -147,3 +147,12 @@ async def test_a_successful_render_without_a_status_counts_as_200():
         return result()  # crawl4ai sometimes reports no status_code for a page it loaded fine
 
     assert (await crawler_with(ok).crawl("https://x.org")).page["title"] == "Marie Curie - Wikipedia"
+
+
+def test_the_browser_says_it_is_a_current_desktop_chrome():
+    # crawl4ai's default user agent is Chrome 116 on Linux, which doesn't match the browser that runs it: on the same
+    # 280 pages plain HTTP couldn't read, a current Chrome user agent rescued 66/64 vs 52/47 (two runs), same speed
+    from factassessor.crawlers.browser import CHROME_USER_AGENT
+
+    assert Crawl4AICrawler().user_agent == CHROME_USER_AGENT and "Chrome/" in CHROME_USER_AGENT and "Headless" not in CHROME_USER_AGENT
+    assert Crawl4AICrawler(user_agent="mine").user_agent == "mine"

@@ -141,7 +141,7 @@ def test_default_pipeline_is_built_from_the_familiar_arguments():
     assert claim_filter.threshold == 0.6
     serper, block, take_hits = fa.searcher.step.steps  # under the Cache wrapper
     assert take_atoms.n == 8 and serper.num == 10 and take_hits.n == 3  # 10 results = 1 Serper credit
-    assert [c.timeout for c in fa.crawler.crawlers] == [1.5, 1.5]
+    assert [c.timeout for c in fa.crawler.crawlers] == [1.5, 1.5, 1.5]
     assert block.pred({"url": "https://facebook.com/x"}) and not block.pred({"url": "https://example.com/x"})
     assert serper.exclude == ("example.com",) and serper.query("q") == "q -site:example.com"  # the same list, in the query
 
@@ -156,8 +156,12 @@ def test_defaults_are_the_measured_best_setup():
     assert take_hits.n == 10 and serper.num == 10  # overfetch 1.0: 10 hits per query, still 1 credit
     assert fa.verify.pages_per_claim == 10  # the first 10 readable pages (own hits + the source query's)
     assert isinstance(fa.verify.resolver, CompositeResolver)  # papers read in full (arXiv, OpenAlex)
-    assert isinstance(fa.crawler, CascadedCrawler) and fa.crawler.when is None  # every HTTP failure tries the browser, for now
-    assert [type(c) for c in fa.crawler.crawlers] == [HTTPXCrawler, Crawl4AICrawler]
+    from factassessor.crawlers import ImpitCrawler
+
+    # honest HTTP, then HTTP that looks like Firefox, then a real browser: on 600 hits (with the resolver) 395 read vs
+    # 350 for HTTP then browser, with 17% fewer browser renders
+    assert isinstance(fa.crawler, CascadedCrawler) and [type(c) for c in fa.crawler.crawlers] == [HTTPXCrawler, ImpitCrawler, Crawl4AICrawler]
+    assert fa.crawler.crawlers[0].max_pdf_bytes == 50_000_000  # a cut PDF can't be read at all: theses run 25-35 MB
     assert fa.judge.passages_per_page == 3 and isinstance(fa.judge.runner, LayaRunner)
     assert fa.verify.timeout == 30
     assert FactAssessor(resolver=None).verify.resolver is None  # opt out
@@ -222,3 +226,16 @@ def test_assess_many_sync_for_plain_scripts():
     results = fa.assess_many_sync([TEXT, TEXT], concurrency=2)
     assert [r.fact_score for r in results] == [0.5, 0.5]
     fa.close()
+
+
+def test_the_default_cascade_sends_every_failure_to_the_browser_except_404s_and_pdfs():
+    # a browser can't bring back a page that is gone (404, 410) or read a PDF plain HTTP couldn't (0 of 95 rescued)
+    from factassessor.crawlers import Fetch
+
+    when = FactAssessor().crawler.when
+    tried = lambda **kw: when(Fetch(url="u", **kw))  # noqa: E731
+    assert not tried(status=404) and not tried(status=410)
+    assert not tried(status=200, content_type="application/pdf")
+    assert tried(status=403, content_type="text/html")         # bot blocks: often readable in a browser
+    assert tried(status=200, content_type="text/html", words=5)  # JavaScript shells
+    assert tried(error="TimeoutError") and tried(status=503)

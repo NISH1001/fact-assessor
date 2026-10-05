@@ -12,6 +12,13 @@ from factassessor.passages import clean_text
 from factassessor.utils import cache
 
 
+# A current desktop Chrome. crawl4ai's default (Chrome 116 on Linux) doesn't match the browser running it, which bot
+# checks notice: on 280 pages plain HTTP couldn't read, this one rescued 66/64 vs 52/47 (two runs) at the same speed.
+CHROME_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+)
+
+
 class Crawl4AICrawler(Crawler):
     """crawl4ai with one shared headless browser.
 
@@ -21,8 +28,11 @@ class Crawl4AICrawler(Crawler):
 
     HEAD_CHARS = 16_000  # the start of the rendered HTML is kept for markers (bot checks), like HTTPXCrawler's body
 
-    def __init__(self, timeout: float = 2.5, max_concurrent: int = 10, accept: Predicate | None = None) -> None:
+    def __init__(
+        self, timeout: float = 2.5, max_concurrent: int = 10, accept: Predicate | None = None, user_agent: str = CHROME_USER_AGENT
+    ) -> None:
         super().__init__(accept or HasPage())  # default: a 2xx with any text
+        self.user_agent = user_agent
         self.timeout = timeout  # good pages crawl in ~0.6-1.6s; a 6s timeout let one dead site set the latency
         self._slots = asyncio.Semaphore(max_concurrent)
         self._browser: Any = None
@@ -74,7 +84,7 @@ class Crawl4AICrawler(Crawler):
             if self._browser is None:
                 from crawl4ai import AsyncWebCrawler, BrowserConfig
 
-                browser = AsyncWebCrawler(config=BrowserConfig(headless=True, text_mode=True, light_mode=True, verbose=False))
+                browser = AsyncWebCrawler(config=BrowserConfig(headless=True, text_mode=True, light_mode=True, verbose=False, user_agent=self.user_agent))
                 await browser.start()
                 self._browser = browser
         return self._browser

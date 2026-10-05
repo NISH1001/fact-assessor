@@ -299,7 +299,7 @@ come for free.
 | `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` on Laya; `DecisionClaimFilter(runner)` for another model |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | `CompositeResolver(ArxivResolver(), OpenAlexResolver())`; `None` turns it off |
-| `crawler=` | `Crawler` | `crawl(url) -> Fetch`: the page `{"url", "title", "text"}`, the status, and `usable` (its `accept` rule) | `CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())`; `when=NeedsBrowser()` sends only JavaScript shells and bot checks to the browser |
+| `crawler=` | `Crawler` | `crawl(url) -> Fetch`: the page `{"url", "title", "text"}`, the status, and `usable` (its `accept` rule) | `CascadedCrawler(HTTPXCrawler(), ImpitCrawler(), Crawl4AICrawler(), when=~(StatusIn(404, 410) \| ContentType("pdf")))`: plain HTTP, then HTTP that looks like Firefox (gets past many 403s), then a real browser; gone pages and PDFs skip the browser |
 | `judge=` | `Judge` (a Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()` on Laya; `DecisionJudge(LLMRunner())`, `DecisionJudge(SystemOneRunner())`, `DecisionJudge(GlinerRunner())` for other models. Takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
 | `policy=` | `Policy` (a Protocol) | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 
