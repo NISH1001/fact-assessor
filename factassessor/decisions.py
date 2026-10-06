@@ -248,10 +248,13 @@ class SystemOneRunner(DecisionRunner):
 
     async def _post(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
         body, routes = pack(requests, self.model)
+        response: httpx.Response | None = None  # the most recent reply; None when the last attempt never got one
+        network_error: httpx.TransportError | None = None
         for attempt in range(4):
             try:
                 response = await self._http.post(self.url, json=body)  # type: ignore[union-attr]
-            except httpx.TransportError:
+            except httpx.TransportError as exc:
+                response, network_error = None, exc
                 await asyncio.sleep(0.5 * 2**attempt)
                 continue
             if response.status_code == 429 or response.status_code >= 500:
@@ -259,7 +262,9 @@ class SystemOneRunner(DecisionRunner):
                 continue
             response.raise_for_status()
             break
-        else:
+        else:  # out of retries: raise the most recent failure, the network error or the HTTP one
+            if response is None:
+                raise network_error  # type: ignore[misc]
             response.raise_for_status()
         data = response.json()
         usage = {k: float(v) for k, v in (data.get("usage") or {}).items() if isinstance(v, (int, float))}
