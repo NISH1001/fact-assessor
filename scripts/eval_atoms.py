@@ -348,6 +348,9 @@ async def fill_pages(cache_hits: dict[str, Any], pages: dict[str, Any], resolver
     await asyncio.gather(*(read(u) for u in todo))
 
 
+_DEFAULT_RESOLVER = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())  # as FactAssessor's default
+
+
 class Pipeline:
     """The live pipeline of a run: its judge, filter, verify step and the resources to close."""
 
@@ -362,8 +365,10 @@ class Pipeline:
         self.resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())
         self.crawler = FactAssessor(claim_filter=None, judge=self.judge).crawler  # the library's default cascade
         save_hits = lambda: _save(run_dir / "hits.json.gz", hits)  # noqa: E731  # every paid search on disk at once
+        # searches made by an earlier run of this tag are reused; new ones are searched and saved at once
+        self.searcher = TimedSearch(searcher, hits, slots=50 if args.searcher == "serper" else 4, save=save_hits)  # Serper: its own limit, 50/s
         self.verify = Verify(
-            TimedSearch(searcher, hits, slots=50 if args.searcher == "serper" else 4, save=save_hits),  # Serper: its own limit, 50/s; SearXNG's engines suspend bursts
+            self.searcher,
             TimedCrawler(self.crawler), TimedJudge(self.judge, pages), WeightedPolicy(strong=args.strong, strong_refute=args.strong_refute), timeout=args.timeout,
             resolver=TimedResolver(self.resolver) if self.resolver else None,
             pages_per_claim=TOP_K * 2 if args.overfetch else None,  # as the library: 10, however many source queries
@@ -377,48 +382,54 @@ class Pipeline:
 
 
 async def live(args: argparse.Namespace) -> None:
+    """The product itself on the labelled atoms: `FactAssessor.assess(answer_text, claims=its atoms)`, so the eval runs
+    exactly the library's code (claim queue, verdict rule, crawl cascade), with the run's searches cached on disk."""
     answers = load_answers(args.data, limit=args.limit, sample=args.sample, seed=args.seed)
     run_dir = OUT / args.tag
     hits: dict[str, Any] = _load(run_dir / "hits.json.gz", {})
     pages: dict[str, Any] = _load(run_dir / "pages.json.gz", {})
     done = {r["id"]: r for r in _load(run_dir / "results.json.gz", [])}
 
-    # fallback=False: an LLM outage stops the run instead of quietly using sentences without source queries
-    # (2026-10-04: OpenAI credits ran out mid-session and a run measured something else)
-    atomizer = LLMAtomizer(args.atomizer, source_queries=args.source_queries, fallback=False)
-    pipe = Pipeline(args, run_dir, hits, pages)
-    await pipe.judge.aload()  # the model (or the HTTP pool) before timing
+    pipe = Pipeline(args, run_dir, hits, pages)  # the eval's searcher (cached on disk) and judge (records pages)
+    fa = FactAssessor(
+        # fallback=False: an LLM outage stops the run instead of quietly checking without source queries
+        # (2026-10-04: OpenAI credits ran out mid-session and a run measured something else)
+        atomizer=LLMAtomizer(args.atomizer, source_queries=args.source_queries, fallback=False),
+        claim_filter=None, runner=pipe.judge.runner, judge=TimedJudge(pipe.judge, pages), searcher=pipe.searcher,
+        resolver=_DEFAULT_RESOLVER if not args.no_resolver else None, source_queries=args.source_queries,
+        overfetch=args.overfetch, passages_per_page=args.passages, timeout=args.timeout,
+        strong_evidence=args.strong, strong_refutation=args.strong_refute,
+    )
+    await fa.aload()  # the model (or the HTTP pool), the browser, before timing
     _write_meta(run_dir, args)
-    slots = asyncio.Semaphore(args.parallel)  # answers at once; > 1 contaminates per-answer latency (flagged)
+    slots = asyncio.Semaphore(args.parallel)  # answers at once; their claims share the assessor's claim queue
     todo = [a for a in answers if a["id"] not in done]
 
     async def one(n: int, answer: dict[str, Any]) -> None:
         async with slots:
-            t0 = time.perf_counter()
-            ours = await atomizer.atomize(answer["text"])  # timed only: scoring uses the labelled atoms
-            t1 = time.perf_counter()
-            kept = await collect(pipe.claim_filter(_stream(ours)))
-            t2 = time.perf_counter()
-            answer["source_queries"] = ours[0].source_queries if ours else []  # from the same atomizer call
             searches_cached = all(a["text"] in hits for a in answer["atoms"])  # an earlier run searched them: not live
-            atoms, verify_s = await verify_answer(pipe.verify, answer)
-            done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind", "source_queries")}, "atoms": atoms,
-                                  "time": {"atomize": t1 - t0, "filter": t2 - t1, "verify": verify_s,
-                                           "total": t1 - t0 + t2 - t1 + verify_s},
-                                  "our_atoms": len(ours), "our_kept": len(kept),
+            result = await fa.assess(answer["text"], claims=[a["text"] for a in answer["atoms"]])
+            by_id = {r.atom.id: r for r in result.atoms}
+            atoms = [{**a, "verdict": r.verdict, "confidence": r.confidence, "error": r.error,
+                      "evidence": [e.model_dump() for e in r.evidence], "time": {"total": (r.latency_ms or 0.0) / 1000}}
+                     for i, a in enumerate(answer["atoms"]) for r in [by_id[i]]]
+            source_queries = result.atoms[0].atom.source_queries if result.atoms else []
+            total = result.latency_ms / 1000
+            done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind")}, "source_queries": source_queries,
+                                  "atoms": atoms, "time": {"verify": total, "total": total},
                                   "searches_cached": searches_cached or args.parallel > 1}
-            queries = [a["text"] for a in answer["atoms"]] + answer["source_queries"]
-            await fill_pages(hits, pages, pipe.resolver, pipe.crawler, queries)
+            queries = [a["text"] for a in answer["atoms"]] + source_queries
+            await fill_pages(hits, pages, fa.verify.resolver, fa.crawler, queries)
             _save(run_dir / "hits.json.gz", hits)  # synchronous dumps: no other answer mutates the dicts meanwhile
             _save(run_dir / "pages.json.gz", pages)
             _save(run_dir / "results.json.gz", list(done.values()))
-            t = done[answer["id"]]["time"]
             s = sum(a["verdict"] == "supported" for a in atoms)
-            print(f"[{n:3d}/{len(answers)}] {answer['id']}: {len(atoms)} atoms, {s} supported; atomize {t['atomize']:.1f}s "
-                  f"filter {t['filter']:.2f}s verify {t['verify']:.1f}s = {t['total']:.1f}s", flush=True)
+            timeouts = sum(a["error"] == "timeout" for a in atoms)
+            print(f"[{n:3d}/{len(answers)}] {answer['id']}: {len(atoms)} atoms, {s} supported, {timeouts} at the deadline; "
+                  f"{total:.1f}s", flush=True)
 
     await asyncio.gather(*(one(n, a) for n, a in enumerate(todo, 1 + len(answers) - len(todo))))
-    await pipe.aclose()
+    await fa.aclose()
     report(list(done.values()), args.tag)
     print(f"judge: {args.judge}{_cost(pipe.judge)}")
 
