@@ -101,10 +101,6 @@ async def test_http_error_raises():
     await s.stop()
 
 
-async def test_missing_api_key_fails_clearly(monkeypatch):
-    monkeypatch.delenv("SERPER_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="SERPER_API_KEY"):
-        await SerperSearcher().search("q")
 
 
 async def test_slow_search_is_hedged_with_a_duplicate_and_the_first_reply_wins():

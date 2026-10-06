@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from factassessor.keys import require_key
+
 from factassessor.search._base import BLOCKED_DOMAINS, Searcher, SearchType, hedged
 
 SERPER_URL = "https://google.serper.dev/search"
@@ -36,7 +38,8 @@ class SerperSearcher(Searcher):
         search_type: SearchType | str = SearchType.GENERAL,
         exclude: tuple[str, ...] = BLOCKED_DOMAINS,
     ) -> None:
-        self.api_key = api_key or os.environ.get("SERPER_API_KEY")
+        self.api_key = require_key("SERPER_API_KEY", api_key, needed_by="Serper search (SerperSearcher)",
+                                   instead="To search without a key, run SearXNG yourself: FactAssessor(searcher=SearxngSearcher(url)).")
         self.search_type = SearchType(search_type)  # SCIENCE: Google Scholar, 1 credit per query like web search
         self.num = num
         self.timeout = timeout
@@ -52,8 +55,6 @@ class SerperSearcher(Searcher):
         return " ".join([query, *(f"-site:{host}" for host in self.exclude[:room])])
 
     async def search(self, query: str) -> list[dict[str, Any]]:
-        if not self.api_key:
-            raise RuntimeError("SERPER_API_KEY is not set (pass api_key= or add it to .env)")
         if self.hedge_after is None:
             return await self._request(query)
         return await hedged(lambda: self._request(query), self.hedge_after)

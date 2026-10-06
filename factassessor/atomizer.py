@@ -15,6 +15,7 @@ from pydantic_ai import Agent
 
 from factassessor.pipeline import FlatMap, Step
 from factassessor._llm import reasoning_off
+from factassessor.keys import require_model_key
 from factassessor.schema import Atom
 from factassessor.utils import locate, sentences
 
@@ -87,6 +88,8 @@ class LLMAtomizer(Atomizer):
         fallback: bool = True,  # on an LLM error, plain sentences as atoms (no source queries); False: raise (evals)
     ) -> None:
         self.fallback = fallback
+        require_model_key(model, needed_by="the atomizer (LLMAtomizer)",
+                          instead="Or pass your own atomizer (FactAssessor(atomizer=...)).")
         if source_queries < 0:
             raise ValueError(f"source_queries must be >= 0, not {source_queries}")
         self.source_queries = source_queries

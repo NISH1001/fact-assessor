@@ -7,8 +7,9 @@
                      `-> Verify(searcher, crawler, judge, policy) -> results -> fact score
                                                             (knowledge graph: kg.build(result), on demand)
 
-The default filter and judge share one `LayaRunner` (the local model, loaded once, one batch queue); pass
-`claim_filter=DecisionClaimFilter(runner)` / `judge=DecisionJudge(runner, ...)` to put either on another runner.
+The default filter and judge share one runner: Jev on OpenRouter (`SystemOneRunner`), the measured setup. Pass
+`runner=LayaRunner()` for the local model (no API key), `runner=LLMRunner()` for a chat LLM, or
+`claim_filter=DecisionClaimFilter(runner)` / `judge=DecisionJudge(runner, ...)` to put either on its own runner.
 
 Everything streams: a claim is verified the moment the atomizer emits it, each page is judged the moment its
 crawl lands, and results come out as they settle. `assess` is `stream` read to the end.
@@ -28,7 +29,7 @@ from factassessor.atomizer import LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
 from factassessor.crawlers import CascadedCrawler, ContentType, Crawl4AICrawler, HTTPXCrawler, ImpitCrawler, StatusIn
 from factassessor.judges import DecisionJudge, Judge
-from factassessor.laya import LayaRunner
+from factassessor.decisions import DecisionRunner, SystemOneRunner
 from factassessor.pipeline import Cache, Map, Step, Take, dropped, once
 from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
@@ -42,7 +43,7 @@ _DEFAULT: Any = object()  # "build the default" (so claim_filter=None can mean "
 class FactAssessor:
     """Pass components to replace any part (`atomizer=`, `claim_filter=`, `searcher=`, `crawler=`, `judge=`,
     `policy=`); the other arguments configure the defaults and are ignored for a component you pass yourself.
-    The default filter and judge share one Laya runner (one model, one batch queue)."""
+    The default filter and judge share one runner (`runner=`, default Jev: one model, one batch queue)."""
 
     def __init__(
         self,
@@ -50,9 +51,8 @@ class FactAssessor:
         top_k: int = 5,
         *,
         overfetch: float = 1.0,  # keep twice as many hits as pages; the first readable ones are judged (+0.015 F1, same credits)
-        device: str = "auto",
         serper_api_key: str | None = None,
-        laya_model: str = "english",  # Laya checkpoint: english | multilingual | typed-decisions
+        runner: DecisionRunner | None = None,  # behind the filter and the judge; default Jev (OPENROUTER_API_KEY), LayaRunner() local
         claim_threshold: float = 0.4,  # min claim_score to check an atom; low on purpose: a dropped real claim is never checked
         early_exit_conf: float = 0.9,  # 2+ passages this sure, none against -> stop gathering evidence
         strong_evidence: float = 0.7,  # a supporting passage counts toward a verdict at or above this prob
@@ -77,8 +77,9 @@ class FactAssessor:
         policy: Policy | None = None,
     ) -> None:
         self.atomizer = atomizer or LLMAtomizer(atomizer_model, source_queries=source_queries)
-        laya = LayaRunner(laya_model, device) if claim_filter is _DEFAULT or judge is None else None  # shared
-        self.claim_filter = DecisionClaimFilter(laya, threshold=claim_threshold) if claim_filter is _DEFAULT else claim_filter
+        if runner is None and (claim_filter is _DEFAULT or judge is None):
+            runner = SystemOneRunner()  # Jev: F1 0.821 on the paper eval vs 0.624 for Laya on the same evidence
+        self.claim_filter = DecisionClaimFilter(runner, threshold=claim_threshold) if claim_filter is _DEFAULT else claim_filter
         self.atoms = (  # text -> the atoms worth checking
             self.atomizer >> self.claim_filter >> Take(n_atoms) if self.claim_filter else self.atomizer >> Take(n_atoms)
         )
@@ -97,7 +98,7 @@ class FactAssessor:
             when=~(StatusIn(404, 410) | ContentType("pdf")),  # not for a page that is gone, or a PDF (no browser reads those)
         )
         resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()) if resolver is _DEFAULT else resolver
-        self.judge = judge or DecisionJudge(laya, passages_per_page=passages_per_page)
+        self.judge = judge or DecisionJudge(runner, passages_per_page=passages_per_page)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf, strong_refute=strong_refutation)
         claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}
         self.verify = Verify(
@@ -184,7 +185,7 @@ class FactAssessor:
     def assess_sync(self, text: str) -> CheckResult:
         """Blocking `assess` for plain scripts (and Jupyter, where a loop is already running).
 
-        Runs on one background event loop owned by this assessor, so the browser, HTTP pool, and Laya stay warm
+        Runs on one background event loop owned by this assessor, so the browser, HTTP pools, and the model stay warm
         across calls. Use either `assess` or `assess_sync` on a given instance, not both: their resources belong
         to different loops. Call `close()` (or use `with FactAssessor() as fa:`) when done.
         """
@@ -200,7 +201,7 @@ class FactAssessor:
     # --- lifecycle --------------------------------------------------------------------------------------
 
     async def aload(self) -> None:
-        """Warm up every component (Laya weights, browser, HTTP pool) so the first check is fast."""
+        """Warm up every component (model, browser, HTTP pools) so the first check is fast."""
         await (self.atoms >> self.verify).aload()
 
     async def aclose(self) -> None:

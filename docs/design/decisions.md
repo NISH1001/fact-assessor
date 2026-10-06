@@ -294,3 +294,12 @@ with three; on all 966 answers of the file, 75%, 85%, 87%. Pages judged per clai
 both queries'), timeouts on the first 20 answers went 13 -> 39 and p90 per claim 18.7 s -> 30 s.
 `LLMAtomizer(fallback=False)` raises on an LLM error instead of using sentences; the eval uses it (a run on
 2026-10-04 lost its source queries when OpenAI credits ran out, silently).
+
+**Jev is the default runner** (`FactAssessor(runner=...)`, was Laya built in, with `laya_model=` and `device=`).
+Fully live on FactReasoner's atoms with cached claim searches, two source queries and refutations from 0.9, 3
+answers at once: Jev F1 0.821 combined, 0.802 corrupted, precision 0.956, recall 0.742, 18 of 249 false atoms
+through, 199 of 1,667 claims at the deadline, claim p50 9.0 s (FactReasoner 0.731, 0.694, 0.902, 0.671).
+gpt-6-luna (`LLMRunner`) on the same setup: F1 0.671, 892 claims at the deadline (its 8 calls in flight, shared by
+the filter and the judge, queue under about 50 claims); on the 725 claims both finished, Luna confirmed 570 of 625
+true atoms vs Jev's 544 and let 10 of 100 false ones through vs 7. Keys are checked when components are created
+(`MissingAPIKeyError`, logged), with the alternative in the message (`LayaRunner()` for the judge, SearXNG for search).

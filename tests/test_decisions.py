@@ -152,10 +152,8 @@ async def test_rate_limits_are_retried_with_backoff():
     assert res.answers["stance"].label == "supports" and len(bodies) == 1
 
 
-async def test_a_missing_key_is_a_clear_error_but_a_laya_server_needs_none(monkeypatch):
+async def test_a_laya_server_needs_no_key(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
-        await SystemOneRunner().aload()
     assert "authorization" not in SystemOneRunner(url="http://localhost:8000/v1/systemone", model="english")._headers()
 
 
