@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
 from factassessor._llm import reasoning_off
+from factassessor.keys import require_key, require_model_key
 
 # --- the request and the answer (Laya's wire shape, which Jev's System One protocol shares) ----------------------
 
@@ -200,6 +201,9 @@ class SystemOneRunner(DecisionRunner):
     ) -> None:
         self.model = model
         self.url = url or os.environ.get("OPENROUTER_DECISIONS_URL", "").strip() or self.URL
+        if "openrouter.ai" in self.url:  # a local Laya server needs no key
+            api_key = require_key("OPENROUTER_API_KEY", api_key, needed_by="Jev (SystemOneRunner, on OpenRouter)",
+                                  instead="To run without an API key, use the local model: FactAssessor(runner=LayaRunner()).")
         self.api_key = api_key
         self.batch_size = batch_size
         self.packing = DecisionPacking(packing)
@@ -333,6 +337,7 @@ class LLMRunner(DecisionRunner):
         batch_size: int = 40,
         max_concurrent: int = 8,
     ) -> None:
+        require_model_key(model, needed_by="LLMRunner", instead="To run without an API key, use the local model: FactAssessor(runner=LayaRunner()).")
         self.model = model
         self.batch_size = batch_size
         self.agent = Agent(

@@ -148,7 +148,7 @@ def test_default_pipeline_is_built_from_the_familiar_arguments():
 
 def test_defaults_are_the_measured_best_setup():
     # the configuration behind the eval numbers in issue #1, local judge: Laya (Jev is one argument away)
-    from factassessor import CascadedCrawler, CompositeResolver, Crawl4AICrawler, HTTPXCrawler, LayaRunner
+    from factassessor import CascadedCrawler, CompositeResolver, Crawl4AICrawler, HTTPXCrawler, SystemOneRunner
 
     fa = FactAssessor()
     assert fa.atomizer.agent.model == "openai:gpt-6-luna" and fa.atomizer.source_queries == 2  # two searches for the text's source
@@ -163,7 +163,7 @@ def test_defaults_are_the_measured_best_setup():
     # 350 for HTTP then browser, with 17% fewer browser renders
     assert isinstance(fa.crawler, CascadedCrawler) and [type(c) for c in fa.crawler.crawlers] == [HTTPXCrawler, ImpitCrawler, Crawl4AICrawler]
     assert fa.crawler.crawlers[0].max_pdf_bytes == 50_000_000  # a cut PDF can't be read at all: theses run 25-35 MB
-    assert fa.judge.passages_per_page == 3 and isinstance(fa.judge.runner, LayaRunner)
+    assert fa.judge.passages_per_page == 3 and isinstance(fa.judge.runner, SystemOneRunner)  # Jev: the measured judge
     assert fa.verify.timeout == 30
     assert FactAssessor(resolver=None).verify.resolver is None  # opt out
 
@@ -173,14 +173,13 @@ def test_claim_filter_none_means_no_filter():
     assert [type(s).__name__ for s in fa.atoms.steps] == ["LLMAtomizer", "Take"]
 
 
-def test_default_filter_and_judge_share_one_laya_runner():
-    from factassessor import DecisionJudge, LayaRunner
+def test_default_filter_and_judge_share_one_runner():
+    from factassessor import DecisionJudge, LayaRunner, SystemOneRunner
 
-    fa = FactAssessor(laya_model="multilingual")
-    assert fa.claim_filter.runner is fa.judge.runner and isinstance(fa.judge.runner, LayaRunner)
-    assert fa.judge.runner.model == "multilingual"
-    fa = FactAssessor(judge=DecisionJudge(runner=object()))  # a judge on another runner: the filter still gets Laya
-    assert isinstance(fa.claim_filter.runner, LayaRunner) and not isinstance(fa.judge.runner, LayaRunner)
+    fa = FactAssessor(runner=LayaRunner("multilingual"))
+    assert fa.claim_filter.runner is fa.judge.runner and fa.judge.runner.model == "multilingual"
+    fa = FactAssessor(judge=DecisionJudge(runner=object()))  # a judge on another runner: the filter still gets the default
+    assert isinstance(fa.claim_filter.runner, SystemOneRunner) and not isinstance(fa.judge.runner, SystemOneRunner)
 
 
 def test_overfetch_keeps_more_hits_than_pages():

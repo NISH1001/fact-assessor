@@ -137,6 +137,11 @@ asyncio.run(main())
 
 In Jupyter or marimo, `await` works at the top level: `result = await fa.assess(text)`.
 
+Keys (in `.env` or the environment): `OPENAI_API_KEY` (the atomizer), `SERPER_API_KEY` (search), `OPENROUTER_API_KEY`
+(the judge, Jev). A missing one is an error when `FactAssessor()` is created, saying what to use instead:
+`FactAssessor(runner=LayaRunner())` runs the judge locally with no key, `searcher=SearxngSearcher(url)` searches
+without one.
+
 Not in async code? `assess_sync` blocks and returns the same result:
 
 ```python
@@ -247,7 +252,6 @@ All keyword arguments to `FactAssessor`:
 | `top_k` | 5 | search results per claim |
 | `atomizer_model` | `openai:gpt-6-luna` | any pydantic-ai model string (reasoning off) |
 | `source_queries` | 2 | searches the atomizer writes for the text's source document (its stated title, venue or year first), searched once per text for every claim; found the source paper for 88/100 eval answers vs 77 with one; 0 turns it off |
-| `device` | `auto` | Laya device: cuda → mps → cpu |
 | `claim_threshold` | 0.4 | min `claim_score` (P(factual claim)) to check an atom; low on purpose, since a dropped real claim is never checked |
 | `early_exit_conf` | 0.9 | 2+ passages this sure (and none against) settle a claim without more crawling |
 | `strong_evidence` | 0.7 | min probability for a supporting passage to count toward a verdict |
@@ -262,21 +266,18 @@ All keyword arguments to `FactAssessor`:
 | `max_concurrent_claims` | the judge's | claims checked at once; a claim's `timeout` starts when it gets its turn. The judge takes it from its runner: no limit on Laya, Jev and LLMs; 3 on GLiNER. `None` = no limit |
 | `max_concurrent_crawls` | 10 | pages the browser crawler loads at once (shared by all claims) |
 | `search_timeout` | 5 | seconds per Serper request |
-| `laya_model` | `english` | Laya checkpoint of the default runner (shared by the filter and the judge): `english`, `multilingual`, `typed-decisions` |
+| `runner` | Jev (`SystemOneRunner()`) | the model behind the claim filter and the judge (one shared runner): `LayaRunner("english", device="auto")` local, `LLMRunner("openai:gpt-6-luna")` any chat LLM. Needs `OPENROUTER_API_KEY` by default |
 | `serper_api_key` | `SERPER_API_KEY` | Serper key (from `.env` or the environment if not given) |
 
 ### Recommended setups
 
 ```python
-from factassessor import DecisionClaimFilter, DecisionJudge, FactAssessor, LLMRunner, SystemOneRunner
+from factassessor import FactAssessor, LayaRunner, LLMRunner
 
-FactAssessor()                                  # local: Laya filters and judges on your GPU/CPU, no model API key
-
-jev = SystemOneRunner()                         # best measured accuracy per dollar: Jev on OpenRouter (OPENROUTER_API_KEY)
-FactAssessor(claim_filter=DecisionClaimFilter(jev), judge=DecisionJudge(jev, passages_per_page=3))
-
-luna = LLMRunner()                              # gpt-6-luna, reasoning off (OPENAI_API_KEY): fewer wrong refutations
-FactAssessor(claim_filter=DecisionClaimFilter(luna), judge=DecisionJudge(luna, passages_per_page=3))
+FactAssessor()                                  # the measured setup: Jev on OpenRouter filters and judges (OPENROUTER_API_KEY)
+FactAssessor(runner=LayaRunner())               # local: Laya on your GPU/CPU, no model API key (F1 0.624 vs 0.821 for Jev)
+FactAssessor(runner=LLMRunner())                # gpt-6-luna, reasoning off (OPENAI_API_KEY): as accurate on claims it
+                                                # finishes, but slower live (54% of claims hit the deadline vs 12%)
 ```
 
 Many texts at once: `await fa.assess_many(texts, concurrency=10)` on one assessor (shared caches, crawler and
