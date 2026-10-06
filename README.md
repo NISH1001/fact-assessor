@@ -162,7 +162,7 @@ Creating a `FactAssessor` is cheap, but the first check loads Laya and starts a 
 service, create one, warm it up once, and reuse it for every check:
 
 ```python
-fa = FactAssessor(n_atoms=8)
+fa = FactAssessor(max_claims=8)
 await fa.aload()              # load Laya + start the browser now (~3s), not on the first user request
 ...
 result = await fa.assess(text)   # reuse for every check
@@ -248,7 +248,7 @@ All keyword arguments to `FactAssessor`:
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `n_atoms` | 5 | max claims checked per text |
+| `max_claims` | `None` | claims checked per text; `None` checks all. A cap lists the claims it left out in `result.unchecked` |
 | `top_k` | 5 | search results per claim |
 | `atomizer_model` | `openai:gpt-6-luna` | any pydantic-ai model string (reasoning off) |
 | `source_queries` | 2 | searches the atomizer writes for the text's source document (its stated title, venue or year first), searched once per text for every claim; found the source paper for 88/100 eval answers vs 77 with one; 0 turns it off |
@@ -263,7 +263,7 @@ All keyword arguments to `FactAssessor`:
 | `search_hedge_after` | 1.2 | if a search hasn't answered by then, send the same request again and use whichever reply comes first (fixes Serper's occasional 3s+ outliers; only slow searches cost a second credit; `None` turns it off) |
 | `blocked_domains` | social + video | hosts never used as evidence (subdomains included): dropped after search and, with Serper, excluded in the query; `()` to allow all |
 | `timeout` | 30 | per-claim deadline; a claim still running then is decided on the evidence judged so far (`error="timeout"`) |
-| `max_concurrent_claims` | the judge's | claims checked at once; a claim's `timeout` starts when it gets its turn. The judge takes it from its runner: no limit on Laya, Jev and LLMs; 3 on GLiNER. `None` = no limit |
+| `max_concurrent_claims` | 50 | claims verified at once, **shared by every text on the assessor** (a rolling queue: the next claim starts when one finishes; nothing is dropped). A claim's `timeout` starts when it gets its slot. A judge with its own limit keeps it (GLiNER: 3). `None` = no limit. About 50 in flight measured fine on a laptop; about 170 ran 63% of claims into the deadline |
 | `max_concurrent_crawls` | 10 | pages the browser crawler loads at once (shared by all claims) |
 | `search_timeout` | 5 | seconds per Serper request |
 | `runner` | Jev (`SystemOneRunner()`) | the model behind the claim filter and the judge (one shared runner): `LayaRunner("english", device="auto")` local, `LLMRunner("openai:gpt-6-luna")` any chat LLM. Needs `OPENROUTER_API_KEY` by default |

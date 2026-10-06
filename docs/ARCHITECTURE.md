@@ -26,7 +26,7 @@ text
  ├─ 1. ATOMIZE    Atomizer: text -> atoms (atomic, self-contained claims)        LLMAtomizer: one LLM call
  │                (source_queries=N: the same call also writes N searches for the text's source document,
  │                 carried by every atom of the text)
- ├─ 2. FILTER     ClaimFilter: drop what isn't a factual claim; Take(n_atoms)     DecisionClaimFilter
+ ├─ 2. FILTER     ClaimFilter: drop what isn't a factual claim; Take(max_claims)     DecisionClaimFilter
  │
  └─ 3. VERIFY     per claim, every claim at once (Verify)
       │
@@ -46,7 +46,7 @@ CheckResult: per claim {verdict, confidence, evidence}, fact_score, skipped atom
 ```
 
 `FactAssessor` (`factassessor/assessor.py`) wires the default chain: `atoms = atomizer >> claim_filter >>
-Take(n_atoms)`, then `Verify(searcher, crawler, judge, policy, resolver=...)`. Everything it builds can be passed
+Take(max_claims)`, then `Verify(searcher, crawler, judge, policy, resolver=...)`. Everything it builds can be passed
 in instead.
 
 ## Data

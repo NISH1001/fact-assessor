@@ -59,7 +59,7 @@ def _(mo, os):
         value="Laya (local, default)",
         label="Judge",
     )
-    n_atoms = mo.ui.slider(1, 12, value=5, label="Max claims (n_atoms)")
+    n_atoms = mo.ui.slider(1, 12, value=5, label="Max claims per text (max_claims)")
     top_k = mo.ui.slider(1, 10, value=5, label="Search results per claim (top_k)")
     mo.vstack(
         [
@@ -127,7 +127,7 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
         f"    searcher={_search[1].format(num=2 * top_k.value)} >> {_keep} >> Take({top_k.value}),",
         f"    crawler={_crawl[1]},",
         f"    judge={_judge[1]},",
-        f"    n_atoms={n_atoms.value},",
+        f"    max_claims={n_atoms.value},",
         ")",
         "",
         "result = await fa.assess(text)          # or: async for event in fa.stream(text): ...",
@@ -204,7 +204,7 @@ def _():
             searcher=search >> keep >> Take(k),
             crawler=crawler,
             judge=component("judge", judge_name),
-            n_atoms=n,
+            max_claims=n,
         )
 
     return build, component
@@ -327,7 +327,7 @@ def _(mo):
     **2. Tune the defaults with arguments.** No composition needed:
 
     ```python
-    FactAssessor(n_atoms=8, top_k=3, claim_threshold=0.5, crawl_timeout=2.0, search_hedge_after=1.0)
+    FactAssessor(max_claims=8, top_k=3, claim_threshold=0.5, crawl_timeout=2.0, search_hedge_after=1.0)
     ```
 
     **3. Swap components.** Pass any implementation of a role; everything else stays default. The filter and the

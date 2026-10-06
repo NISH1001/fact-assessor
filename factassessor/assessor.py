@@ -2,7 +2,7 @@
 
     atomizer >> claim_filter              searcher (per claim)                crawler (per hit)
     LLMAtomizer >> DecisionClaimFilter    SerperSearcher >> not_blocked()     Crawl4AICrawler
-                >> Take(n_atoms)                         >> Take(top_k)
+                >> Take(max_claims)                         >> Take(top_k)
                     \\                                  judge: DecisionJudge   policy: WeightedPolicy
                      `-> Verify(searcher, crawler, judge, policy) -> results -> fact score
                                                             (knowledge graph: kg.build(result), on demand)
@@ -30,8 +30,9 @@ from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
 from factassessor.crawlers import CascadedCrawler, ContentType, Crawl4AICrawler, HTTPXCrawler, ImpitCrawler, StatusIn
 from factassessor.judges import DecisionJudge, Judge
 from factassessor.decisions import DecisionRunner, SystemOneRunner
-from factassessor.pipeline import Cache, Map, Step, Take, dropped, once
-from factassessor.schema import AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
+from factassessor.pipeline import Cache, Map, Slots, Step, Take, dropped, once, unchecked
+from factassessor.utils import locate
+from factassessor.schema import Atom, AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
 from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
 from factassessor.verify import Policy, Verify, WeightedPolicy
 from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, PMCResolver, Resolver
@@ -47,7 +48,7 @@ class FactAssessor:
 
     def __init__(
         self,
-        n_atoms: int = 5,
+        max_claims: int | None = None,  # claims checked per text; None: all. A cap reports the rest (`result.unchecked`)
         top_k: int = 5,
         *,
         overfetch: float = 1.0,  # keep twice as many hits as pages; the first readable ones are judged (+0.015 F1, same credits)
@@ -59,7 +60,8 @@ class FactAssessor:
         strong_refutation: float = 0.9,  # a refuting one at or above this: the judge calls related-but-different facts refutations
         crawl_timeout: float = 2.5,
         max_concurrent_crawls: int = 10,
-        max_concurrent_claims: int | None | Any = _DEFAULT,  # default: the judge's `concurrency`; None: no limit
+        max_concurrent_claims: int | None | Any = _DEFAULT,  # claims verified at once, shared by every text in flight;
+        # default: the judge's own limit if it sets one (GLiNER: 3), else 50 (about the claim load measured fine on a laptop)
         search_timeout: float = 5.0,
         search_hedge_after: float = 1.2,
         blocked_domains: tuple[str, ...] = BLOCKED_DOMAINS,
@@ -80,9 +82,9 @@ class FactAssessor:
         if runner is None and (claim_filter is _DEFAULT or judge is None):
             runner = SystemOneRunner()  # Jev: F1 0.821 on the paper eval vs 0.624 for Laya on the same evidence
         self.claim_filter = DecisionClaimFilter(runner, threshold=claim_threshold) if claim_filter is _DEFAULT else claim_filter
-        self.atoms = (  # text -> the atoms worth checking
-            self.atomizer >> self.claim_filter >> Take(n_atoms) if self.claim_filter else self.atomizer >> Take(n_atoms)
-        )
+        self.max_claims = max_claims
+        found = self.atomizer >> self.claim_filter if self.claim_filter else self.atomizer
+        self.atoms = found >> Take(max_claims, silent=False)  # text -> the claims to check; a cap is never silent
         candidates = math.ceil(top_k * (1 + overfetch))  # hits kept per claim; pages read: top_k
         self.searcher = Cache(  # a query is searched once per 10 minutes: a text's claims share their source query
             searcher
@@ -100,24 +102,29 @@ class FactAssessor:
         resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()) if resolver is _DEFAULT else resolver
         self.judge = judge or DecisionJudge(runner, passages_per_page=passages_per_page)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf, strong_refute=strong_refutation)
-        claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}
         self.verify = Verify(
             self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, resolver=resolver,
             pages_per_claim=((top_k * (2 if source_queries else 1) if overfetch else None)  # own hits + the source queries'
                              if pages_per_claim is _DEFAULT else pages_per_claim),
-            **claims,
+            concurrency=Slots(limit) if (limit := (getattr(self.judge, "concurrency", None) or 50)
+                                          if max_concurrent_claims is _DEFAULT else max_concurrent_claims) else None,
         )
         self._loop: asyncio.AbstractEventLoop | None = None  # background loop behind assess_sync()
         self._loop_thread: threading.Thread | None = None
 
     # --- running ----------------------------------------------------------------------------------------
 
-    async def stream(self, text: str) -> AsyncIterator[Event]:
-        """`ClaimFound` as each claim is found, `ClaimVerified` as each one settles, then `Done`."""
+    async def stream(self, text: str, claims: list[str] | None = None) -> AsyncIterator[Event]:
+        """`ClaimFound` as each claim is found, `ClaimVerified` as each one settles, then `Done`.
+
+        `claims`: check these instead of the atomizer's (no atomizer call, no claim filter); each still gets the
+        text's source queries (one short call) and its sentence in the text."""
         start = time.perf_counter()
         events: asyncio.Queue[Any] = asyncio.Queue()
         results: list[AtomResult] = []
         skipped: list[Any] = []
+        left_out: list[Any] = []
+        atoms: Step = self.atoms if claims is None else _GivenClaims(claims, self.atomizer) >> Take(self.max_claims, silent=False)
 
         def found(atom: Any) -> Any:
             events.put_nowait(ClaimFound(atom=atom))
@@ -125,8 +132,9 @@ class FactAssessor:
 
         async def run() -> None:
             dropped.set(skipped)  # filters report the atoms they drop here (this task's context only)
+            unchecked.set(left_out)  # and a cap the atoms it leaves out
             try:
-                async for result in (self.atoms >> Map(found) >> self.verify)(once(text)):
+                async for result in (atoms >> Map(found) >> self.verify)(once(text)):
                     results.append(result)
                     events.put_nowait(ClaimVerified(result=result))
             finally:
@@ -147,13 +155,15 @@ class FactAssessor:
                 text=text,
                 atoms=results,
                 skipped=sorted(skipped, key=lambda a: a.id),
+                unchecked=sorted(left_out, key=lambda a: a.id),
                 latency_ms=(time.perf_counter() - start) * 1000,
             )
         )
 
-    async def assess(self, text: str) -> CheckResult:
-        """Fact-check `text` and return the full result (`stream` read to the end)."""
-        async for event in self.stream(text):
+    async def assess(self, text: str, claims: list[str] | None = None) -> CheckResult:
+        """Fact-check `text` and return the full result (`stream` read to the end); `claims`: check these instead
+        of the atomizer's."""
+        async for event in self.stream(text, claims):
             if isinstance(event, Done):
                 return event.result
         raise RuntimeError("stream ended without a result")
@@ -182,14 +192,14 @@ class FactAssessor:
         """Alias for `assess`."""
         return await self.assess(text)
 
-    def assess_sync(self, text: str) -> CheckResult:
+    def assess_sync(self, text: str, claims: list[str] | None = None) -> CheckResult:
         """Blocking `assess` for plain scripts (and Jupyter, where a loop is already running).
 
         Runs on one background event loop owned by this assessor, so the browser, HTTP pools, and the model stay warm
         across calls. Use either `assess` or `assess_sync` on a given instance, not both: their resources belong
         to different loops. Call `close()` (or use `with FactAssessor() as fa:`) when done.
         """
-        return self._run_sync(self.assess(text))
+        return self._run_sync(self.assess(text, claims))
 
     def _run_sync(self, coro: Any) -> Any:
         if self._loop is None:
@@ -229,3 +239,20 @@ class FactAssessor:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+class _GivenClaims(Step):
+    """text -> the caller's claims as atoms: located in the text, with the text's source queries (from the
+    atomizer's short source-query call, if it has one)."""
+
+    def __init__(self, claims: list[str], atomizer: Any) -> None:
+        self.claims, self.atomizer = list(claims), atomizer
+
+    async def __call__(self, texts: AsyncIterator[str]) -> AsyncIterator[Atom]:
+        async for text in texts:
+            finder = getattr(self.atomizer, "source_queries_for", None)
+            queries = await finder(text) if finder else []
+            atoms = [Atom(id=i, text=c, span=locate(c, text), source_queries=queries) for i, c in enumerate(self.claims)]
+            for atom in atoms:
+                yield atom
+

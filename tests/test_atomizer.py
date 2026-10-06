@@ -106,3 +106,12 @@ async def test_fallback_false_raises_on_an_llm_error_instead_of_using_sentences(
 
 def test_the_model_is_asked_for_exactly_n_source_queries():
     assert "exactly 2" in LLMAtomizer(source_queries=2).instructions
+
+
+async def test_source_queries_alone_for_claims_from_elsewhere():
+    # given claims skip the atomizer, but the text's source queries still help find its source document
+    atomizer = LLMAtomizer(source_queries=2)
+    model = TestModel(custom_output_args={"source_queries": ["Nepal earthquake 2015 report", "Gorkha earthquake damage"]})
+    with atomizer.source_agent.override(model=model):
+        assert await atomizer.source_queries_for(TEXT) == ["Nepal earthquake 2015 report", "Gorkha earthquake damage"]
+    assert await LLMAtomizer().source_queries_for(TEXT) == []  # asked for none

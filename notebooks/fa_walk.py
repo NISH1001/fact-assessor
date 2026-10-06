@@ -519,7 +519,7 @@ def _(mo):
     a claim filter:
 
     ```python
-    # 1. separate arguments: FactAssessor chains atomizer >> claim_filter >> Take(n_atoms) itself
+    # 1. separate arguments: FactAssessor chains atomizer >> claim_filter >> Take(max_claims) itself
     FactAssessor(atomizer=LLMAtomizer(), claim_filter=DecisionClaimFilter(threshold=0.4), searcher=..., judge=...)
 
     # 2. a chain that already filters (what we built in section 4): say so with claim_filter=None

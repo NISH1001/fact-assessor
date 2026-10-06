@@ -52,6 +52,13 @@ class Claim(BaseModel):
     text: str  # only the claim: a quote of its source words doubled the output tokens, and output is what the call's time goes on
 
 
+class SourceQueries(BaseModel):
+    source_queries: list[str] = []
+
+
+SOURCE_QUERIES_ONLY = "Read the text and write search queries for the document it was taken from."
+
+
 class Claims(BaseModel):
     atoms: list[Claim]
     source_queries: list[str] = []
@@ -101,6 +108,26 @@ class LLMAtomizer(Atomizer):
             model_settings=reasoning_off(model) if model_settings is None else model_settings,
             defer_model_check=True,  # don't require an API key until the first call
         )
+        self.source_agent = Agent(  # source queries alone, for claims that come from elsewhere (assess(text, claims=...))
+            model,
+            output_type=SourceQueries,
+            instructions=SOURCE_QUERIES_ONLY + (SOURCE_QUERIES_RULE.format(n=source_queries) if source_queries else ""),
+            model_settings=reasoning_off(model) if model_settings is None else model_settings,
+            defer_model_check=True,
+        )
+
+    async def source_queries_for(self, text: str) -> list[str]:
+        """The text's source queries alone (a short call: no claims written), for claims given by the caller."""
+        if not self.source_queries or not text.strip():
+            return []
+        try:
+            out = (await self.source_agent.run(text)).output
+        except Exception as exc:
+            if not self.fallback:
+                raise
+            logger.warning("source queries LLM failed, the claims search on their own: %r", exc)
+            return []
+        return list(dict.fromkeys(q.strip() for q in out.source_queries if q.strip()))[: self.source_queries]
 
     async def atomize(self, text: str) -> list[Atom]:
         if not text.strip():

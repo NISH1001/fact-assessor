@@ -36,12 +36,14 @@ class AtomResult(BaseModel):
     confidence: float = 0.0
     evidence: list[Evidence] = Field(default_factory=list)
     error: str | None = None
+    latency_ms: float | None = None  # this claim, from getting its slot to its verdict
 
 
 class CheckResult(BaseModel):
     text: str
     atoms: list[AtomResult]
-    skipped: list[Atom] = Field(default_factory=list)
+    skipped: list[Atom] = Field(default_factory=list)  # not a factual claim (the claim filter)
+    unchecked: list[Atom] = Field(default_factory=list)  # left out by a `max_claims` cap, never checked
     latency_ms: float  # (the knowledge graph is built on demand: `factassessor.kg.build(result)`)
 
     @computed_field  # derived from `atoms`, so it can't go stale; still included in model_dump / JSON

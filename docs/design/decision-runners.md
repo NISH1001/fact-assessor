@@ -26,7 +26,7 @@ and the filter and the judge are written once, on top of it.
 
 ```
 LAYER 1  PIPELINE   (assessor.py, verify.py)   the only code that knows the order of things
-   atoms  = atomizer >> claim_filter >> Take(n_atoms)
+   atoms  = atomizer >> claim_filter >> Take(max_claims)
    verify = Verify(searcher, resolver, crawler, judge, policy)     per claim, all claims at once
    result = atoms >> verify  ->  CheckResult (verdicts, fact_score, knowledge graph on demand)
 

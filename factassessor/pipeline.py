@@ -23,6 +23,8 @@ _END = object()
 
 # Atoms a Filter dropped during the current run; FactAssessor reads it to report `skipped`.
 dropped: contextvars.ContextVar[list[Any] | None] = contextvars.ContextVar("dropped", default=None)
+# Items a Take(silent=False) left out during the current run; FactAssessor reads it to report `unchecked`.
+unchecked: contextvars.ContextVar[list[Any] | None] = contextvars.ContextVar("unchecked", default=None)
 
 
 class Step:
@@ -73,7 +75,7 @@ class Chain(Step):
 class FlatMap(Step):
     """Each item -> 0..n items. `fn(item)` returns an async iterable."""
 
-    def __init__(self, fn: Callable[[Any], AsyncIterable[Any]], concurrency: int | None = None) -> None:
+    def __init__(self, fn: Callable[[Any], AsyncIterable[Any]], concurrency: int | Slots | None = None) -> None:
         self.fn = fn
         self.concurrency = concurrency
 
@@ -84,7 +86,7 @@ class FlatMap(Step):
 class Map(Step):
     """Each item -> one item, or dropped if `fn` returns None. `fn` may be sync or async."""
 
-    def __init__(self, fn: Callable[[Any], Any], concurrency: int | None = None) -> None:
+    def __init__(self, fn: Callable[[Any], Any], concurrency: int | Slots | None = None) -> None:
         self.fn = fn
         self.concurrency = concurrency
 
@@ -103,7 +105,7 @@ class Map(Step):
 class Filter(Step):
     """Keep items where `pred(item)` is true. `pred` may be sync or async; it sees whatever flows here."""
 
-    def __init__(self, pred: Callable[[Any], Any], concurrency: int | None = None) -> None:
+    def __init__(self, pred: Callable[[Any], Any], concurrency: int | Slots | None = None) -> None:
         self.pred = pred
         self.concurrency = concurrency
 
@@ -196,23 +198,51 @@ def _retrieve(task: asyncio.Task[Any]) -> None:
 
 
 class Take(Step):
-    """The first n items; then closes the stream upstream (cancelling what's still running)."""
+    """The first n items, passed on as they arrive; `n=None`: all of them.
 
-    def __init__(self, n: int) -> None:
+    `silent=True` (default): after n items, stop reading and close the stream upstream (cancelling what's still
+    running): right for search hits or pages, where stopping early is the point. `silent=False`: keep reading the
+    rest and report each one as left out (`unchecked`), so a cap is never invisible: right for claims."""
+
+    def __init__(self, n: int | None, silent: bool = True) -> None:
         self.n = n
+        self.silent = silent
 
     async def __call__(self, items: AsyncIterator[Any]) -> AsyncIterator[Any]:
         try:
-            if self.n <= 0:
+            if self.silent and self.n is not None and self.n <= 0:
                 return
             count = 0
             async for item in items:
-                yield item
-                count += 1
-                if count >= self.n:
+                if self.n is None or count < self.n:
+                    count += 1
+                    yield item
+                elif self.silent:
+                    return
+                elif (sink := unchecked.get()) is not None:
+                    sink.append(item)
+                if self.silent and self.n is not None and count >= self.n:
                     return
         finally:
             await _aclose(items)
+
+
+class Slots:
+    """A limit shared by every `Map` (or `Filter`) given it as `concurrency`: at most `n` items running at once
+    across all of them. `Map(fn, concurrency=5)` limits one stream; `Map(fn, concurrency=Slots(5))` limits every
+    stream holding the same `Slots`, e.g. all the texts checked at once by one assessor."""
+
+    def __init__(self, n: int) -> None:
+        if n < 1:
+            raise ValueError(f"Slots needs n >= 1, not {n}")
+        self.n = n
+        self._semaphore = asyncio.Semaphore(n)
+
+    async def acquire(self) -> None:
+        await self._semaphore.acquire()
+
+    def release(self) -> None:
+        self._semaphore.release()
 
 
 class Predicate:
@@ -312,11 +342,11 @@ def report_dropped(item: Any) -> None:
 
 
 async def _concurrently(
-    items: AsyncIterator[Any], run: Callable[[Any], AsyncIterable[Any]], limit: int | None
+    items: AsyncIterator[Any], run: Callable[[Any], AsyncIterable[Any]], limit: int | Slots | None
 ) -> AsyncIterator[Any]:
     """Run `run(item)` for every item concurrently (at most `limit` at once); yield outputs as they appear."""
     queue: asyncio.Queue[Any] = asyncio.Queue()
-    slots = asyncio.Semaphore(limit) if limit else None
+    slots: Any = limit if isinstance(limit, Slots) else asyncio.Semaphore(limit) if limit else None  # Slots: shared
     tasks: set[asyncio.Task[None]] = set()
 
     async def work(item: Any) -> None:

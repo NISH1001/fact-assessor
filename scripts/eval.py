@@ -537,13 +537,13 @@ async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "
         have = {d["url"] for d in docs}
         texts = [t for t in texts if t["source"] in have]
         evidence = load_evidence()
-        fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, strong_evidence=strong,
+        fa = FactAssessor(max_claims=30, claim_filter=claim_filter, judge=judge, timeout=timeout, strong_evidence=strong,
                           atomizer=RecordedAtomizer(evidence), searcher=DocumentSearcher(docs), crawler=NoCrawler())
         warm_text, source = texts[0]["text"], f"in-domain ({len(docs)} source papers, DocumentSearcher top 5 passages)"
         live = False
     elif live:
         search = make_searcher(searcher, searxng_url, search_type) >> not_blocked() >> Take(TOP_K)  # as FactAssessor wires Serper
-        fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, searcher=search,
+        fa = FactAssessor(max_claims=30, claim_filter=claim_filter, judge=judge, timeout=timeout, searcher=search,
                           atomizer=LLMAtomizer(ATOMIZER_MODEL))
         warm_text, source = WARM_TEXT, f"live (LLMAtomizer, {searcher} search, crawl4ai)"
     else:
@@ -551,7 +551,7 @@ async def run(variant: str, live: bool, timeout: float = 15.0, searcher: str = "
         missing = [ex["id"] for ex in texts if ex["id"] not in evidence["texts"]]
         if missing:
             raise SystemExit(f"no recorded evidence for {len(missing)} texts (run `eval.py record` first): {missing[:3]}...")
-        fa = FactAssessor(n_atoms=30, claim_filter=claim_filter, judge=judge, timeout=timeout, strong_evidence=strong,
+        fa = FactAssessor(max_claims=30, claim_filter=claim_filter, judge=judge, timeout=timeout, strong_evidence=strong,
                           atomizer=RecordedAtomizer(evidence), searcher=RecordedSearcher(evidence), crawler=RecordedCrawler(evidence))
         warm_text, source = texts[0]["text"], f"recorded ({evidence['searcher']} search, {evidence.get('crawler', 'crawl4ai')})"
     warm = await warm_up(fa, claim_filter, judge, warm_text)
