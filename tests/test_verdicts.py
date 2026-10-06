@@ -17,14 +17,14 @@ def test_verdicts():
     assert POLICY.verdict([ev("refutes", 0.9)]) == ("refuted", 0.9)
     # one stray refutation (a related-but-different fact) doesn't flip three supports
     assert POLICY.verdict([ev("supports", 0.9), ev("supports", 0.9), ev("supports", 0.8), ev("refutes", 0.98)])[0] == "supported"
-    verdict, conf = POLICY.verdict([ev("supports", 0.9), ev("refutes", 0.8)])
-    assert verdict == "contested" and round(conf, 3) == round(0.9 / 1.7, 3)
+    verdict, conf = POLICY.verdict([ev("supports", 0.9), ev("refutes", 0.95)])
+    assert verdict == "contested" and round(conf, 3) == round(0.95 / 1.85, 3)
 
 
 def test_settled_needs_two_sure_passages_and_no_strong_disagreement():
     assert POLICY.settled([ev("supports", 0.95), ev("supports", 0.92)])
     assert not POLICY.settled([ev("supports", 0.99)])  # one isn't enough
-    assert not POLICY.settled([ev("supports", 0.95), ev("supports", 0.92), ev("refutes", 0.75)])
+    assert not POLICY.settled([ev("supports", 0.95), ev("supports", 0.92), ev("refutes", 0.92)])
     assert POLICY.settled([ev("refutes", 0.95), ev("refutes", 0.91), ev("not_enough_info", 0.99)])
 
 
@@ -376,14 +376,16 @@ def hit(url):
     return {"url": url, "title": "t", "snippet": "s"}
 
 
-async def test_a_claim_with_a_source_query_searches_both_and_merges_the_hits():
-    searcher = SearchByQuery({"claim": [hit("https://a.org"), hit("https://b.org")], "paper query": [hit("https://b.org"), hit("https://paper.org")]})
+async def test_a_claim_with_source_queries_searches_each_and_merges_the_hits():
+    searcher = SearchByQuery({"claim": [hit("https://a.org"), hit("https://b.org")],
+                              "paper query": [hit("https://b.org"), hit("https://paper.org")],
+                              "paper title": [hit("https://paper.org"), hit("https://copy.org")]})
     judge = RecordingJudge()
-    atom = Atom(id=0, text="claim", span=(0, 5), source_query="paper query")
+    atom = Atom(id=0, text="claim", span=(0, 5), source_queries=["paper query", "paper title", "claim"])
     await Verify(searcher, PageCrawler({}), judge).verify(atom)
-    assert sorted(searcher.queries) == ["claim", "paper query"]
+    assert sorted(searcher.queries) == ["claim", "paper query", "paper title"]  # the claim's own text searched once
     urls = [h["url"] for h in judge.snippet_docs]
-    assert urls == ["https://a.org", "https://b.org", "https://paper.org"]  # the claim's own hits first, each url once
+    assert urls == ["https://a.org", "https://b.org", "https://paper.org", "https://copy.org"]  # own hits first, each url once
 
 
 async def test_no_source_query_means_one_search_as_before():
@@ -414,6 +416,22 @@ async def test_a_failing_source_query_search_does_not_lose_the_claims_own_hits()
                 yield hit("https://a.org")
 
     judge = RecordingJudge()
-    atom = Atom(id=0, text="claim", span=(0, 5), source_query="paper query")
+    atom = Atom(id=0, text="claim", span=(0, 5), source_queries=["paper query"])
     result = await Verify(Flaky(), PageCrawler({}), judge).verify(atom)
     assert result.error is None and [h["url"] for h in judge.snippet_docs] == ["https://a.org"]
+
+
+def test_a_refutation_needs_more_confidence_than_a_support():
+    # true claims were refuted by passages about a related but different study (another paper by the same authors,
+    # another year): re-scoring the fully live run's evidence, refutations from 0.9 took recall 0.632 -> 0.690 on
+    # FactReasoner's atoms (0.718 -> 0.770 on the synthetic set) for 3 (12) more false atoms through
+    policy = WeightedPolicy()
+    assert policy.strong == 0.7 and policy.strong_refute == 0.9
+    assert policy.verdict([ev("supports", 0.75), ev("refutes", 0.85)]) == ("supported", 0.75)   # 0.85 doesn't count against
+    assert policy.verdict([ev("refutes", 0.85)]) == ("unverified", 0.0)
+    assert policy.verdict([ev("refutes", 0.95)])[0] == "refuted"
+    assert policy.verdict([ev("supports", 0.75), ev("refutes", 0.95)])[0] == "contested"
+    # early exit: two sure supports and a refutation below 0.9 settle it; one at 0.9 or above doesn't
+    assert policy.settled([ev("supports", 0.95), ev("supports", 0.92), ev("refutes", 0.8)])
+    assert not policy.settled([ev("supports", 0.95), ev("supports", 0.92), ev("refutes", 0.9)])
+    assert WeightedPolicy(strong=0.7, strong_refute=0.7).verdict([ev("supports", 0.75), ev("refutes", 0.85)])[0] == "contested"  # the old rule

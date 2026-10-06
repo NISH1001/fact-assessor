@@ -245,20 +245,43 @@ All keyword arguments to `FactAssessor`:
 |---|---|---|
 | `n_atoms` | 5 | max claims checked per text |
 | `top_k` | 5 | search results per claim |
-| `atomizer_model` | `openai:gpt-5.6-luna` | any pydantic-ai model string |
+| `atomizer_model` | `openai:gpt-6-luna` | any pydantic-ai model string (reasoning off) |
+| `source_queries` | 2 | searches the atomizer writes for the text's source document (its stated title, venue or year first), searched once per text for every claim; found the source paper for 88/100 eval answers vs 77 with one; 0 turns it off |
 | `device` | `auto` | Laya device: cuda → mps → cpu |
 | `claim_threshold` | 0.4 | min `claim_score` (P(factual claim)) to check an atom; low on purpose, since a dropped real claim is never checked |
 | `early_exit_conf` | 0.9 | 2+ passages this sure (and none against) settle a claim without more crawling |
-| `strong_evidence` | 0.7 | min probability for a passage to count toward a verdict |
+| `strong_evidence` | 0.7 | min probability for a supporting passage to count toward a verdict |
+| `strong_refutation` | 0.9 | min probability for a refuting passage to count: the judge calls a related-but-different fact (another paper by the same authors, another year) a refutation, so refutations need more confidence (recall 0.642 -> 0.700 on the paper eval, same false atoms through) |
+| `overfetch` | 1.0 | keep this much more hits than pages: 10 per search (still 1 Serper credit) |
+| `pages_per_claim` | 10 | readable pages judged per claim (2 x `top_k`); 15 tripled the claims hitting the deadline |
+| `passages_per_page` | 3 | windows of each page the judge sees |
 | `crawl_timeout` | 2.5 | seconds per page (a hard limit; a page that takes longer is dropped and the claim goes on without it) |
 | `search_hedge_after` | 1.2 | if a search hasn't answered by then, send the same request again and use whichever reply comes first (fixes Serper's occasional 3s+ outliers; only slow searches cost a second credit; `None` turns it off) |
 | `blocked_domains` | social + video | hosts never used as evidence (subdomains included): dropped after search and, with Serper, excluded in the query; `()` to allow all |
-| `timeout` | 15 | per-claim deadline; a claim still running then is decided on the evidence judged so far (`error="timeout"`) |
+| `timeout` | 30 | per-claim deadline; a claim still running then is decided on the evidence judged so far (`error="timeout"`) |
 | `max_concurrent_claims` | the judge's | claims checked at once; a claim's `timeout` starts when it gets its turn. The judge takes it from its runner: no limit on Laya, Jev and LLMs; 3 on GLiNER. `None` = no limit |
 | `max_concurrent_crawls` | 10 | pages the browser crawler loads at once (shared by all claims) |
 | `search_timeout` | 5 | seconds per Serper request |
 | `laya_model` | `english` | Laya checkpoint of the default runner (shared by the filter and the judge): `english`, `multilingual`, `typed-decisions` |
 | `serper_api_key` | `SERPER_API_KEY` | Serper key (from `.env` or the environment if not given) |
+
+### Recommended setups
+
+```python
+from factassessor import DecisionClaimFilter, DecisionJudge, FactAssessor, LLMRunner, SystemOneRunner
+
+FactAssessor()                                  # local: Laya filters and judges on your GPU/CPU, no model API key
+
+jev = SystemOneRunner()                         # best measured accuracy per dollar: Jev on OpenRouter (OPENROUTER_API_KEY)
+FactAssessor(claim_filter=DecisionClaimFilter(jev), judge=DecisionJudge(jev, passages_per_page=3))
+
+luna = LLMRunner()                              # gpt-6-luna, reasoning off (OPENAI_API_KEY): fewer wrong refutations
+FactAssessor(claim_filter=DecisionClaimFilter(luna), judge=DecisionJudge(luna, passages_per_page=3))
+```
+
+Many texts at once: `await fa.assess_many(texts, concurrency=10)` on one assessor (shared caches, crawler and
+judge). On a laptop about 50 claims in flight is the sweet spot (10 texts x 5 claims); at about 170 the crawler
+queues and claims run into their deadline.
 
 ### Compose your own pipeline
 
@@ -394,7 +417,7 @@ from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, Cas
                           HybridRanker, DecisionJudge, OpenAlexResolver)
 
 FactAssessor(
-    source_query=True,                          # the atomizer also writes one search for the text's source document
+    source_queries=2,                           # the atomizer also writes 2 searches for the text's source document
     resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()),   # papers: free full-text copies first
     crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()),        # plain HTTP (HTML and PDF), browser only if needed
     judge=DecisionJudge(passages_per_page=3),       # 3 passages per page: +0.10 F1 on the paper eval, ~3s more per text
@@ -404,9 +427,10 @@ DecisionJudge(passages_per_page=3, ranker=HybridRanker())   # BM25 + 8M static e
                                                         # no gain over BM25 at top-3 on the paper eval, kept as an option
 ```
 
-`source_query`: a claim about a detail inside a paper rarely finds the paper by itself, while the whole text usually
-does; the atomizer writes that query in the same call as the atoms (no added latency), every claim searches with it
-too, and it is searched once per text (`FactAssessor` wraps its searcher in `Cache`).
+`source_queries`: a claim about a detail inside a paper rarely finds the paper by itself, while the whole text usually
+does; the atomizer writes these queries in the same call as the atoms (no added latency): what the text says about its
+source (title, venue, year) first, then title-like wordings. Every claim searches with them too, and each is searched
+once per text (`FactAssessor` wraps its searcher in `Cache`).
 
 ### Decision runners: the model behind the filter and the judge
 

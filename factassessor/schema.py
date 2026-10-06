@@ -11,7 +11,7 @@ Verdict = Literal["supported", "refuted", "contested", "unverified"]
 class Atom(BaseModel):
     id: int
     text: str  # self-contained claim, as written by the Atomizer
-    source_query: str | None = None  # a search for the document the text came from; the same for every atom of a text
+    source_queries: list[str] = []  # searches for the document the text came from; the same for every atom of a text
     span: tuple[int, int]  # char offsets in the input text, for UI highlighting
     claim_score: float | None = None  # P(this is a factual claim worth checking), set by the claim filter
 

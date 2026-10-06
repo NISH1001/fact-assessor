@@ -24,7 +24,7 @@ The model layer (`DecisionRunner`) under the judge and the claim filter is desig
 text
  │
  ├─ 1. ATOMIZE    Atomizer: text -> atoms (atomic, self-contained claims)        LLMAtomizer: one LLM call
- │                (source_query=True: the same call also writes one search for the text's source document,
+ │                (source_queries=N: the same call also writes N searches for the text's source document,
  │                 carried by every atom of the text)
  ├─ 2. FILTER     ClaimFilter: drop what isn't a factual claim; Take(n_atoms)     DecisionClaimFilter
  │
@@ -55,7 +55,7 @@ All passed between steps as plain dicts or pydantic models (`factassessor/schema
 
 | Name | Shape | Made by | Used by |
 |---|---|---|---|
-| atom | `Atom(id, text, span, source_query)`: `span` is the sentence of the input text the claim was made from (found locally, `utils.locate`); `source_query` (optional) is one search for the document the text came from, the same for every atom of a text | atomizer | filter, verify |
+| atom | `Atom(id, text, span, source_queries)`: `span` is the sentence of the input text the claim was made from (found locally, `utils.locate`); `source_queries` are searches for the document the text came from, the same for every atom of a text | atomizer | filter, verify |
 | hit | `{"url", "title", "snippet"}` | searcher | snippet judge, resolver, crawler |
 | page | `{"url", "title", "text"}`: clean plain text; `url` is always the **hit's** URL, even when the text came from a copy | crawler (via the read stage) | page judge |
 | evidence | `Evidence(url, title, text, source="snippet" \| "page", label, prob)`: one judged passage | judge | policy |
@@ -134,8 +134,8 @@ client, the model runners. `FactAssessor` exposes them as `aload` / `aclose` and
 Serper the same hosts are also excluded in the query itself (`-site:` operators, as many as fit under Google's
 32-word cap, leakiest first), so Google fills those slots with usable sources instead of hits we pay for and drop;
 `not_blocked()` stays as the guarantee.
-When the atom carries a `source_query` (the atomizer's search for the document the text came from), it is searched
-at the same time and its hits are appended after the claim's own, each URL once. A claim about a detail inside a
+When the atom carries `source_queries` (the atomizer's searches for the document the text came from), they are searched
+at the same time and their hits are appended after the claim's own, each URL once. A claim about a detail inside a
 paper rarely finds the paper by itself (about a quarter of claims on scientific passages); the whole text usually
 does. The source query is identical for every claim of a text, so `FactAssessor` wraps the searcher in `Cache`: one
 real search, the other claims wait for it.
@@ -249,11 +249,11 @@ needs 300. Words, not characters: links and markup leftovers inflate character c
 
 | | Default | Scientific / low-cost eval setup |
 |---|---|---|
-| atomizer | `openai:gpt-5.6-luna` (reasoning as low as the model allows), no source query | `openai:gpt-6-luna` (same atoms, half the price; gpt-5-nano can't atomize), `source_query=True` |
+| atomizer | `openai:gpt-6-luna` (reasoning off), 2 source queries | same |
 | search | Serper (web) | self-hosted SearXNG |
 | resolver | none | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())` |
 | crawler | `Crawl4AICrawler(timeout=2.5)` | `CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())` |
-| judge / policy | `DecisionJudge()`, `WeightedPolicy(strong=0.7, early_exit=0.9)` | same |
+| judge / policy | `DecisionJudge()` on Laya, `WeightedPolicy(strong=0.7, strong_refute=0.9, early_exit=0.9)` | `DecisionJudge(SystemOneRunner(), passages_per_page=3)` (Jev) or `LLMRunner()` (gpt-6-luna) |
 
 ```python
 from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, FactAssessor, CascadedCrawler,
@@ -261,7 +261,7 @@ from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, Fac
 
 fa = FactAssessor(
     atomizer_model="openai:gpt-6-luna",
-    source_query=True,
+    source_queries=2,
     searcher=SearxngSearcher("http://localhost:8080", num=10) >> not_blocked() >> Take(5),
     resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()),
     crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()),
