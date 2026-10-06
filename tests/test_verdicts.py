@@ -207,7 +207,7 @@ def test_fact_assessor_passes_max_concurrent_claims_to_verify():
     assert fa(judge=SlowJudge(concurrency=3)).verify.concurrency == 3
     assert fa(judge=SlowJudge(concurrency=3), max_concurrent_claims=4).verify.concurrency == 4
     assert fa(judge=SlowJudge(concurrency=3), max_concurrent_claims=None).verify.concurrency is None
-    assert fa(judge=FakeJudge([], [])).verify.concurrency is None
+    assert fa(judge=FakeJudge([], [])).verify.concurrency == 50  # a judge without its own limit: 50 claims at once
 
 
 async def test_snippets_still_decide_when_every_crawl_returns_an_error_page():
@@ -435,3 +435,8 @@ def test_a_refutation_needs_more_confidence_than_a_support():
     assert policy.settled([ev("supports", 0.95), ev("supports", 0.92), ev("refutes", 0.8)])
     assert not policy.settled([ev("supports", 0.95), ev("supports", 0.92), ev("refutes", 0.9)])
     assert WeightedPolicy(strong=0.7, strong_refute=0.7).verdict([ev("supports", 0.75), ev("refutes", 0.85)])[0] == "contested"  # the old rule
+
+
+async def test_each_result_carries_its_own_time():
+    result = await Verify(FakeSearcher(), FakeCrawler(), FakeJudge([ev("supports", 0.95), ev("supports", 0.93)], [])).verify(ATOM)
+    assert result.latency_ms is not None and 0 <= result.latency_ms < 5000

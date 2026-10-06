@@ -101,7 +101,8 @@ async def test_first_claim_is_verified_before_the_atomizer_finishes():
 
 async def test_acheck_is_an_alias_for_assess():
     fa = offline_assessor()
-    assert (await fa.acheck(TEXT)).atoms == (await fa.assess(TEXT)).atoms
+    verdicts = lambda r: [(a.atom.text, a.verdict) for a in r.atoms]  # noqa: E731  (times differ run to run)
+    assert verdicts(await fa.acheck(TEXT)) == verdicts(await fa.assess(TEXT))
 
 
 def test_assess_sync_from_plain_code_reuses_one_background_loop():
@@ -135,12 +136,12 @@ def test_sync_context_manager_closes():
 
 
 def test_default_pipeline_is_built_from_the_familiar_arguments():
-    fa = FactAssessor(n_atoms=8, top_k=3, overfetch=0.0, crawl_timeout=1.5, blocked_domains=("example.com",), claim_threshold=0.6)
+    fa = FactAssessor(max_claims=8, top_k=3, overfetch=0.0, crawl_timeout=1.5, blocked_domains=("example.com",), claim_threshold=0.6)
     atomizer, claim_filter, take_atoms = fa.atoms.steps
     assert type(atomizer).__name__ == "LLMAtomizer" and type(claim_filter).__name__ == "DecisionClaimFilter"
     assert claim_filter.threshold == 0.6
     serper, block, take_hits = fa.searcher.step.steps  # under the Cache wrapper
-    assert take_atoms.n == 8 and serper.num == 10 and take_hits.n == 3  # 10 results = 1 Serper credit
+    assert take_atoms.n == 8 and not take_atoms.silent and serper.num == 10 and take_hits.n == 3  # 10 results = 1 Serper credit
     assert [c.timeout for c in fa.crawler.crawlers] == [1.5, 1.5, 1.5]
     assert block.pred({"url": "https://facebook.com/x"}) and not block.pred({"url": "https://example.com/x"})
     assert serper.exclude == ("example.com",) and serper.query("q") == "q -site:example.com"  # the same list, in the query
@@ -169,8 +170,8 @@ def test_defaults_are_the_measured_best_setup():
 
 
 def test_claim_filter_none_means_no_filter():
-    fa = FactAssessor(claim_filter=None, n_atoms=3)
-    assert [type(s).__name__ for s in fa.atoms.steps] == ["LLMAtomizer", "Take"]
+    fa = FactAssessor(claim_filter=None, max_claims=3)
+    assert [type(s).__name__ for s in fa.atoms.steps] == ["LLMAtomizer", "Take"] and fa.atoms.steps[-1].n == 3 and not fa.atoms.steps[-1].silent
 
 
 def test_default_filter_and_judge_share_one_runner():
@@ -240,3 +241,79 @@ def test_the_default_cascade_sends_every_failure_to_the_browser_except_404s_and_
     assert tried(status=403, content_type="text/html")         # bot blocks: often readable in a browser
     assert tried(status=200, content_type="text/html", words=5)  # JavaScript shells
     assert tried(error="TimeoutError") and tried(status=503)
+
+
+# --- every claim is checked; a cap says what it left out; given claims; one claim queue per assessor -----------
+
+class ManyClaims(Step):
+    """An atomizer of 8 claims, emitted one at a time."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self, texts):
+        async def atoms(text):
+            self.calls += 1
+            for i in range(8):
+                await asyncio.sleep(0)
+                yield Atom(id=i, text=f"Claim number {i} is true.", span=(0, 1))
+
+        return FlatMap(atoms)(texts)
+
+
+def many_claims_assessor(**kw):
+    return FactAssessor(atomizer=ManyClaims(), claim_filter=None, searcher=FakeSearcher(), crawler=NoCrawl(),
+                        resolver=None, judge=FakeJudge(), **kw)
+
+
+async def test_every_claim_is_checked_by_default():
+    # the old default checked the first 5 claims and dropped the rest without saying so
+    result = await many_claims_assessor().assess("text")
+    assert len(result.atoms) == 8 and result.unchecked == []
+    assert FactAssessor().atoms.steps[-1].n is None  # Take(None): every claim passes
+
+
+async def test_a_cap_checks_the_first_n_and_reports_the_rest_as_unchecked():
+    result = await many_claims_assessor(max_claims=3).assess("text")
+    assert [a.atom.id for a in result.atoms] == [0, 1, 2]
+    assert [a.id for a in result.unchecked] == [3, 4, 5, 6, 7] and result.skipped == []
+
+
+async def test_given_claims_skip_the_atomizer_and_the_filter():
+    fa = many_claims_assessor()
+    fa.claim_filter = Filter(lambda a: False)  # would drop everything: given claims are checked as given
+    text = "NASA was founded in 1958. The Moon is made of cheese."
+    result = await fa.assess(text, claims=["NASA was founded in 1958.", "The Moon is made of cheese."])
+    assert fa.atomizer.calls == 0
+    assert [(a.atom.text, a.verdict) for a in result.atoms] == [("NASA was founded in 1958.", "supported"), ("The Moon is made of cheese.", "refuted")]
+    assert result.atoms[1].atom.span == (26, len(text))  # located in the text
+
+
+async def test_given_claims_still_get_the_texts_source_queries():
+    class WithSources(ManyClaims):
+        async def source_queries_for(self, text):
+            return ["the source paper"]
+
+    fa = FactAssessor(atomizer=WithSources(), claim_filter=None, searcher=FakeSearcher(), crawler=NoCrawl(), resolver=None, judge=FakeJudge())
+    result = await fa.assess("text", claims=["A claim."])
+    assert result.atoms[0].atom.source_queries == ["the source paper"]
+
+
+async def test_claims_in_flight_are_capped_across_all_texts_of_an_assessor():
+    # per-text limits multiplied with assess_many: 10 answers at once put ~170 claims in flight and 63% hit the deadline
+    running = peak = 0
+
+    class SlowJudge(FakeJudge):
+        async def judge(self, claim, docs):
+            nonlocal running, peak
+            running += 1
+            peak = max(peak, running)
+            await asyncio.sleep(0.02)
+            running -= 1
+            return await super().judge(claim, docs)
+
+    fa = FactAssessor(atomizer=ManyClaims(), claim_filter=None, searcher=FakeSearcher(), crawler=NoCrawl(), resolver=None,
+                      judge=SlowJudge(), max_concurrent_claims=4)
+    results = await fa.assess_many(["a", "b", "c"], concurrency=3)
+    assert [len(r.atoms) for r in results] == [8, 8, 8] and peak == 4
+    assert FactAssessor().verify.concurrency == 50  # the default: about the claim load measured fine on a laptop

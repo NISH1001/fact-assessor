@@ -227,7 +227,7 @@ a claim's timeout starts when it gets one. Override it with `Verify(..., concurr
 Two ways to give `FactAssessor` a claim filter:
 
 ```python
-# 1. separate arguments: FactAssessor chains atomizer >> claim_filter >> Take(n_atoms) itself
+# 1. separate arguments: FactAssessor chains atomizer >> claim_filter >> Take(max_claims) itself
 fa = FactAssessor(
     atomizer=LLMAtomizer(),
     claim_filter=DecisionClaimFilter(threshold=0.4),     # or DecisionClaimFilter(GlinerRunner()), or None for no filter

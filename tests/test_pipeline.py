@@ -332,3 +332,62 @@ async def test_cache_keeps_working_for_others_when_one_waiter_is_cancelled():
     await asyncio.sleep(0.01)
     first.cancel()
     assert await second == ["q"] and calls == ["q"]
+
+
+# --- Take(None), Take(silent=False), shared Slots --------------------------------------------------------------
+
+async def numbers(n, produced=None):
+    for i in range(n):
+        await asyncio.sleep(0)
+        if produced is not None:
+            produced.append(i)
+        yield i
+
+
+async def test_take_none_passes_everything():
+    assert await collect(Take(None)(numbers(7))) == list(range(7))
+
+
+async def test_take_silent_stops_reading_after_n_and_reports_nothing():
+    from factassessor.pipeline import unchecked
+
+    produced, left_out = [], []
+    unchecked.set(left_out)
+    assert await collect(Take(3)(numbers(10, produced))) == [0, 1, 2]
+    assert produced == [0, 1, 2] and left_out == []  # upstream closed: 3..9 never made, never mentioned
+
+
+async def test_take_not_silent_reads_the_rest_and_reports_it():
+    from factassessor import Atom
+    from factassessor.pipeline import unchecked
+
+    async def atoms():
+        for i in range(5):
+            yield Atom(id=i, text=f"claim {i}", span=(0, 1))
+
+    left_out = []
+    unchecked.set(left_out)
+    assert [a.id for a in await collect(Take(2, silent=False)(atoms()))] == [0, 1]
+    assert [a.id for a in left_out] == [2, 3, 4]
+
+
+async def test_slots_are_one_limit_shared_by_every_map_that_holds_them():
+    # Map(concurrency=3) is per stream: 3 streams at once ran 9; Slots(3) caps them all at 3
+    from factassessor.pipeline import Slots
+
+    running = peak = 0
+
+    async def work(x):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+        return x
+
+    slots = Slots(3)
+    outs = await asyncio.gather(*(collect(Map(work, concurrency=slots)(numbers(6))) for _ in range(3)))
+    assert [sorted(o) for o in outs] == [list(range(6))] * 3 and peak == 3
+    running = peak = 0
+    await asyncio.gather(*(collect(Map(work, concurrency=3)(numbers(6))) for _ in range(3)))
+    assert peak == 9  # a plain number: per stream, as before

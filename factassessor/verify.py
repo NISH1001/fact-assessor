@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from typing import Any, Protocol, runtime_checkable
 
-from factassessor.pipeline import Map, Scan, Step, Take, TakeUntil, collect, last, once
+from factassessor.pipeline import Map, Scan, Slots, Step, Take, TakeUntil, collect, last, once
 from factassessor.resolvers import Resolver, locations
 from factassessor.schema import Atom, AtomResult, Evidence, Verdict
 
@@ -72,8 +73,8 @@ class Verify(Step):
         a handful of locations, and the claim's `timeout` caps the rest. (A per-hit deadline used to start when the
         hit was handed to the crawler, so under load it timed the wait for a connection: with 6 texts checked at
         once, 93% of crawls expired before starting and 571 of 1,667 claims lost pages that were readable.)
-    concurrency: claims verified at once, like `Map(concurrency=)`. Default: the judge's `concurrency` (none for
-        Laya and LLM judges, so every claim starts at once); None: no limit. A claim's `timeout` starts when it
+    concurrency: claims verified at once, shared by every stream through this Verify (all texts in flight). Default:
+        the judge's `concurrency` (none for Laya and LLM judges); None: no limit. A claim's `timeout` starts when it
         gets its slot, so claims waiting for a slow judge don't time out in the queue.
     """
 
@@ -101,22 +102,27 @@ class Verify(Step):
         self.judge = judge
         self.policy = policy or WeightedPolicy()
         self.timeout = timeout
-        self.concurrency = getattr(judge, "concurrency", None) if concurrency is _FROM_JUDGE else concurrency
+        limit = getattr(judge, "concurrency", None) if concurrency is _FROM_JUDGE else concurrency
+        # one pool for every stream through this Verify: several texts at once share it instead of multiplying it
+        self.slots = limit if isinstance(limit, Slots) or limit is None else Slots(limit)
+        self.concurrency = self.slots.n if self.slots else None
 
     def __call__(self, atoms: AsyncIterator[Atom]) -> AsyncIterator[AtomResult]:
-        return Map(self.verify, concurrency=self.concurrency)(atoms)
+        return Map(self.verify, concurrency=self.slots)(atoms)  # a claim starts (and its clock) once it has a slot
 
     async def verify(self, atom: Atom) -> AtomResult:
         """Never raises: a failed claim comes back unverified with `error` set. A slow one is decided on the evidence
         judged before its `timeout` (snippets, pages that landed), with `error="timeout"`."""
         so_far: list[Evidence] = []  # the running total, kept current by _verify
+        start = time.perf_counter()
         try:
-            return await asyncio.wait_for(self._verify(atom, so_far), self.timeout)
+            result = await asyncio.wait_for(self._verify(atom, so_far), self.timeout)
         except TimeoutError:
             verdict, confidence = self.policy.verdict(so_far)
-            return AtomResult(atom=atom, verdict=verdict, confidence=confidence, evidence=so_far, error="timeout")
+            result = AtomResult(atom=atom, verdict=verdict, confidence=confidence, evidence=so_far, error="timeout")
         except Exception as exc:
-            return AtomResult(atom=atom, verdict="unverified", error=repr(exc))
+            result = AtomResult(atom=atom, verdict="unverified", error=repr(exc))
+        return result.model_copy(update={"latency_ms": (time.perf_counter() - start) * 1000})
 
     async def _verify(self, atom: Atom, so_far: list[Evidence]) -> AtomResult:
         # the claim's own search, plus the text's source queries when the atomizer wrote them (a claim about a detail
