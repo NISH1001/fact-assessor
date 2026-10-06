@@ -317,3 +317,9 @@ async def test_claims_in_flight_are_capped_across_all_texts_of_an_assessor():
     results = await fa.assess_many(["a", "b", "c"], concurrency=3)
     assert [len(r.atoms) for r in results] == [8, 8, 8] and peak == 4
     assert FactAssessor().verify.concurrency == 50  # the default: about the claim load measured fine on a laptop
+
+
+def test_the_package_reports_its_version():
+    import factassessor
+
+    assert factassessor.__version__ == "0.1.0"

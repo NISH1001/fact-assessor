@@ -1,4 +1,11 @@
+from importlib.metadata import PackageNotFoundError, version
+
 from dotenv import find_dotenv, load_dotenv
+
+try:
+    __version__ = version("fact-assessor")  # from pyproject.toml, so the two never drift
+except PackageNotFoundError:  # running from a source tree that isn't installed
+    __version__ = "0.0.0"
 
 # API keys (SERPER_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, ...) from .env in the cwd or a parent; never
 # overrides real env vars.
