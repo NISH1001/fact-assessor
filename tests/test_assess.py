@@ -151,10 +151,11 @@ def test_defaults_are_the_measured_best_setup():
     from factassessor import CascadedCrawler, CompositeResolver, Crawl4AICrawler, HTTPXCrawler, LayaRunner
 
     fa = FactAssessor()
-    assert fa.atomizer.agent.model == "openai:gpt-6-luna" and fa.atomizer.source_query  # the text's source query on
+    assert fa.atomizer.agent.model == "openai:gpt-6-luna" and fa.atomizer.source_queries == 2  # two searches for the text's source
     serper, _, take_hits = fa.searcher.step.steps
     assert take_hits.n == 10 and serper.num == 10  # overfetch 1.0: 10 hits per query, still 1 credit
-    assert fa.verify.pages_per_claim == 10  # the first 10 readable pages (own hits + the source query's)
+    assert fa.verify.pages_per_claim == 10  # the first 10 readable pages: 15 tripled the claims hitting the deadline
+    assert fa.policy.strong == 0.7 and fa.policy.strong_refute == 0.9  # a refutation needs more confidence than a support
     assert isinstance(fa.verify.resolver, CompositeResolver)  # papers read in full (arXiv, OpenAlex)
     from factassessor.crawlers import ImpitCrawler
 
@@ -186,13 +187,14 @@ def test_overfetch_keeps_more_hits_than_pages():
     # overfetch=1.0 (the default): search keeps 100% more hits than pages, the crawl stage the first readable pages
     from factassessor import FactAssessor
 
-    fa = FactAssessor(top_k=4, overfetch=1.0, source_query=False)
+    fa = FactAssessor(top_k=4, overfetch=1.0, source_queries=0)
     _, _, take_hits = fa.searcher.step.steps
     assert take_hits.n == 8 and fa.verify.pages_per_claim == 4
     fa = FactAssessor(top_k=4, overfetch=0.0)  # every kept hit is read
     _, _, take_hits = fa.searcher.step.steps
     assert take_hits.n == 4 and fa.verify.pages_per_claim is None
-    assert FactAssessor(top_k=4, overfetch=1.0, source_query=True).verify.pages_per_claim == 8  # own + source query's
+    assert FactAssessor(top_k=4, overfetch=1.0, source_queries=3).verify.pages_per_claim == 8  # 2 x top_k, however many source queries
+    assert FactAssessor(top_k=4, pages_per_claim=12).verify.pages_per_claim == 12
 
 
 async def test_assess_many_returns_results_in_input_order_with_at_most_concurrency_texts_in_flight():

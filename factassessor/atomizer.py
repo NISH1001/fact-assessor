@@ -37,10 +37,12 @@ of the other claims, so that if it is wrong only its own claim fails.
 - Keep every value exactly as written, even if you think it is wrong: we are checking the text, not correcting it.
 - Also return opinions, greetings, and questions as claims; a later step filters them."""
 
-SOURCE_QUERY_RULE = """
-- source_query: one web search query to find the document the whole text was taken from (a paper, report, or \
-article), written the way its title and keywords would read: the topic, the method, the place or object, the \
-instruments or datasets. No quotation marks and no numbers or results: they rarely appear in a title."""
+SOURCE_QUERIES_RULE = """
+- source_queries: exactly {n} web search queries to find the document the whole text was taken from (a paper, report, \
+or article). If the text names that document (its title, venue, year, or authors), the first query is what it states. \
+The others, or all of them if it names nothing, read the way the document's title and keywords would: the topic, the \
+method, the place or object, the instruments or datasets, each worded differently from the others. No quotation \
+marks and no numbers or results: they rarely appear in a title. Never invent a title, author, or venue."""
 
 DEFAULT_MODEL = "openai:gpt-6-luna"  # the same atoms as gpt-5.6-luna at half the price (reasoning off)
 
@@ -51,7 +53,7 @@ class Claim(BaseModel):
 
 class Claims(BaseModel):
     atoms: list[Claim]
-    source_query: str = ""
+    source_queries: list[str] = []
 
 
 class Atomizer(Step):
@@ -71,16 +73,24 @@ class Atomizer(Step):
 class LLMAtomizer(Atomizer):
     """Atomize + decontextualize in one LLM call. Falls back to plain sentences if the LLM is unavailable.
 
-    `source_query=True`: the same call also writes one search query for the document the text was taken from
-    (title-like: topic, method, place, instruments), carried by every atom as `Atom.source_query`. A claim about a
+    `source_queries=N`: the same call also writes up to N search queries for the document the text was taken from
+    (its stated title, venue or year first, if it names one; then title-like ones: topic, method, place, instruments,
+    each worded differently), carried by every atom as `Atom.source_queries`. A claim about a
     detail inside a paper rarely finds that paper by itself; the whole text usually does (on 8 scientific passages,
     1 of 8 by their claims' own searches vs 5 of 8 by such a query, SearXNG top 10)."""
 
     def __init__(
-        self, model: str = DEFAULT_MODEL, model_settings: dict[str, Any] | None = None, source_query: bool = False
+        self,
+        model: str = DEFAULT_MODEL,
+        model_settings: dict[str, Any] | None = None,
+        source_queries: int = 0,
+        fallback: bool = True,  # on an LLM error, plain sentences as atoms (no source queries); False: raise (evals)
     ) -> None:
-        self.source_query = source_query
-        self.instructions = INSTRUCTIONS + (SOURCE_QUERY_RULE if source_query else "")
+        self.fallback = fallback
+        if source_queries < 0:
+            raise ValueError(f"source_queries must be >= 0, not {source_queries}")
+        self.source_queries = source_queries
+        self.instructions = INSTRUCTIONS + (SOURCE_QUERIES_RULE.format(n=source_queries) if source_queries else "")
         self.agent = Agent(
             model,
             output_type=Claims,
@@ -95,11 +105,13 @@ class LLMAtomizer(Atomizer):
         try:
             out = (await self.agent.run(text)).output
         except Exception as exc:  # best effort: an LLM outage degrades to sentence atoms, not a failed check
+            if not self.fallback:
+                raise
             logger.warning("atomizer LLM failed, falling back to sentences: %r", exc)
             return [Atom(id=i, text=text[s:e], span=(s, e)) for i, (s, e) in enumerate(sentences(text))]
-        source_query = out.source_query.strip() or None if self.source_query else None
+        queries = list(dict.fromkeys(q.strip() for q in out.source_queries if q.strip()))[: self.source_queries]
         return [  # span: the sentence the claim was made from, found here rather than quoted by the model
-            Atom(id=i, text=c.text.strip(), span=locate(c.text, text), source_query=source_query)
+            Atom(id=i, text=c.text.strip(), span=locate(c.text, text), source_queries=queries)
             for i, c in enumerate(out.atoms)
             if c.text.strip()
         ]

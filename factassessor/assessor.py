@@ -55,7 +55,8 @@ class FactAssessor:
         laya_model: str = "english",  # Laya checkpoint: english | multilingual | typed-decisions
         claim_threshold: float = 0.4,  # min claim_score to check an atom; low on purpose: a dropped real claim is never checked
         early_exit_conf: float = 0.9,  # 2+ passages this sure, none against -> stop gathering evidence
-        strong_evidence: float = 0.7,  # a passage counts toward a verdict at or above this prob
+        strong_evidence: float = 0.7,  # a supporting passage counts toward a verdict at or above this prob
+        strong_refutation: float = 0.9,  # a refuting one at or above this: the judge calls related-but-different facts refutations
         crawl_timeout: float = 2.5,
         max_concurrent_crawls: int = 10,
         max_concurrent_claims: int | None | Any = _DEFAULT,  # default: the judge's `concurrency`; None: no limit
@@ -64,8 +65,9 @@ class FactAssessor:
         blocked_domains: tuple[str, ...] = BLOCKED_DOMAINS,
         timeout: float = 30.0,  # per claim; a claim still running then is decided on the evidence it has (p90 22s alone)
         atomizer_model: str = DEFAULT_ATOMIZER_MODEL,
-        source_query: bool = True,  # the atomizer also writes one search for the text's source document (papers: +0.04 F1)
+        source_queries: int = 2,  # searches for the text's source document: the paper found for 88/100 answers vs 77 with one (70 with the old prompt)
         passages_per_page: int = 3,  # windows of each page the judge sees (3 vs 1: +0.10 F1 on the paper eval)
+        pages_per_claim: int | None | Any = _DEFAULT,  # readable pages judged per claim; default 2 x top_k (with overfetch)
         atomizer: Step | None = None,  # an Atomizer, or any chain starting with one (text -> atoms)
         claim_filter: ClaimFilter | Step | None = _DEFAULT,  # None: no filter (e.g. your atomizer chain already filters)
         searcher: Step | None = None,  # a Searcher, or any chain starting with one (query -> hits)
@@ -74,7 +76,7 @@ class FactAssessor:
         judge: Judge | None = None,
         policy: Policy | None = None,
     ) -> None:
-        self.atomizer = atomizer or LLMAtomizer(atomizer_model, source_query=source_query)
+        self.atomizer = atomizer or LLMAtomizer(atomizer_model, source_queries=source_queries)
         laya = LayaRunner(laya_model, device) if claim_filter is _DEFAULT or judge is None else None  # shared
         self.claim_filter = DecisionClaimFilter(laya, threshold=claim_threshold) if claim_filter is _DEFAULT else claim_filter
         self.atoms = (  # text -> the atoms worth checking
@@ -96,11 +98,12 @@ class FactAssessor:
         )
         resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()) if resolver is _DEFAULT else resolver
         self.judge = judge or DecisionJudge(laya, passages_per_page=passages_per_page)
-        self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf)
+        self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf, strong_refute=strong_refutation)
         claims: dict[str, Any] = {} if max_concurrent_claims is _DEFAULT else {"concurrency": max_concurrent_claims}
         self.verify = Verify(
             self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, resolver=resolver,
-            pages_per_claim=top_k * (2 if source_query else 1) if overfetch else None,  # own hits + the source query's
+            pages_per_claim=((top_k * (2 if source_queries else 1) if overfetch else None)  # own hits + the source queries'
+                             if pages_per_claim is _DEFAULT else pages_per_claim),
             **claims,
         )
         self._loop: asyncio.AbstractEventLoop | None = None  # background loop behind assess_sync()

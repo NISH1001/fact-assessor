@@ -268,3 +268,29 @@ Laya's weights are process-wide (one Router per device) and GLiNER's per (model,
 decision-runner refactor (2026-09-30) the filter and the judge are handed a `DecisionRunner` (`FactAssessor`
 shares one `LayaRunner` between them); the runner's batch queue belongs to the event loop it first runs on, so
 use one runner per loop (`assess` or `assess_sync` on a given assessor, not both).
+
+## Verdict rule and source queries (2026-10-06)
+
+**Refutations need 0.9, supports 0.7** (`WeightedPolicy(strong_refute=0.9)`, `FactAssessor(strong_refutation=0.9)`).
+Of the true atoms the judge refuted or contested in the fully live run (242), 95% of the strong refuting passages came
+from documents other than the claim's source paper, typically another paper by the same authors or another year
+("Stillman studied RSL in 2014" refuted by Stillman and Grimm 2018). Re-scoring saved evidence with refutations from
+0.9: FactReasoner's atoms, fully live run, F1 0.738 -> 0.780 (recall 0.632 -> 0.690, false atoms through 11 -> 14);
+a fresh Jev replay of the same pages (10 per claim), 0.749 -> 0.791 (recall 0.642 -> 0.700, false through 13 -> 13);
+the synthetic set, 0.762 -> 0.785 (recall 0.718 -> 0.770, false through 80 -> 92).
+
+Tried and not adopted: telling Jev each passage's document (title and site, plus "a different study, paper, event or
+year is not enough info"): on 60 wrong and 60 right refutations it changed 3 and 2 (Jev mostly ignored the field).
+Wider passages (250 words instead of 90): 3 fewer wrong refutations and 6 more right ones of 60 each, at 2.8x the
+tokens; not pursued yet. gpt-6-luna (reasoning off) as judge on the same 120 passages: wrong refutations 43 -> 27 at
+0.7, right ones at 0.9 kept (27 vs 26); on 10 answers' pages F1 0.785 (recall 0.721) without needing the threshold,
+Jev 0.772 with it, same time per answer. A 100-answer Luna replay at 10 answers at once failed (809 claims on
+connection errors and timeouts from queueing in the harness), so the full comparison is pending.
+
+**Two source queries** (`LLMAtomizer(source_queries=N)`, `FactAssessor(source_queries=2)`; was one string). The same
+atomizer call writes what the text says about its source (title, venue, year) first, then title-like wordings. On the
+100 eval answers the source paper was found by the queries for 77 with one (70 with the old prompt), 88 with two, 90
+with three; on all 966 answers of the file, 75%, 85%, 87%. Pages judged per claim stay at 10: with 15 (own hits plus
+both queries'), timeouts on the first 20 answers went 13 -> 39 and p90 per claim 18.7 s -> 30 s.
+`LLMAtomizer(fallback=False)` raises on an LLM error instead of using sentences; the eval uses it (a run on
+2026-10-04 lost its source queries when OpenAI credits ran out, silently).

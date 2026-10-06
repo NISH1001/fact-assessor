@@ -54,23 +54,55 @@ async def test_empty_text_skips_the_model():
     assert model.last_model_request_parameters is None
 
 
-async def test_source_query_is_written_once_per_text_and_carried_by_every_atom():
+async def test_source_queries_are_written_once_per_text_and_carried_by_every_atom():
     # the atomizer reads the whole text, so in the same call it can say what document the text is from
-    atomizer = LLMAtomizer(source_query=True)
+    atomizer = LLMAtomizer(source_queries=2)
     model = TestModel(custom_output_args={
         "atoms": [{"text": "A"}, {"text": "B"}],
-        "source_query": "Nepal earthquake 2017 magnitude damage casualties",
+        "source_queries": ["Nepal earthquake 2017 magnitude damage casualties", " Gorkha earthquake Nepal 2015 report ", ""],
     })
     with atomizer.agent.override(model=model):
         atoms = await atomizer.atomize(TEXT)
-    assert [a.source_query for a in atoms] == ["Nepal earthquake 2017 magnitude damage casualties"] * 2
-    assert "source_query" in atomizer.instructions  # the model is asked for it
+    queries = ["Nepal earthquake 2017 magnitude damage casualties", "Gorkha earthquake Nepal 2015 report"]
+    assert [a.source_queries for a in atoms] == [queries, queries]  # stripped, blanks dropped
+    assert "source_queries" in atomizer.instructions and "2" in atomizer.instructions  # asked for, and how many
 
 
-async def test_without_the_flag_no_source_query_is_asked_for_or_kept():
-    atomizer = LLMAtomizer()
-    assert "source_query" not in atomizer.instructions
-    model = TestModel(custom_output_args={"atoms": [{"text": "A"}], "source_query": "ignored"})
+async def test_no_more_source_queries_than_asked_for_and_duplicates_dropped():
+    atomizer = LLMAtomizer(source_queries=2)
+    model = TestModel(custom_output_args={"atoms": [{"text": "A"}], "source_queries": ["q1", "q1", "q2", "q3"]})
     with atomizer.agent.override(model=model):
         [atom] = await atomizer.atomize(TEXT)
-    assert atom.source_query is None
+    assert atom.source_queries == ["q1", "q2"]
+
+
+async def test_zero_source_queries_asks_for_none_and_keeps_none():
+    atomizer = LLMAtomizer()  # the atomizer alone: claims only
+    assert atomizer.source_queries == 0 and "source_queries" not in atomizer.instructions
+    model = TestModel(custom_output_args={"atoms": [{"text": "A"}], "source_queries": ["ignored"]})
+    with atomizer.agent.override(model=model):
+        [atom] = await atomizer.atomize(TEXT)
+    assert atom.source_queries == []
+
+
+async def test_fallback_false_raises_on_an_llm_error_instead_of_using_sentences():
+    # an eval must stop when the LLM is down (no credits): the sentence fallback has no source queries and would
+    # quietly measure something else
+    import pytest
+    from pydantic_ai.models.function import FunctionModel
+
+    def down(messages, info):
+        raise RuntimeError("insufficient_quota")
+
+    for fallback, expect_raise in ((True, False), (False, True)):
+        atomizer = LLMAtomizer(source_queries=2, fallback=fallback)
+        with atomizer.agent.override(model=FunctionModel(down)):
+            if expect_raise:
+                with pytest.raises(RuntimeError):
+                    await atomizer.atomize(TEXT)
+            else:
+                assert [a.source_queries for a in await atomizer.atomize(TEXT)][0] == []
+
+
+def test_the_model_is_asked_for_exactly_n_source_queries():
+    assert "exactly 2" in LLMAtomizer(source_queries=2).instructions

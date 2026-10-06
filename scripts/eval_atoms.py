@@ -5,7 +5,7 @@ Each JSONL row is a pair: an `original` and a `corrupted` long-form answer, each
 
     # live: gpt-6-luna atomizer + Laya filter (timed per answer), then every labelled atom verified live
     # (SearXNG, resolvers, HTTPX -> browser, Laya); search hits and pages are cached for replays. The atomizer
-    # also writes the text's source query (--no-source-query to skip), searched once per text for every atom
+    # also writes the text's source queries (--source-queries N; 0 to skip), searched once per text for every atom
     uv run python scripts/eval_atoms.py live --data tmp/scielf_paired.jsonl --tag web
 
     # replay: the same cached evidence, another judging setup, in seconds (no network)
@@ -45,6 +45,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from factassessor import (
+    LLMRunner,
     FactAssessor,
     ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, DecisionRequest,
     CascadedCrawler, Fetch, HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, Question, SearxngSearcher,
@@ -253,6 +254,8 @@ def make_judge(args: argparse.Namespace) -> DecisionJudge:
     ranker = HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None
     if args.judge == "decision":
         runner: Any = SystemOneRunner(model=args.judge_model, packing=args.pack, **({"batch_size": args.batch_size} if args.batch_size else {}))
+    elif args.judge == "llm":  # any chat model behind the same decision interface (default gpt-6-luna, reasoning off)
+        runner = LLMRunner(args.llm_model)
     else:
         runner = LayaRunner(**({"max_wait_ms": args.laya_wait_ms} if args.laya_wait_ms else {}))
     return DecisionJudge(runner, passages_per_page=args.passages, passage_words=args.passage_words, ranker=ranker)
@@ -295,6 +298,13 @@ def _write_meta(run_dir: Path, args: argparse.Namespace) -> None:
     path.write_text(json.dumps(meta, indent=1))
 
 
+def source_queries_of(answer: dict[str, Any]) -> list[str]:
+    """An answer's source queries: `source_queries` (a list), or `source_query` (one string, runs before 2026-10-05)."""
+    if answer.get("source_queries") is not None:
+        return list(answer["source_queries"])
+    return [answer["source_query"]] if answer.get("source_query") else []
+
+
 def _atom_record(atom: dict[str, Any], result: Any, spans: dict[str, list[tuple[float, float]]], total: float) -> dict:
     return {**atom, "verdict": result.verdict, "confidence": result.confidence, "error": result.error,
             "evidence": [e.model_dump() for e in result.evidence],
@@ -303,13 +313,13 @@ def _atom_record(atom: dict[str, Any], result: Any, spans: dict[str, list[tuple[
 
 async def verify_answer(verify: Verify, answer: dict[str, Any]) -> tuple[list[dict[str, Any]], float]:
     """Every atom of an answer at once, as the pipeline checks a text's claims; per-atom spans and totals.
-    `answer["source_query"]` (the atomizer's search for the text's source document) goes on every atom."""
+    `answer["source_queries"]` (the atomizer's searches for the text's source document) go on every atom."""
 
     async def one(a: dict[str, Any]) -> dict[str, Any]:
         spans: dict[str, list[tuple[float, float]]] = {}
         _spans.set(spans)  # this task's context only: each atom's own spans
         start = time.perf_counter()
-        atom = Atom(id=0, text=a["text"], span=(0, len(a["text"])), source_query=answer.get("source_query"))
+        atom = Atom(id=0, text=a["text"], span=(0, len(a["text"])), source_queries=source_queries_of(answer))
         result = await verify.verify(atom)
         return _atom_record(a, result, spans, time.perf_counter() - start)
 
@@ -354,9 +364,9 @@ class Pipeline:
         save_hits = lambda: _save(run_dir / "hits.json.gz", hits)  # noqa: E731  # every paid search on disk at once
         self.verify = Verify(
             TimedSearch(searcher, hits, slots=50 if args.searcher == "serper" else 4, save=save_hits),  # Serper: its own limit, 50/s; SearXNG's engines suspend bursts
-            TimedCrawler(self.crawler), TimedJudge(self.judge, pages), WeightedPolicy(strong=args.strong), timeout=args.timeout,
+            TimedCrawler(self.crawler), TimedJudge(self.judge, pages), WeightedPolicy(strong=args.strong, strong_refute=args.strong_refute), timeout=args.timeout,
             resolver=TimedResolver(self.resolver) if self.resolver else None,
-            pages_per_claim=TOP_K * (1 if args.no_source_query else 2) if args.overfetch else None,
+            pages_per_claim=TOP_K * 2 if args.overfetch else None,  # as the library: 10, however many source queries
         )
 
     async def aclose(self) -> None:
@@ -373,7 +383,9 @@ async def live(args: argparse.Namespace) -> None:
     pages: dict[str, Any] = _load(run_dir / "pages.json.gz", {})
     done = {r["id"]: r for r in _load(run_dir / "results.json.gz", [])}
 
-    atomizer = LLMAtomizer(args.atomizer, source_query=not args.no_source_query)
+    # fallback=False: an LLM outage stops the run instead of quietly using sentences without source queries
+    # (2026-10-04: OpenAI credits ran out mid-session and a run measured something else)
+    atomizer = LLMAtomizer(args.atomizer, source_queries=args.source_queries, fallback=False)
     pipe = Pipeline(args, run_dir, hits, pages)
     await pipe.judge.aload()  # the model (or the HTTP pool) before timing
     _write_meta(run_dir, args)
@@ -384,22 +396,18 @@ async def live(args: argparse.Namespace) -> None:
         async with slots:
             t0 = time.perf_counter()
             ours = await atomizer.atomize(answer["text"])  # timed only: scoring uses the labelled atoms
-            if not args.no_source_query and not (ours and ours[0].source_query):
-                # the atomizer fell back to sentences (an API outage, no credits): no source query, so no search for the
-                # source paper, and the run would quietly measure something else (2026-10-04: credits ran out mid-session)
-                raise SystemExit(f"{answer['id']}: the atomizer returned no source query (see its warning above); stopping")
             t1 = time.perf_counter()
             kept = await collect(pipe.claim_filter(_stream(ours)))
             t2 = time.perf_counter()
-            answer["source_query"] = ours[0].source_query if ours else None  # from the same atomizer call
+            answer["source_queries"] = ours[0].source_queries if ours else []  # from the same atomizer call
             searches_cached = all(a["text"] in hits for a in answer["atoms"])  # an earlier run searched them: not live
             atoms, verify_s = await verify_answer(pipe.verify, answer)
-            done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind", "source_query")}, "atoms": atoms,
+            done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind", "source_queries")}, "atoms": atoms,
                                   "time": {"atomize": t1 - t0, "filter": t2 - t1, "verify": verify_s,
                                            "total": t1 - t0 + t2 - t1 + verify_s},
                                   "our_atoms": len(ours), "our_kept": len(kept),
                                   "searches_cached": searches_cached or args.parallel > 1}
-            queries = [a["text"] for a in answer["atoms"]] + ([answer["source_query"]] if answer["source_query"] else [])
+            queries = [a["text"] for a in answer["atoms"]] + answer["source_queries"]
             await fill_pages(hits, pages, pipe.resolver, pipe.crawler, queries)
             _save(run_dir / "hits.json.gz", hits)  # synchronous dumps: no other answer mutates the dicts meanwhile
             _save(run_dir / "pages.json.gz", pages)
@@ -453,7 +461,9 @@ async def synth(args: argparse.Namespace) -> None:
     pages: dict[str, Any] = _load(run_dir / "pages.json.gz", {})
     done = {r["id"]: r for r in _load(run_dir / "results.json.gz", [])}
 
-    atomizer = LLMAtomizer(args.atomizer, source_query=True)
+    # fallback=False: an LLM outage stops the run instead of quietly using sentences without source queries
+    # (2026-10-04: OpenAI credits ran out mid-session and a run measured something else)
+    atomizer = LLMAtomizer(args.atomizer, source_queries=args.source_queries, fallback=False)
     corruptor = Agent(args.corruptor, output_type=Corruptions, instructions=CORRUPT, model_settings=reasoning_off(args.corruptor),
                       defer_model_check=True)
     pipe = Pipeline(args, run_dir, hits, pages)
@@ -467,7 +477,7 @@ async def synth(args: argparse.Namespace) -> None:
             ours = (await atomizer.atomize(answer["text"]))[: args.n]
             if not ours:
                 return
-            source_query = ours[0].source_query
+            source_queries = ours[0].source_queries
             # the atomizer's error rate: does the answer actually state each atom? (reported, never used to drop)
             stated = await pipe.judge.runner.predict(
                 [DecisionRequest(state={"text": answer["text"], "claim": a.text}, questions=STATED) for a in ours]
@@ -485,11 +495,11 @@ async def synth(args: argparse.Namespace) -> None:
             for a, s in zip(atoms, scores):
                 (kept if s >= pipe.claim_filter.threshold else filtered).append({**a, "claim_score": round(s, 3)})
             synthetic = {"id": f"{answer['id'].rsplit('-', 1)[0]}-synth", "pair": answer["pair"], "kind": "synthetic",
-                         "text": answer["text"], "source_query": source_query, "atoms": kept}
+                         "text": answer["text"], "source_queries": source_queries, "atoms": kept}
             verified, verify_s = await verify_answer(pipe.verify, synthetic)
-            done[synthetic["id"]] = {**{k: synthetic[k] for k in ("id", "pair", "kind", "source_query")}, "atoms": verified,
+            done[synthetic["id"]] = {**{k: synthetic[k] for k in ("id", "pair", "kind", "source_queries")}, "atoms": verified,
                                      "filtered": filtered, "time": {"verify": verify_s}}
-            queries = [a["text"] for a in kept] + ([source_query] if source_query else [])
+            queries = [a["text"] for a in kept] + source_queries
             await fill_pages(hits, pages, pipe.resolver, pipe.crawler, queries)
             _save(run_dir / "hits.json.gz", hits)
             _save(run_dir / "pages.json.gz", pages)
@@ -539,9 +549,10 @@ async def replay(args: argparse.Namespace) -> None:
     live_results = sorted(_load(run_dir / "results.json.gz", []), key=lambda r: r["id"])[: args.limit or None]
     judge = make_judge(args)
     await judge.aload()
-    source_queries = [r["source_query"] for r in live_results if r.get("source_query")]
+    source_queries = [q for r in live_results for q in source_queries_of(r)]
     caps = {q: args.source_hits for q in source_queries} if args.source_hits else {}
     resolver = crawler = None
+    n_source = 0 if args.no_source_query else max((len(source_queries_of(r)) for r in live_results), default=0)
     if args.live_crawl:  # the run's searches and source queries; resolved, crawled and judged live, under the claim deadline
         resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())
         crawler = FactAssessor(claim_filter=None, judge=judge).crawler  # the library's default cascade
@@ -549,10 +560,10 @@ async def replay(args: argparse.Namespace) -> None:
             crawler = CascadedCrawler(HTTPXCrawler(max_concurrent=20), Crawl4AICrawler(
                 user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36"))
         verify = Verify(CachedSearch(hits, caps, limit=args.hits), TimedCrawler(crawler), TimedJudge(judge, {}),
-                        WeightedPolicy(strong=args.strong), timeout=args.timeout, resolver=TimedResolver(resolver),
-                        pages_per_claim=args.pages_per_claim or TOP_K * (1 if args.no_source_query else 2))  # as live
+                        WeightedPolicy(strong=args.strong, strong_refute=args.strong_refute), timeout=args.timeout, resolver=TimedResolver(resolver),
+                        pages_per_claim=args.pages_per_claim or TOP_K * (2 if n_source else 1))  # as live
     else:
-        verify = Verify(CachedSearch(hits, caps, limit=args.hits), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong),
+        verify = Verify(CachedSearch(hits, caps, limit=args.hits), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong, strong_refute=args.strong_refute),
                         timeout=120, pages_per_claim=args.pages_per_claim)
     start = time.perf_counter()
     slots = asyncio.Semaphore(args.parallel)  # answers at once: several answers' passages fill the runner's batches
@@ -562,7 +573,7 @@ async def replay(args: argparse.Namespace) -> None:
     async def one(r: dict[str, Any]) -> dict[str, Any]:
         nonlocal done
         if args.no_source_query:
-            r = {**r, "source_query": None}
+            r = {**r, "source_queries": [], "source_query": None}
         async with slots:
             atoms, verify_s = await verify_answer(verify, r)
         done += 1
@@ -639,7 +650,7 @@ def main() -> None:
     lv.add_argument("--search-type", default="general", choices=["general", "science"])
     lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
     lv.add_argument("--no-resolver", action="store_true")
-    lv.add_argument("--no-source-query", action="store_true", help="claims search on their own only")
+    lv.add_argument("--source-queries", type=int, default=2, help="searches the atomizer writes for each text's source document (0: claims search on their own only)")
     lv.add_argument("--parallel", type=int, default=1, help="answers at once (> 1: per-answer latency not comparable)")
     lv.add_argument("--overfetch", type=float, default=0.0,
                     help="keep this fraction more hits than pages (1.0: 10 hits for 5 pages); the first 5 readable are judged")
@@ -678,7 +689,7 @@ def main() -> None:
     sy.add_argument("--corruptor", default="openai:gpt-6-luna", help="pydantic-ai model that writes the one-detail corruptions")
     sy.add_argument("--claim-threshold", type=float, default=0.4)
     sy.add_argument("--no-resolver", action="store_true")
-    sy.add_argument("--no-source-query", action="store_true", default=False, help=argparse.SUPPRESS)  # always on here
+    sy.add_argument("--source-queries", type=int, default=1, help="searches the atomizer writes for each text's source document")
     sy.add_argument("--parallel", type=int, default=3, help="answers at once (the crawler is the limit)")
     sy.add_argument("--overfetch", type=float, default=1.0)
     sy.add_argument("--passages", type=int, default=3)
@@ -688,7 +699,9 @@ def main() -> None:
     sy.add_argument("--alpha", type=float, default=0.5)
     for p in (lv, rp, sy):
         p.add_argument("--passage-words", type=int, default=90, help="words per page window (90 ~ 130 tokens on scientific text)")
-        p.add_argument("--judge", default="decision" if p is sy else "laya", choices=["laya", "decision"], help="the judge's runner: local Laya, or Jev on OpenRouter")
+        p.add_argument("--judge", default="decision" if p is sy else "laya", choices=["laya", "decision", "llm"], help="the judge's runner: local Laya, Jev on OpenRouter, or a chat LLM (--llm-model)")
+        p.add_argument("--llm-model", default="openai:gpt-6-luna", help="model for --judge llm (pydantic-ai model id)")
+        p.add_argument("--strong-refute", type=float, default=0.9, help="a refutation counts from this probability (supports: --strong)")
         p.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
         p.add_argument("--pack", default="call", choices=[p.value for p in DecisionPacking],
                        help="--judge decision: what shares a call: one claim's passages (call, the default), every claim in flight (all), nothing (none)")

@@ -23,23 +23,29 @@ class Policy(Protocol):
 
 
 class WeightedPolicy(Policy):
-    """Strong evidence (prob >= `strong`, not not_enough_info) is weighed per side; a side wins with at least 2x
-    the other side's weight, otherwise the claim is contested. One strong refutation shouldn't flip several
-    supports: the judge sometimes calls a related-but-different fact a refutation."""
+    """Strong evidence is weighed per side: a support from `strong`, a refutation from `strong_refute`. A side wins
+    with at least 2x the other side's weight, otherwise the claim is contested. A refutation needs more confidence
+    because the judge calls a related-but-different fact (another paper by the same authors, another year) a
+    refutation: on the fully live run's evidence, refutations from 0.9 took recall 0.632 -> 0.690 on FactReasoner's
+    atoms (0.718 -> 0.770 on the synthetic set) for 3 (12) more false atoms through."""
 
-    def __init__(self, strong: float = 0.7, early_exit: float = 0.9) -> None:
+    def __init__(self, strong: float = 0.7, early_exit: float = 0.9, strong_refute: float = 0.9) -> None:
         self.strong = strong
         self.early_exit = early_exit
+        self.strong_refute = strong_refute
+
+    def _strong(self, e: Evidence) -> bool:
+        return (e.label == "supports" and e.prob >= self.strong) or (e.label == "refutes" and e.prob >= self.strong_refute)
 
     def settled(self, evidence: list[Evidence]) -> bool:
         """Early exit: 2+ passages agree at >= early_exit and none strongly disagree."""
         sure = [e.label for e in evidence if e.label != "not_enough_info" and e.prob >= self.early_exit]
-        against = {e.label for e in evidence if e.label != "not_enough_info" and e.prob >= self.strong}
+        against = {e.label for e in evidence if self._strong(e)}
         return any(sure.count(side) >= 2 and against == {side} for side in ("supports", "refutes"))
 
     def verdict(self, evidence: list[Evidence]) -> tuple[Verdict, float]:
         support = [e.prob for e in evidence if e.label == "supports" and e.prob >= self.strong]
-        refute = [e.prob for e in evidence if e.label == "refutes" and e.prob >= self.strong]
+        refute = [e.prob for e in evidence if e.label == "refutes" and e.prob >= self.strong_refute]
         s, r = sum(support), sum(refute)
         if s == r == 0:
             return "unverified", 0.0
@@ -113,9 +119,9 @@ class Verify(Step):
             return AtomResult(atom=atom, verdict="unverified", error=repr(exc))
 
     async def _verify(self, atom: Atom, so_far: list[Evidence]) -> AtomResult:
-        # the claim's own search, plus the text's source query when the atomizer wrote one (a claim about a detail
+        # the claim's own search, plus the text's source queries when the atomizer wrote them (a claim about a detail
         # inside a paper rarely finds the paper by itself); the claim's hits come first, each url once
-        queries = [atom.text] + ([atom.source_query] if atom.source_query and atom.source_query != atom.text else [])
+        queries = list(dict.fromkeys([atom.text, *atom.source_queries]))
         found = await asyncio.gather(*(collect(self.searcher(once(q))) for q in queries), return_exceptions=True)
         failed = [f for f in found if isinstance(f, BaseException)]
         if len(failed) == len(found):
