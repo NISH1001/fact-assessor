@@ -208,3 +208,37 @@ async def test_batcher_failure_reaches_every_caller_and_a_cancelled_caller_is_le
     assert await alive == ["kept"] and seen == ["kept"]  # the cancelled caller's request never reaches the model
     with pytest.raises(asyncio.CancelledError):
         await doomed
+
+
+async def test_when_every_retry_is_a_network_error_that_error_is_raised(monkeypatch):
+    # reported from akd-labs (2026-10-06): an OpenRouter outage surfaced as UnboundLocalError ('response' never set)
+    import factassessor.decisions as decisions
+
+    async def no_wait(seconds):
+        pass
+
+    monkeypatch.setattr(decisions.asyncio, "sleep", no_wait)
+
+    def down(req):
+        raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(httpx.ConnectError):
+        await runner(down).predict([request("1903")])
+
+    calls = 0
+
+    def overloaded_then_down(req):  # a 503, then the network goes: the most recent failure is the one raised
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(503, text="busy")
+        raise httpx.ConnectError("connection refused")
+
+    with pytest.raises(httpx.ConnectError):
+        await runner(overloaded_then_down).predict([request("1903")])
+
+    def always_busy(req):  # every attempt a 503: the HTTP error, as before
+        return httpx.Response(503, text="busy")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await runner(always_busy).predict([request("1903")])
