@@ -212,7 +212,7 @@ async def test_batcher_failure_reaches_every_caller_and_a_cancelled_caller_is_le
 
 async def test_when_every_retry_is_a_network_error_that_error_is_raised(monkeypatch):
     # reported from akd-labs (2026-10-06): an OpenRouter outage surfaced as UnboundLocalError ('response' never set)
-    import factassessor.decisions as decisions
+    import factassessor.decisions.utils as decisions
 
     async def no_wait(seconds):
         pass

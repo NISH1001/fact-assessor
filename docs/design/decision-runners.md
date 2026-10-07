@@ -40,7 +40,7 @@ LAYER 2  ROLES      (Protocols, @runtime_checkable, one method each; Step is an 
    Ranker.top(claim, chunks, k)  -> chunks         BM25, Embedding, Hybrid
    Policy.settled / verdict      -> verdict        WeightedPolicy
 
-LAYER 3  RUNNERS    (decisions.py)
+LAYER 3  RUNNERS    (decisions/)
    DecisionRunner (Protocol): batch_size: int; async predict(requests) -> responses
    LayaRunner        in-process Laya on the local GPU; merges requests from every caller into 32-row passes (default)
    SystemOneRunner   HTTP, Jev's System One protocol: OpenRouter's Jev, or a remote `python -m laya.serve`
@@ -170,6 +170,9 @@ there), the eval's metric and caches. `FactAssessor()` with no arguments behaves
 Public API after the refactor (what a user imports): `FactAssessor`; the roles; `DecisionJudge`,
 `DecisionClaimFilter`; the runners `LayaRunner`, `SystemOneRunner`, `LLMRunner`, `GlinerRunner`; everything else
 unchanged. `LayaJudge`, `LayaClaimFilter`, `LLMJudge`, `GlinerJudge`, `GlinerClaimFilter` stop existing.
+
+Since 0.3.0 the runners live in the `factassessor/decisions/` package, one module per runner (`types`, `utils`,
+`systemone`, `openai`, `llm`, `laya`, `gliner`); the file names above are as built.
 
 ## Build order (each step test-first, its own commit)
 

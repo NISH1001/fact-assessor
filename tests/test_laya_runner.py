@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from factassessor.decisions import DecisionRequest, DecisionResponse, DecisionRunner, Question
-from factassessor.laya import LayaRunner
+from factassessor.decisions.laya import LayaRunner
 
 ECHO = {"echo": Question(type="choice", instructions="Which text is `state`?", criteria={"a": "a", "b": "b"})}
 

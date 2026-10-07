@@ -99,7 +99,7 @@ async def test_yes_no_and_score_questions_map_to_openai_predicate_and_score():
 
 
 async def test_a_busy_service_is_retried_and_a_rejected_request_says_why(monkeypatch):
-    import factassessor.decisions as decisions
+    import factassessor.decisions.utils as decisions
 
     async def no_wait(seconds):
         pass
