@@ -70,8 +70,11 @@ def clean_text(markdown: str) -> str:
     return "\n".join(lines)
 
 
-def word_windows(text: str, size: int, overlap: int) -> list[str]:
-    """Overlapping windows of `size` words, as exact slices of `text` (for judges without a tokenizer budget)."""
+def word_windows(text: str, size: int, overlap: int, max_chars: int | None = None) -> list[str]:
+    """Overlapping windows of `size` words, as exact slices of `text` (for judges without a tokenizer budget).
+
+    `max_chars`: a window longer than this is cut into pieces of at most `max_chars` characters. Words are counted
+    by whitespace, so text with almost none (a minified file, a data dump) would otherwise make one huge window."""
     spans = [m.span() for m in re.finditer(r"\S+", text)]
     step = max(1, size - overlap)
     windows = []
@@ -80,7 +83,9 @@ def word_windows(text: str, size: int, overlap: int) -> list[str]:
         windows.append(text[part[0][0] : part[-1][1]])
         if start + size >= len(spans):
             break
-    return windows
+    if max_chars is None:
+        return windows
+    return [w[i : i + max_chars] for w in windows for i in range(0, len(w), max_chars)]
 
 
 def chunk(text: str, tokenizer: Any, max_tokens: int, overlap: int) -> list[str]:

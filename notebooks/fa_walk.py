@@ -186,8 +186,8 @@ def _(mo):
     | `Judge` | `judge(claim, docs)` | `DecisionJudge` (on any runner: `LayaRunner`, `LLMRunner`, `GlinerRunner`, `SystemOneRunner`) |
     | `Policy` | `settled`, `verdict` | `WeightedPolicy` |
 
-    `DecisionClaimFilter` and `DecisionJudge` ask their model through a `DecisionRunner` (`LayaRunner()` by default,
-    in-process; `SystemOneRunner()` for Jev over HTTP): `FactAssessor()` gives them one shared runner, and Laya's
+    `DecisionClaimFilter` and `DecisionJudge` ask their model through a `DecisionRunner` (`SystemOneRunner()`, Jev over HTTP, by default;
+    `LayaRunner()` in-process, used in this walkthrough): `FactAssessor()` gives them one shared runner, and Laya's
     weights load once per process however many runners exist. The next cell just warms it up so the first call
     is quick.
     """)
@@ -237,10 +237,10 @@ def _(mo):
 
 @app.cell
 async def _(asyncio, atoms, mo):
-    from factassessor import DecisionClaimFilter
+    from factassessor import DecisionClaimFilter, LayaRunner
 
     _opinion = atoms[0].model_copy(update={"id": 99, "text": "I think this is the saddest thing ever."})
-    _filter = DecisionClaimFilter(threshold=0.4)
+    _filter = DecisionClaimFilter(LayaRunner(), threshold=0.4)
     _all = [*atoms, _opinion]
     _scores = await asyncio.gather(*(_filter.score(a) for a in _all))  # score(atom) -> P(factual claim)
     mo.ui.table(
@@ -269,10 +269,10 @@ def _(mo):
 @app.cell
 async def _(DecisionClaimFilter, asyncio, atoms, compare_gliner_filter, mo, time):
     mo.stop(not compare_gliner_filter.value, mo.md("*Tick the box to score the same atoms with both filters.*"))
-    from factassessor import GlinerRunner
+    from factassessor import GlinerRunner, LayaRunner
 
     _scores, _times = {}, {}
-    for _name, _filter in (("Laya", DecisionClaimFilter()), ("GLiNER", DecisionClaimFilter(GlinerRunner()))):
+    for _name, _filter in (("Laya", DecisionClaimFilter(LayaRunner())), ("GLiNER", DecisionClaimFilter(GlinerRunner()))):
         await _filter.aload()
         _t = time.perf_counter()
         _scores[_name] = await asyncio.gather(*(_filter.score(a) for a in atoms))
@@ -378,9 +378,9 @@ def _(mo):
 
 @app.cell
 async def _(atoms, mo, page, raw_hits):
-    from factassessor import DecisionJudge, WeightedPolicy
+    from factassessor import DecisionJudge, LayaRunner, WeightedPolicy
 
-    judge = DecisionJudge()  # shares the Laya model the filter uses
+    judge = DecisionJudge(LayaRunner())  # shares the Laya model the filter uses
     policy = WeightedPolicy(strong=0.7, early_exit=0.9)
     _evidence = await judge.judge(atoms[0].text, raw_hits[:5] + ([page] if page else []))
     _verdict, _confidence = policy.verdict(_evidence)
@@ -450,8 +450,10 @@ def _(mo):
 
 @app.cell
 async def _(LLMAtomizer, DecisionClaimFilter, Predicate, Take, collect, mo, once, text):
+    from factassessor import LayaRunner
+
     long_enough = Predicate(lambda atom: len(atom.text) > 15)
-    atomizer_chain = LLMAtomizer() >> DecisionClaimFilter(threshold=0.4) >> long_enough >> Take(8)
+    atomizer_chain = LLMAtomizer() >> DecisionClaimFilter(LayaRunner(), threshold=0.4) >> long_enough >> Take(8)
     _chained = await collect(atomizer_chain(once(text)))
     mo.ui.table([{"atom": a.text, "claim_score": round(a.claim_score, 2)} for a in _chained], selection=None)
     return (atomizer_chain,)

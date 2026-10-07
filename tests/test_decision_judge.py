@@ -51,7 +51,7 @@ async def test_pages_are_cut_to_top_passages_by_words():
 
 async def test_a_custom_chunker_replaces_the_word_windows():
     page = {"url": "wiki", "title": "", "text": "first part about nothing. Curie won in 1903. last part."}
-    ev = await DecisionJudge(FakeRunner(), chunk=lambda text: text.split(". ")).judge(CLAIM, [page])
+    ev = await DecisionJudge(FakeRunner(), passages_per_page=1, chunk=lambda text: text.split(". ")).judge(CLAIM, [page])
     assert ev[0].text == "Curie won in 1903" and ev[0].label == "supports"
 
 
@@ -108,3 +108,40 @@ async def test_the_judge_loads_and_closes_its_runner_and_takes_its_concurrency()
     await judge.aclose()
     assert runner.loaded and runner.closed and judge.concurrency == 3
     assert DecisionJudge(FakeRunner()).concurrency is None
+
+
+def test_word_windows_split_a_window_longer_than_max_chars():
+    from factassessor.passages import word_windows
+
+    text = "short words here " + "x" * 5000 + " and more words"
+    windows = word_windows(text, 90, 22, max_chars=1000)
+    assert max(len(w) for w in windows) <= 1000
+    assert "".join(windows).replace(" ", "").count("x") == 5000  # nothing lost: the long window is cut into pieces
+    assert word_windows("a b c", 2, 0, max_chars=1000) == word_windows("a b c", 2, 0)  # normal text: unchanged
+
+
+async def test_no_passage_is_longer_than_passage_chars_even_on_a_page_without_spaces():
+    # a GitHub gist of nearly 800,000 characters with almost no spaces made one "90-word" window of 793,615
+    # characters, over Jev's input limit: the whole packed request was rejected (max_tokens_exceeded)
+    runner = FakeRunner()
+    judge = DecisionJudge(runner, passages_per_page=3)
+    assert judge.passage_chars == 22 * 90  # by default about 3.4x a typical 90-word window (580 chars)
+    page = {"url": "https://gist.github.com/x", "title": "gist", "text": "1903 " + "A" * 800_000 + " end"}
+    snippet = {"url": "https://s.org", "title": "s", "snippet": "B" * 50_000}
+    await judge.judge(CLAIM, [page, snippet])
+    assert max(len(r.state["evidence"]) for batch in runner.batches for r in batch) <= judge.passage_chars
+    assert DecisionJudge(runner, passage_words=250).passage_chars == 22 * 250
+    assert DecisionJudge(runner, passage_chars=500).passage_chars == 500
+
+
+def test_the_judge_and_the_filter_default_to_what_fact_assessor_uses():
+    # one set of defaults: DecisionJudge() alone behaved differently from the judge inside FactAssessor()
+    # (1 passage per page on Laya vs 3 on Jev)
+    from factassessor import DecisionClaimFilter, FactAssessor, SystemOneRunner
+    from factassessor.judges.decision import PASSAGES_PER_PAGE
+
+    judge, claim_filter, fa = DecisionJudge(), DecisionClaimFilter(), FactAssessor()
+    assert PASSAGES_PER_PAGE == 3
+    assert judge.passages_per_page == fa.judge.passages_per_page == PASSAGES_PER_PAGE
+    assert isinstance(judge.runner, SystemOneRunner) and isinstance(claim_filter.runner, SystemOneRunner)
+    assert (judge.passage_words, judge.passage_chars) == (fa.judge.passage_words, fa.judge.passage_chars)

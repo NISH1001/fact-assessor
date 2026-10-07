@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from factassessor.decisions import DecisionRequest, DecisionRunner, Question
+from factassessor.decisions import DecisionRequest, DecisionRunner, Question, SystemOneRunner
 from factassessor.judges._base import Judge
-from factassessor.laya import LayaRunner
 from factassessor.passages import normalize_text, word_windows
 from factassessor.rankers import BM25Ranker, Ranker
 from factassessor.schema import Evidence
+
+PASSAGES_PER_PAGE = 3  # windows of each page the judge sees: 3 vs 1 gave +0.10 F1 on the paper eval
 
 # Evidence-first state + this wording: 13/15 on our judge benchmark with Laya; claim-first variants topped out at 9/15.
 QUESTION = {
@@ -34,22 +35,27 @@ class DecisionJudge(Judge):
     +0.10 F1 on the paper eval, ~3s more per text). A snippet is judged whole unless it is really a page (some
     DuckDuckGo ones run to 3,000 tokens; the claim came after the evidence and got truncated), then cut the same
     way. `chunk` replaces the window cutter (text -> passages), e.g. a token-exact one for a specific model.
+    `passage_chars`: a window longer than this is cut into pieces (words are counted by whitespace, so a page with
+    almost none, like an 800,000-character gist, made one "90-word" window over Jev's input limit). The default,
+    22 x `passage_words`, is about 3.4x a typical 90-word window (580 characters); 0.06% of 1M real windows are longer.
     `concurrency` (claims at once) comes from the runner when it sets one (GLiNER: 3).
     """
 
     def __init__(
         self,
-        runner: DecisionRunner | None = None,  # default: Laya in-process
-        passages_per_page: int = 1,
+        runner: DecisionRunner | None = None,  # default: Jev (SystemOneRunner, OPENROUTER_API_KEY); LayaRunner() runs locally
+        passages_per_page: int = PASSAGES_PER_PAGE,
         passage_words: int = 90,
         ranker: Ranker | None = None,  # which passages of a page the judge sees; default BM25 (word overlap)
         chunk: Callable[[str], list[str]] | None = None,
+        passage_chars: int | None = None,  # a passage's most characters; default 22 x passage_words (~2,000 for 90)
     ) -> None:
-        self.runner = runner or LayaRunner()
+        self.runner = runner or SystemOneRunner()
         self.passages_per_page = passages_per_page
         self.passage_words = passage_words
+        self.passage_chars = passage_chars or 22 * passage_words
         self.ranker = ranker or BM25Ranker()
-        self.chunk = chunk or (lambda text: word_windows(text, passage_words, passage_words // 4))
+        self.chunk = chunk or (lambda text: word_windows(text, passage_words, passage_words // 4, max_chars=self.passage_chars))
         self.concurrency = getattr(runner, "concurrency", None)
 
     async def aload(self) -> None:
@@ -85,7 +91,7 @@ class DecisionJudge(Judge):
                 passages += [{**base, "text": t, "source": "page"} for t in self.ranker.top(claim, chunks, self.passages_per_page)]
             elif d.get("snippet"):
                 text = normalize_text(d["snippet"])
-                if len(text.split()) > 2 * self.passage_words:  # a snippet that is really a page
+                if len(text.split()) > 2 * self.passage_words or len(text) > self.passage_chars:  # a snippet that is really a page
                     text = self.ranker.top(claim, self.chunk(text), 1)[0]
                 passages.append({**base, "text": text, "source": "snippet"})
         return passages

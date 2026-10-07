@@ -101,7 +101,7 @@ async def test_rows_are_padded_and_batches_capped():
 async def test_pages_are_cut_to_their_most_relevant_passage():
     filler = " ".join(f"filler{i}" for i in range(2000))
     page = {"url": "wiki", "title": "Marie Curie", "text": f"{filler} Curie won the Nobel Prize in Physics in 1903. {filler}"}
-    ev = await judge(passage_words=40).judge(CLAIM, [page])
+    ev = await judge(passage_words=40, passages_per_page=1).judge(CLAIM, [page])
     assert len(ev) == 1 and ev[0].source == "page" and ev[0].label == "supports" and "1903" in ev[0].text
     assert len(ev[0].text.split()) <= 40
 
