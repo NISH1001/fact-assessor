@@ -457,7 +457,7 @@ FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/sys
 |---|---|---|---|
 | `LayaRunner(model="english")` | Laya: `english`, `multilingual` (~2.2x faster), `typed-decisions` | local GPU / CPU, one model per device per process | requests merged across callers, 32 rows per pass |
 | `SystemOneRunner(model="~typesafe/jev-latest")` (default) | Jev (System One protocol), or a `laya.serve` server | OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
-| `OpenAIDecisionRunner(model="gpt-6-luna")` | gpt-6-luna (OpenAI's Decisions API, `OPENAI_API_KEY`) | OpenAI | like Jev: one claim's passages per call (up to 40), 16 calls in flight, 429s and 5xx retried; input tokens only, $0.10 per 1M |
+| `OpenAIDecisionRunner(model="gpt-6-luna")` | gpt-6-luna (OpenAI's Decisions API, `OPENAI_API_KEY`) | OpenAI | like Jev: one claim's passages per call (up to 40), 16 calls in flight, 429s and 5xx retried; input tokens only, $0.10 per 1M. `packing="none"` (one passage per call, as OpenAI's docs show): +0.03 F1 on 10 answers but 3x slower at 16 in flight; raise `max_concurrent` with it |
 
 A runner is a `Protocol`: anything with `batch_size` and `async predict(requests)` works, and
 `isinstance(x, DecisionRunner)` checks it. `factassessor.decisions` has the request and response models.
