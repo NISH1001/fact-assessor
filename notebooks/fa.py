@@ -84,7 +84,7 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
     _pre = []
 
     _filter = {
-        "Laya (local, default)": ("DecisionClaimFilter", "DecisionClaimFilter(threshold=0.4)"),
+        "Laya (local, default)": ("LayaRunner", "DecisionClaimFilter(LayaRunner(), threshold=0.4)"),
         "GLiNER2.5-decide (ONNX, CPU)": ("GlinerRunner", 'DecisionClaimFilter(GlinerRunner(model="2.5-decide"), threshold=0.4)'),
         "None (check every atom)": (None, "None"),
     }[filter_choice.value]
@@ -114,7 +114,7 @@ def _(crawler_choice, filter_choice, judge_choice, mo, n_atoms, searcher_choice,
     _imports |= _crawl[0]
 
     _judge = {
-        "Laya (local, default)": ("DecisionJudge", "DecisionJudge()"),
+        "Laya (local, default)": ("LayaRunner", "DecisionJudge(LayaRunner())"),
         "GLiNER2.5-decide (ONNX, CPU)": ("GlinerRunner", 'DecisionJudge(GlinerRunner(model="2.5-decide"))'),
         "LLM (gpt-6-luna, most accurate)": ("LLMRunner", 'DecisionJudge(LLMRunner("openai:gpt-6-luna"))'),
     }[judge_choice.value]
@@ -157,6 +157,7 @@ def _():
         HTTPXCrawler,
         DecisionClaimFilter,
         DecisionJudge,
+        LayaRunner,
         LLMAtomizer,
         LLMRunner,
         Predicate,
@@ -177,10 +178,10 @@ def _():
         """The filter or judge for a dropdown choice, built once."""
         if (kind, name) not in _cache:
             _cache[(kind, name)] = {
-                ("filter", "Laya (local, default)"): lambda: DecisionClaimFilter(threshold=0.4),
+                ("filter", "Laya (local, default)"): lambda: DecisionClaimFilter(LayaRunner(), threshold=0.4),
                 ("filter", "GLiNER2.5-decide (ONNX, CPU)"): lambda: DecisionClaimFilter(GlinerRunner(), threshold=0.4),
                 ("filter", "None (check every atom)"): lambda: None,
-                ("judge", "Laya (local, default)"): lambda: DecisionJudge(),
+                ("judge", "Laya (local, default)"): lambda: DecisionJudge(LayaRunner()),
                 ("judge", "GLiNER2.5-decide (ONNX, CPU)"): lambda: DecisionJudge(GlinerRunner()),
                 ("judge", "LLM (gpt-6-luna, most accurate)"): lambda: DecisionJudge(LLMRunner("openai:gpt-6-luna")),
             }[(kind, name)]()

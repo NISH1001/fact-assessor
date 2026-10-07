@@ -323,5 +323,8 @@ Chunk size, same 10 answers and pages: 250-word windows x 3 vs 90 x 3: Jev 0.787
 OpenAI 0.664 vs 0.642. Suggestive (about 120 claims); a full replay decides any default change.
 
 Found along the way: Jev's 400 errors were `max_tokens_exceeded`. Windows are cut by words, and a page with almost no
-spaces (an 800,000-character GitHub gist) made one "90-word" window of 793,615 characters. Windows need a length cap
-too (planned). `post_with_retries` now keeps the server's explanation in the error, which is how this was found.
+spaces (an 800,000-character GitHub gist) made one "90-word" window of 793,615 characters. Windows now have a length
+cap too: `DecisionJudge(passage_chars=)`, default 22 x `passage_words` (about 2,000 for 90 words); a longer window is cut
+into pieces, nothing dropped. Of 1,004,984 real 90-word windows (4,900 pages), the median is 580 characters, p99 814,
+and 573 (0.057%) are over 2,000. The gist page now gives 3 passages of at most 613 characters, judged without error.
+`post_with_retries` now keeps the server's explanation in the error, which is how this was found.

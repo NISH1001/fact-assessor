@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from factassessor.claim_filters._base import KINDS, ClaimFilter
-from factassessor.decisions import DecisionRequest, DecisionRunner, Question
-from factassessor.laya import LayaRunner
+from factassessor.decisions import SystemOneRunner, DecisionRequest, DecisionRunner, Question
 from factassessor.schema import Atom
 
 # `choice` beat `noul` clearly with Laya (17/19 vs 8/12 correct): its yes/no head was near-random here.
@@ -16,7 +15,7 @@ class DecisionClaimFilter(ClaimFilter):
 
     def __init__(self, runner: DecisionRunner | None = None, threshold: float = 0.4) -> None:
         super().__init__(threshold)
-        self.runner = runner or LayaRunner()  # a resource: `aload()` on the chain loads it up front
+        self.runner = runner or SystemOneRunner()  # Jev, as FactAssessor; LayaRunner() runs locally. `aload()` on the chain loads it
 
     async def score(self, atom: Atom) -> float:
         [response] = await self.runner.predict([DecisionRequest(state={"claim": atom.text}, questions=QUESTION)])

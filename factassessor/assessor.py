@@ -29,6 +29,7 @@ from factassessor.atomizer import LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
 from factassessor.crawlers import CascadedCrawler, ContentType, Crawl4AICrawler, HTTPXCrawler, ImpitCrawler, StatusIn
 from factassessor.judges import DecisionJudge, Judge
+from factassessor.judges.decision import PASSAGES_PER_PAGE
 from factassessor.decisions import DecisionRunner, SystemOneRunner
 from factassessor.pipeline import Cache, Map, Slots, Step, Take, dropped, once, unchecked
 from factassessor.utils import locate
@@ -68,7 +69,7 @@ class FactAssessor:
         timeout: float = 30.0,  # per claim; a claim still running then is decided on the evidence it has (p90 22s alone)
         atomizer_model: str = DEFAULT_ATOMIZER_MODEL,
         source_queries: int = 2,  # searches for the text's source document: the paper found for 88/100 answers vs 77 with one (70 with the old prompt)
-        passages_per_page: int = 3,  # windows of each page the judge sees (3 vs 1: +0.10 F1 on the paper eval)
+        passages_per_page: int = PASSAGES_PER_PAGE,  # windows of each page the judge sees (3 vs 1: +0.10 F1 on the paper eval)
         pages_per_claim: int | None | Any = _DEFAULT,  # readable pages judged per claim; default 2 x top_k (with overfetch)
         atomizer: Step | None = None,  # an Atomizer, or any chain starting with one (text -> atoms)
         claim_filter: ClaimFilter | Step | None = _DEFAULT,  # None: no filter (e.g. your atomizer chain already filters)

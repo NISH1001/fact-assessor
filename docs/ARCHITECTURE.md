@@ -253,7 +253,7 @@ needs 300. Words, not characters: links and markup leftovers inflate character c
 | search | Serper (web) | self-hosted SearXNG |
 | resolver | none | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())` |
 | crawler | `Crawl4AICrawler(timeout=2.5)` | `CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())` |
-| judge / policy | `DecisionJudge()` on Laya, `WeightedPolicy(strong=0.7, strong_refute=0.9, early_exit=0.9)` | `DecisionJudge(SystemOneRunner(), passages_per_page=3)` (Jev) or `LLMRunner()` (gpt-6-luna) |
+| judge / policy | `DecisionJudge()`: Jev, 3 passages per page; `WeightedPolicy(strong=0.7, strong_refute=0.9, early_exit=0.9)` | `DecisionJudge(LayaRunner())` local, `DecisionJudge(OpenAIDecisionRunner())` |
 
 ```python
 from factassessor import (ArxivResolver, CompositeResolver, Crawl4AICrawler, FactAssessor, CascadedCrawler,
