@@ -15,7 +15,7 @@ from pydantic_ai import Agent
 
 from factassessor.pipeline import FlatMap, Step
 from factassessor._llm import reasoning_off
-from factassessor.keys import require_model_key
+from factassessor.keys import auth_error, model_key, require_model_key
 from factassessor.schema import Atom
 from factassessor.utils import locate, sentences
 
@@ -94,6 +94,7 @@ class LLMAtomizer(Atomizer):
         fallback: bool = True,  # on an LLM error, plain sentences as atoms (no source queries); False: raise (evals)
     ) -> None:
         self.fallback = fallback
+        self.key_env = model_key(model)  # the variable a rejected key error names
         require_model_key(model, needed_by="the atomizer (LLMAtomizer)",
                           instead="Or pass your own atomizer (FactAssessor(atomizer=...)).")
         if source_queries < 0:
@@ -122,6 +123,8 @@ class LLMAtomizer(Atomizer):
         try:
             out = (await self.source_agent.run(text)).output
         except Exception as exc:
+            if err := auth_error(exc, self.key_env):
+                raise err from exc  # a rejected key is not an outage: no fallback
             if not self.fallback:
                 raise
             logger.warning("source queries LLM failed, the claims search on their own: {!r}", exc)
@@ -134,6 +137,8 @@ class LLMAtomizer(Atomizer):
         try:
             out = (await self.agent.run(text)).output
         except Exception as exc:  # best effort: an LLM outage degrades to sentence atoms, not a failed check
+            if err := auth_error(exc, self.key_env):
+                raise err from exc  # a rejected key is not an outage: no fallback
             if not self.fallback:
                 raise
             logger.warning("atomizer LLM failed, falling back to sentences: {!r}", exc)

@@ -7,6 +7,7 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any, Protocol, runtime_checkable
 
+from factassessor.keys import auth_error
 from factassessor.pipeline import Map, Scan, Slots, Step, Take, TakeUntil, collect, last, once
 from factassessor.resolvers import Resolver, locations
 from factassessor.schema import Atom, AtomResult, Evidence, Verdict
@@ -121,6 +122,8 @@ class Verify(Step):
             verdict, confidence = self.policy.verdict(so_far)
             result = AtomResult(atom=atom, verdict=verdict, confidence=confidence, evidence=so_far, error="timeout")
         except Exception as exc:
+            if err := auth_error(exc):
+                raise err from exc  # a rejected key fails every claim the same way: stop the whole check
             result = AtomResult(atom=atom, verdict="unverified", error=repr(exc))
         return result.model_copy(update={"latency_ms": (time.perf_counter() - start) * 1000})
 
