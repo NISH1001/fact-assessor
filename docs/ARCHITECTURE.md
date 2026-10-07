@@ -84,13 +84,13 @@ lifecycle) around your one method; no abstract base classes anywhere.
 | `Judge` (Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge` (one decision per (claim, passage), on any runner) | `judges/` |
 | `Ranker` (Protocol) | `top(claim, chunks, k) -> list[str]` | `BM25Ranker` (default), `EmbeddingRanker` (model2vec), `HybridRanker` | `rankers.py` |
 | `Policy` (Protocol) | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` | `verify.py` |
-| `DecisionRunner` (Protocol) | `predict(requests) -> responses` (a `state` and typed `questions` in, probabilities per option out); `batch_size` | `LayaRunner` (default; in-process), `SystemOneRunner` (Jev's System One protocol over HTTP: OpenRouter or a `laya.serve` server), `LLMRunner` (any pydantic-ai chat model), `GlinerRunner` (ONNX, CPU) | `decisions.py`, `laya.py`, `gliner.py` |
+| `DecisionRunner` (Protocol) | `predict(requests) -> responses` (a `state` and typed `questions` in, probabilities per option out); `batch_size` | `SystemOneRunner` (default; Jev's System One protocol over HTTP: OpenRouter or a `laya.serve` server), `LayaRunner` (in-process), `OpenAIDecisionRunner` (OpenAI's Decisions API), `LLMRunner` (any pydantic-ai chat model), `GlinerRunner` (ONNX, CPU) | `decisions.py`, `laya.py`, `gliner.py` |
 
 The runner is the layer below the roles: `DecisionClaimFilter` and `DecisionJudge` are written once on top of it
 and never name a model; a runner never sees claims, pages or evidence, only requests. Batching is the runner's
 job (`decisions.Batcher`): the requests of every caller in flight are merged, cut at `batch_size` and capped in
 flight, so 100 requests become a few passes or calls. `FactAssessor()` gives the filter and the judge one shared
-`LayaRunner`.
+`SystemOneRunner` (Jev).
 
 Shared helpers, not roles: `extract.py` (document bytes -> text), `passages.py` (cleaning, normalization,
 word windows, chunking, BM25), `utils.py` (sentence spans; `locate(query, source)`, the sentence of a text that
