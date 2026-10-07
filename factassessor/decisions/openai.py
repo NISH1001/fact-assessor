@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from factassessor.decisions.types import Answer, DecisionPacking, DecisionRequest, DecisionResponse, DecisionRunner
-from factassessor.decisions.utils import Batcher, pack, post_with_retries
+from factassessor.decisions.utils import RUN_LOCALLY, Batcher, pack, post_with_retries
 from factassessor.keys import require_key
 
 
@@ -38,7 +38,7 @@ class OpenAIDecisionRunner(DecisionRunner):
         self.model = model
         self.url = url or self.URL
         self.api_key = require_key("OPENAI_API_KEY", api_key, needed_by="OpenAI's Decisions API (OpenAIDecisionRunner)",
-                                   instead="To run without an API key, use the local model: FactAssessor(runner=LayaRunner()).")
+                                   instead=RUN_LOCALLY)
         self.batch_size = batch_size
         self.packing = DecisionPacking(packing)
         self.timeout = timeout

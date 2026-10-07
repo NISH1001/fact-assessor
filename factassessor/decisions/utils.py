@@ -11,6 +11,8 @@ import httpx
 
 from factassessor.decisions.types import DecisionRequest
 
+RUN_LOCALLY = "To run without an API key, use the local model: FactAssessor(runner=LayaRunner())."  # what a runner without its API key suggests
+
 
 class Batcher:
     """Merges every concurrent caller's requests into shared calls of `run(items) -> results`.

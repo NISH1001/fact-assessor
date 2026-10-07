@@ -9,7 +9,7 @@ from pydantic_ai import Agent
 
 from factassessor._llm import reasoning_off
 from factassessor.decisions.types import Answer, DecisionRequest, DecisionResponse, DecisionRunner, Question
-from factassessor.decisions.utils import Batcher
+from factassessor.decisions.utils import RUN_LOCALLY, Batcher
 from factassessor.keys import require_model_key
 
 
@@ -50,7 +50,7 @@ class LLMRunner(DecisionRunner):
         batch_size: int = 40,
         max_concurrent: int = 8,
     ) -> None:
-        require_model_key(model, needed_by="LLMRunner", instead="To run without an API key, use the local model: FactAssessor(runner=LayaRunner()).")
+        require_model_key(model, needed_by="LLMRunner", instead=RUN_LOCALLY)
         self.model = model
         self.batch_size = batch_size
         self.agent = Agent(
