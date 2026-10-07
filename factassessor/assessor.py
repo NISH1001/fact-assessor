@@ -24,6 +24,8 @@ import time
 from collections.abc import AsyncIterator, Iterable
 from typing import Any
 
+from loguru import logger
+
 from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
 from factassessor.atomizer import LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
@@ -31,6 +33,7 @@ from factassessor.crawlers import CascadedCrawler, ContentType, Crawl4AICrawler,
 from factassessor.judges import DecisionJudge, Judge
 from factassessor.judges.decision import PASSAGES_PER_PAGE
 from factassessor.decisions import DecisionRunner, SystemOneRunner
+from factassessor.keys import InvalidAPIKeyError, auth_error
 from factassessor.pipeline import Cache, Map, Slots, Step, Take, dropped, once, unchecked
 from factassessor.utils import locate
 from factassessor.schema import Atom, AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
@@ -145,7 +148,16 @@ class FactAssessor:
         try:
             while (event := await events.get()) is not _END:
                 yield event
-            await task  # surface a pipeline error, if any
+            try:
+                await task  # surface a pipeline error, if any
+            except Exception as exc:
+                err = exc if isinstance(exc, InvalidAPIKeyError) else auth_error(exc)  # e.g. the claim filter's runner
+                if err is None:
+                    raise
+                logger.error("{} The check stopped; its other searches, crawls and model calls were cancelled.", err)
+                if err is exc:
+                    raise
+                raise err from exc
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -183,7 +195,17 @@ class FactAssessor:
             async with slots:
                 return await self.assess(text)
 
-        return list(await asyncio.gather(*(one(t) for t in texts)))
+        tasks = [asyncio.create_task(one(t)) for t in texts]
+        try:
+            return list(await asyncio.gather(*tasks))
+        except BaseException as exc:  # one text failed (a rejected key fails them all): stop the others, queued ones too
+            running = [task for task in tasks if not task.done()]
+            if running:
+                logger.warning("assess_many: cancelling {} other text(s) after {!r}", len(running), exc)
+            for task in running:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
     def assess_many_sync(self, texts: Iterable[str], concurrency: int = 3) -> list[CheckResult]:
         """Blocking `assess_many`, on the same background loop as `assess_sync` (call `close()` when done)."""

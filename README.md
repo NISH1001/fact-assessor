@@ -109,6 +109,7 @@ uv run marimo edit --no-sandbox notebooks/fa_walk.py    # guided walk: building 
 |---|---|
 | `SERPER_API_KEY` | web search ([serper.dev](https://serper.dev)) |
 | `OPENAI_API_KEY` | the atomizer (swap in any [pydantic-ai model](https://ai.pydantic.dev/models/), see below) |
+| `OPENROUTER_API_KEY` | the claim filter and the judge: Jev on [OpenRouter](https://openrouter.ai) (`runner=LayaRunner()` needs none) |
 
 A `.env` in the working directory (or a parent) is loaded when `factassessor` is imported; variables already set
 in the environment win.
@@ -141,6 +142,9 @@ Keys (in `.env` or the environment): `OPENAI_API_KEY` (the atomizer), `SERPER_AP
 (the judge, Jev). A missing one is an error when `FactAssessor()` is created, saying what to use instead:
 `FactAssessor(runner=LayaRunner())` runs the judge locally with no key, `searcher=SearxngSearcher(url)` searches
 without one.
+
+A key the provider rejects (expired, revoked, wrong) stops the whole check at its first call, cancelling the rest:
+`except InvalidAPIKeyError as err:` gives the variable to renew (`err.env`) and the provider's reason (`err.reason`).
 
 Not in async code? `assess_sync` blocks and returns the same result:
 
