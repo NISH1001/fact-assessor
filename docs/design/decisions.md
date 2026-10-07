@@ -303,3 +303,25 @@ gpt-6-luna (`LLMRunner`) on the same setup: F1 0.671, 892 claims at the deadline
 the filter and the judge, queue under about 50 claims); on the 725 claims both finished, Luna confirmed 570 of 625
 true atoms vs Jev's 544 and let 10 of 100 false ones through vs 7. Keys are checked when components are created
 (`MissingAPIKeyError`, logged), with the alternative in the message (`LayaRunner()` for the judge, SearXNG for search).
+
+## OpenAI's Decisions API as a runner (2026-10-06)
+
+`OpenAIDecisionRunner`: gpt-6-luna through `POST /v1/decisions` (probabilities in one pass, billed on input only, $0.10
+per million tokens). Same packing as Jev: a claim's passages in one request, written out as `evidence[i]: ...` lines
+(the API takes one input text, not named fields). Not the default.
+
+Replay of the `FactAssessor` eval's saved pages (FactReasoner's 1,667 atoms, 10 pages per claim, 90-word windows x 3,
+refutations from 0.9), only the judge changed: Jev F1 0.832 (precision 0.952, recall 0.756, 21 false atoms through,
+365 s, $0.66); OpenAI Decisions 0.678 (precision 0.958, recall 0.552, 10 false atoms through, 260 s, $1.95). On true
+atoms OpenAI said refuted 358 times (Jev 81). On 60 + 60 passages judged a few per call it had looked better than Jev
+on both sides (wrong refutations 38 vs 43 at 0.7, right ones 32 vs 27 at 0.9); packed with about 40 passages per
+claim it refutes far more, so passages likely influence each other in one input text (untested: one passage per call).
+It accepted inputs up to at least 380k tokens (Jev: about 32k), finding one supporting sentence in filler at 0.90+ up
+to 256k and 0.53 at 380k.
+
+Chunk size, same 10 answers and pages: 250-word windows x 3 vs 90 x 3: Jev 0.787 vs 0.775 (corrupted 0.768 vs 0.711),
+OpenAI 0.664 vs 0.642. Suggestive (about 120 claims); a full replay decides any default change.
+
+Found along the way: Jev's 400 errors were `max_tokens_exceeded`. Windows are cut by words, and a page with almost no
+spaces (an 800,000-character GitHub gist) made one "90-word" window of 793,615 characters. Windows need a length cap
+too (planned). `post_with_retries` now keeps the server's explanation in the error, which is how this was found.

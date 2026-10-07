@@ -272,12 +272,15 @@ All keyword arguments to `FactAssessor`:
 ### Recommended setups
 
 ```python
-from factassessor import FactAssessor, LayaRunner, LLMRunner
+from factassessor import FactAssessor, LayaRunner, LLMRunner, OpenAIDecisionRunner
 
 FactAssessor()                                  # the measured setup: Jev on OpenRouter filters and judges (OPENROUTER_API_KEY)
 FactAssessor(runner=LayaRunner())               # local: Laya on your GPU/CPU, no model API key (F1 0.624 vs 0.821 for Jev)
-FactAssessor(runner=LLMRunner())                # gpt-6-luna, reasoning off (OPENAI_API_KEY): as accurate on claims it
-                                                # finishes, but slower live (54% of claims hit the deadline vs 12%)
+FactAssessor(runner=OpenAIDecisionRunner())     # gpt-6-luna through OpenAI's Decisions API (OPENAI_API_KEY): faster
+                                                # than Jev and lets fewer false claims through, but confirms fewer true
+                                                # ones (paper eval, same pages: F1 0.678 vs 0.832, recall 0.55 vs 0.76)
+FactAssessor(runner=LLMRunner())                # any chat LLM, e.g. gpt-6-luna, reasoning off: slow live (54% of
+                                                # claims hit the deadline vs 12% with Jev)
 ```
 
 Many texts at once: `await fa.assess_many(texts, concurrency=10)` on one assessor (shared caches, crawler and

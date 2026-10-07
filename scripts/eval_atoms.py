@@ -45,6 +45,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from factassessor import (
+    OpenAIDecisionRunner,
     LLMRunner,
     FactAssessor,
     ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, DecisionRequest,
@@ -254,6 +255,8 @@ def make_judge(args: argparse.Namespace) -> DecisionJudge:
     ranker = HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None
     if args.judge == "decision":
         runner: Any = SystemOneRunner(model=args.judge_model, packing=args.pack, **({"batch_size": args.batch_size} if args.batch_size else {}))
+    elif args.judge == "openai":  # gpt-6-luna through OpenAI's Decisions API: probabilities in one pass, like Jev
+        runner = OpenAIDecisionRunner(packing=args.pack, **({"batch_size": args.batch_size} if args.batch_size else {}))
     elif args.judge == "llm":  # any chat model behind the same decision interface (default gpt-6-luna, reasoning off)
         runner = LLMRunner(args.llm_model)
     else:
@@ -710,7 +713,7 @@ def main() -> None:
     sy.add_argument("--alpha", type=float, default=0.5)
     for p in (lv, rp, sy):
         p.add_argument("--passage-words", type=int, default=90, help="words per page window (90 ~ 130 tokens on scientific text)")
-        p.add_argument("--judge", default="decision" if p is sy else "laya", choices=["laya", "decision", "llm"], help="the judge's runner: local Laya, Jev on OpenRouter, or a chat LLM (--llm-model)")
+        p.add_argument("--judge", default="decision" if p is sy else "laya", choices=["laya", "decision", "openai", "llm"], help="the judge's runner: local Laya, Jev on OpenRouter, OpenAI's Decisions API, or a chat LLM (--llm-model)")
         p.add_argument("--llm-model", default="openai:gpt-6-luna", help="model for --judge llm (pydantic-ai model id)")
         p.add_argument("--strong-refute", type=float, default=0.9, help="a refutation counts from this probability (supports: --strong)")
         p.add_argument("--judge-model", default="~typesafe/jev-latest", help="model id for --judge decision")
