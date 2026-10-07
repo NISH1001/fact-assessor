@@ -131,3 +131,31 @@ async def test_an_llm_outage_with_fallback_is_logged_as_a_warning(logs):
     warnings = [line for line in logs if line.startswith("WARNING")]
     assert len(warnings) == 2 and all("insufficient_quota" in w for w in warnings)
     assert "falling back to sentences" in warnings[0] and "search on their own" in warnings[1]
+
+
+def test_each_llm_request_has_a_90s_limit_instead_of_the_clients_600s():
+    # a stalled OpenAI request held one text for 600 s; the slowest real atomizer call on long answers was 69 s
+    atomizer = LLMAtomizer(source_queries=2)
+    assert atomizer.agent.model_settings["timeout"] == 90.0 and atomizer.source_agent.model_settings["timeout"] == 90.0
+    assert LLMAtomizer(timeout=30.0).agent.model_settings["timeout"] == 30.0
+    own = LLMAtomizer(timeout=30.0, model_settings={"temperature": 0.0}).agent.model_settings
+    assert own == {"temperature": 0.0, "timeout": 30.0}  # your settings, plus the limit
+
+
+async def test_a_timed_out_request_falls_back_like_any_outage_or_raises_without_fallback():
+    import httpx
+    import openai
+    import pytest
+    from pydantic_ai.models.function import FunctionModel
+
+    def stalled(messages, info):
+        raise openai.APITimeoutError(request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"))
+
+    for fallback in (True, False):
+        atomizer = LLMAtomizer(fallback=fallback)
+        with atomizer.agent.override(model=FunctionModel(stalled)):
+            if fallback:
+                assert [a.text for a in await atomizer.atomize(TEXT)]  # sentences, with a warning
+            else:
+                with pytest.raises(openai.APITimeoutError):
+                    await atomizer.atomize(TEXT)
