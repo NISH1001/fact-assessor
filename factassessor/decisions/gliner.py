@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from factassessor.decisions import Answer, DecisionRequest, DecisionResponse, DecisionRunner
+from factassessor.decisions.types import Answer, DecisionRequest, DecisionResponse, DecisionRunner
 
 MODELS = {"2.5-decide": "nishparadox/gliner2.5-decide-onnx"}  # short names -> Hugging Face repos
 VARIANTS = {"fp32": "model.onnx", "fp16": "model_fp16.onnx", "int8": "model_int8.onnx"}

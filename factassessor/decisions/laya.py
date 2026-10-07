@@ -19,7 +19,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from factassessor.decisions import Batcher, DecisionRequest, DecisionResponse, DecisionRunner
+from factassessor.decisions.types import DecisionRequest, DecisionResponse, DecisionRunner
+from factassessor.decisions.utils import Batcher
 
 _routers: dict[str, Any] = {}  # device -> loaded laya.Router
 _threads: dict[str, ThreadPoolExecutor] = {}  # device -> the one thread that model runs on

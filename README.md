@@ -598,10 +598,14 @@ factassessor/
   assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
   pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Predicate: the streaming runner
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
-  decisions.py       DecisionRunner (role, a Protocol), DecisionRequest / DecisionResponse, Batcher,
-                     SystemOneRunner (default: Jev over HTTP), OpenAIDecisionRunner, LLMRunner (any chat model)
-  laya.py            LayaRunner: in-process Laya, one model per device per process, micro-batching, batch cap
-  gliner.py          GlinerRunner (optional extra): GLiNER2.5-decide via ONNX, one model per (model, variant) per process
+  decisions/         the model behind the claim filter and the judge: one module per runner
+    types.py         DecisionRunner (role, a Protocol), DecisionRequest / DecisionResponse, Question, Answer, DecisionPacking
+    utils.py         shared by the runners: Batcher (merges concurrent callers), pack, post_with_retries
+    systemone.py     SystemOneRunner (default): Jev over HTTP
+    openai.py        OpenAIDecisionRunner: OpenAI's Decisions API
+    llm.py           LLMRunner: any chat model
+    laya.py          LayaRunner: in-process Laya, one model per device per process, micro-batching, batch cap
+    gliner.py        GlinerRunner (optional extra): GLiNER2.5-decide via ONNX, one model per (model, variant) per process
   claim_filters/     atoms -> the factual claims
     _base.py         ClaimFilter (role)
     decision.py      DecisionClaimFilter (default): one decision per atom on any runner

@@ -6,7 +6,7 @@ import numpy as np
 
 from factassessor import Atom, DecisionClaimFilter, DecisionJudge, DecisionRequest, DecisionRunner, GlinerRunner, Question
 from factassessor.claim_filters.decision import QUESTION as KIND
-from factassessor.gliner import GlinerModel, gliner_model
+from factassessor.decisions.gliner import GlinerModel, gliner_model
 from factassessor.judges.decision import QUESTION as STANCE
 
 CLAIM = "Marie Curie won the Nobel Prize in Physics."  # no year: the fake keys "supports" off "1903" in the evidence
@@ -168,7 +168,7 @@ async def test_two_model_calls_run_at_once():
 
 
 def test_intra_op_threads_split_the_cores_between_workers(monkeypatch):
-    import factassessor.gliner as g
+    import factassessor.decisions.gliner as g
 
     monkeypatch.setattr(g.os, "cpu_count", lambda: 14)
     assert GlinerModel("fake/repo").threads == 7  # default: 2 workers x 7 threads
