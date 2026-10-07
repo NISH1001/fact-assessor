@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
+from functools import partial
 
 import httpx
 
 from factassessor.decisions.types import Answer, DecisionPacking, DecisionRequest, DecisionResponse, DecisionRunner
-from factassessor.decisions.utils import RUN_LOCALLY, Batcher, pack, post_with_retries
+from factassessor.decisions.utils import RUN_LOCALLY, Batcher, pack, post_packed, post_with_retries
 from factassessor.keys import require_key
 
 
@@ -59,7 +59,7 @@ class SystemOneRunner(DecisionRunner):
         self.packing = DecisionPacking(packing)
         self.timeout = timeout
         self.cost = 0.0
-        self._batch = Batcher(self._run, max_wait_ms, max_concurrent, take=batch_size)
+        self._batch = Batcher(partial(post_packed, post=self._post), max_wait_ms, max_concurrent, take=batch_size)
         self._http: httpx.AsyncClient | None = None
 
     def _headers(self) -> dict[str, str]:
@@ -87,14 +87,6 @@ class SystemOneRunner(DecisionRunner):
         if self.packing is DecisionPacking.ALL:
             return await self._batch.submit(requests)
         return await self._batch.alone(requests, take=1 if self.packing is DecisionPacking.NONE else None)
-
-    async def _run(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
-        """One packed call for the dict-state requests; a string state can't be packed, so each goes alone."""
-        packed = [i for i, r in enumerate(requests) if isinstance(r.state, dict)]
-        calls = ([packed] if packed else []) + [[i] for i, r in enumerate(requests) if not isinstance(r.state, dict)]
-        results = await asyncio.gather(*(self._post([requests[i] for i in call]) for call in calls))
-        answered = {i: res for call, group in zip(calls, results) for i, res in zip(call, group)}
-        return [answered[i] for i in range(len(requests))]
 
     async def _post(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
         body, routes = pack(requests, self.model)
