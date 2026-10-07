@@ -16,7 +16,7 @@ def test_reasoning_off_matches_what_each_openai_model_accepts():
 
 
 def test_llm_components_default_to_settings_their_model_accepts():
-    assert LLMAtomizer("openai:gpt-5-nano").agent.model_settings == {"openai_reasoning_effort": "minimal"}
+    assert LLMAtomizer("openai:gpt-5-nano").agent.model_settings == {"openai_reasoning_effort": "minimal", "timeout": 90.0}
     assert LLMRunner("openai:gpt-5-nano").agent.model_settings == {"openai_reasoning_effort": "minimal"}
-    assert LLMAtomizer().agent.model_settings == {"openai_reasoning_effort": "none"}  # the default model
-    assert LLMAtomizer("openai:gpt-5-nano", model_settings={"temperature": 0}).agent.model_settings == {"temperature": 0}
+    assert LLMAtomizer().agent.model_settings == {"openai_reasoning_effort": "none", "timeout": 90.0}  # the default model
+    assert LLMAtomizer("openai:gpt-5-nano", model_settings={"temperature": 0}).agent.model_settings == {"temperature": 0, "timeout": 90.0}

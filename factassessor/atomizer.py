@@ -92,6 +92,7 @@ class LLMAtomizer(Atomizer):
         model_settings: dict[str, Any] | None = None,
         source_queries: int = 0,
         fallback: bool = True,  # on an LLM error, plain sentences as atoms (no source queries); False: raise (evals)
+        timeout: float = 90.0,  # seconds per LLM request (the OpenAI client's own is 600; it retries twice either way)
     ) -> None:
         self.fallback = fallback
         self.key_env = model_key(model)  # the variable a rejected key error names
@@ -101,18 +102,20 @@ class LLMAtomizer(Atomizer):
             raise ValueError(f"source_queries must be >= 0, not {source_queries}")
         self.source_queries = source_queries
         self.instructions = INSTRUCTIONS + (SOURCE_QUERIES_RULE.format(n=source_queries) if source_queries else "")
+        # a stalled request held one text for the client's 600 s; the slowest real call on long answers was 69 s
+        settings = {**(reasoning_off(model) if model_settings is None else model_settings), "timeout": timeout}
         self.agent = Agent(
             model,
             output_type=Claims,
             instructions=self.instructions,
-            model_settings=reasoning_off(model) if model_settings is None else model_settings,
+            model_settings=settings,
             defer_model_check=True,  # don't require an API key until the first call
         )
         self.source_agent = Agent(  # source queries alone, for claims that come from elsewhere (assess(text, claims=...))
             model,
             output_type=SourceQueries,
             instructions=SOURCE_QUERIES_ONLY + (SOURCE_QUERIES_RULE.format(n=source_queries) if source_queries else ""),
-            model_settings=reasoning_off(model) if model_settings is None else model_settings,
+            model_settings=settings,
             defer_model_check=True,
         )
 

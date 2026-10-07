@@ -365,7 +365,10 @@ built from these: `crawler >> judge_page >> Scan(add, evidence) >> TakeUntil(pol
 judge each page as it lands, keep a running total, stop (cancelling the rest) once the claim is settled.
 
 Another LLM for atomization (install its extra first, e.g. `uv add "pydantic-ai-slim[anthropic]"`):
-`LLMAtomizer("anthropic:claude-haiku-4-5", model_settings={})`.
+`LLMAtomizer("anthropic:claude-haiku-4-5", model_settings={})`. Each LLM request has a 90 s limit
+(`LLMAtomizer(timeout=...)`; the OpenAI client's own is 600 s), above the slowest real call on long answers (69 s);
+a request that times out is retried twice by the client, then falls back to sentences like any outage
+(`fallback=False` raises instead).
 
 How the composition works under the hood (streams, `>>`, concurrency, cancellation, where it isn't pure):
 [docs/design/functional.md](docs/design/functional.md).
