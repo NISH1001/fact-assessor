@@ -31,9 +31,9 @@ are checked concurrently, and most of the work is I/O that overlaps.
 ```
 text
  └─ LLMAtomizer ──────── one LLM call: atomic, self-contained claims ("Total lives lost…" → "The Nepal earthquake killed…")
-     └─ DecisionClaimFilter ─ Laya, local: drop opinions, greetings, questions
+     └─ DecisionClaimFilter ─ Jev: drop opinions, greetings, questions
          └─ search ───── Serper (Google), every claim in parallel; slow requests are hedged
-             └─ judge ── Laya, local: does each snippet support / refute the claim?
+             └─ judge ── Jev: does each snippet support / refute the claim?
                  ├─ settled → done (no crawling)
                  └─ not yet → [resolve: where can each hit be read in full? (optional: arXiv, OpenAlex)]
                               crawl pages (crawl4ai) in parallel, judge each page as it lands,
@@ -44,24 +44,24 @@ text
 | Step | What does it | Where it runs |
 |---|---|---|
 | Atomize + decontextualize | `LLMAtomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning as low as the model allows) | API, ~2s |
-| Claim filter | `DecisionClaimFilter`: one `choice` decision per atom (is this a factual claim?) on a decision runner, [Laya](https://github.com/NandhaKishorM/laya) by default | local (MPS / CUDA / CPU) |
+| Claim filter | `DecisionClaimFilter`: one `choice` decision per atom (is this a factual claim?) on a decision runner: Jev (OpenRouter) by default, or [Laya](https://github.com/NandhaKishorM/laya) locally | API, or local (MPS / CUDA / CPU) |
 | Search | [Serper](https://serper.dev); social media and video sites excluded in the query (`-site:`, so Google fills those slots) and filtered after | API, ~1s |
 | Resolve (optional) | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())`: a paper's full text from its free copies | network, ~0.2s/paper |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text; or `HTTPXCrawler` (HTML and PDF) | network, ~1s/page |
 | Rank passages | `Ranker`: which chunks of a page the judge sees. `BM25Ranker` (default, word overlap); `HybridRanker` adds 8M-parameter static embeddings for paraphrase (`fact-assessor[embed]`) | local, ms |
-| Evidence judge | `DecisionJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages cut into 90-word windows, the ranker's top passages per page, one decision each on the same runner | local |
+| Evidence judge | `DecisionJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages cut into 90-word windows, the ranker's top passages per page, one decision each on the same runner | API, or local |
 | Verdicts, score, graph | strong evidence weighed per side: `supported` / `refuted` / `contested` / `unverified` | local |
 
 Every box above is a swappable, chainable step (`SerperSearcher() >> not_blocked() >> Take(5)`), and the whole
 thing streams: a claim starts searching the moment it's found, each page is judged the moment its crawl lands,
 and results come out as each claim settles. See [Compose your own pipeline](#compose-your-own-pipeline).
 
-Laya is a non-autoregressive decision model (a Jev-style encoder that classifies instead of generating), so the
-filter and the judge are single forward passes. They ask it through a **decision runner** (`DecisionRunner`), the
-one place a model is wired in: `LayaRunner` (the default) merges every request that arrives within a few
-milliseconds, from any claim or page, into one batch on the local GPU; `SystemOneRunner` sends the same requests
-to TypeSafe's Jev on OpenRouter instead (no GPU). `FactAssessor()` gives the filter and the judge one shared
-`LayaRunner`; see [Decision runners](#decision-runners-the-model-behind-the-filter-and-the-judge).
+Jev and Laya are decision models (they classify instead of generating), so the filter and the judge ask one
+question per passage, not a chat. They ask it through a **decision runner** (`DecisionRunner`), the one place a
+model is wired in: `SystemOneRunner` (the default) sends a claim's passages to TypeSafe's Jev on OpenRouter in one
+call (no GPU); `LayaRunner` runs Laya in-process instead, merging every request that arrives within a few
+milliseconds into one batch on the local GPU; `OpenAIDecisionRunner` uses OpenAI's Decisions API. `FactAssessor()`
+gives the filter and the judge one shared runner; see [Decision runners](#decision-runners-the-model-behind-the-filter-and-the-judge).
 
 **Latency** (M-series Mac, MPS, warm): ~4–6s for a 2–5 claim paragraph, most of it network. The atomizer call,
 search, and crawling dominate; Laya passes take 40–150ms each. The first call in a fresh process also loads Laya
@@ -323,7 +323,7 @@ come for free.
 | Argument | Role | You implement | Default |
 |---|---|---|---|
 | `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer()` |
-| `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` on Laya; `DecisionClaimFilter(runner)` for another model |
+| `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` on Jev; `DecisionClaimFilter(runner)` for another model |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())`; `None` turns it off |
 | `crawler=` | `Crawler` | `crawl(url) -> Fetch`: the page `{"url", "title", "text"}`, the status, and `usable` (its `accept` rule) | `CascadedCrawler(HTTPXCrawler(), ImpitCrawler(), Crawl4AICrawler(), when=~(StatusIn(404, 410) \| ContentType("pdf")))`: plain HTTP, then HTTP that looks like Firefox (gets past many 403s), then a real browser; gone pages and PDFs skip the browser |
@@ -383,10 +383,10 @@ from factassessor import (
 
 FactAssessor(
     atomizer=LLMAtomizer("openai:gpt-6-luna"),                       # any pydantic-ai model
-    claim_filter=DecisionClaimFilter(threshold=0.4),                 # Laya; or DecisionClaimFilter(GlinerRunner()), or None (no filter)
+    claim_filter=DecisionClaimFilter(threshold=0.4),                 # Jev; or DecisionClaimFilter(LayaRunner()), or None (no filter)
     searcher=SerperSearcher() >> not_blocked() >> Take(5),           # or DuckDuckGoSearcher(), SearxngSearcher(url)
     crawler=Crawl4AICrawler(timeout=2.5),                            # or HTTPXCrawler(), CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())
-    judge=DecisionJudge(),                                           # Laya; or DecisionJudge(LLMRunner()), DecisionJudge(SystemOneRunner()), DecisionJudge(GlinerRunner())
+    judge=DecisionJudge(),                                           # Jev; or DecisionJudge(LayaRunner()), DecisionJudge(OpenAIDecisionRunner()), DecisionJudge(LLMRunner())
     policy=WeightedPolicy(strong=0.7, early_exit=0.9),
 )
 ```
@@ -424,7 +424,7 @@ FactAssessor(
     source_queries=2,                           # the atomizer also writes 2 searches for the text's source document
     resolver=CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()),   # papers: free full-text copies first
     crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()),        # plain HTTP (HTML and PDF), browser only if needed
-    judge=DecisionJudge(passages_per_page=3),       # 3 passages per page: +0.10 F1 on the paper eval, ~3s more per text
+    judge=DecisionJudge(passages_per_page=3),       # the default: 3 passages per page, +0.10 F1 over 1 on the paper eval
 )
 
 DecisionJudge(passages_per_page=3, ranker=HybridRanker())   # BM25 + 8M static embeddings (fact-assessor[embed]); measured:
@@ -446,8 +446,8 @@ runner's job: it merges the requests of every claim, page and component in fligh
 ```python
 from factassessor import DecisionClaimFilter, DecisionJudge, FactAssessor, LayaRunner, SystemOneRunner
 
-laya = LayaRunner()                       # in-process Laya (the default): 32-row passes on the local GPU
-jev = SystemOneRunner()                   # TypeSafe's Jev on OpenRouter (OPENROUTER_API_KEY): no GPU, ~0.5s a call,
+laya = LayaRunner()                       # in-process Laya: 32-row passes on the local GPU
+jev = SystemOneRunner()                   # the default, TypeSafe's Jev on OpenRouter (OPENROUTER_API_KEY): no GPU, ~0.5s a call,
                                           # a claim's passages in one call (up to 40), 16 calls in flight, $0.042 per 1M input tokens
 FactAssessor(claim_filter=DecisionClaimFilter(laya), judge=DecisionJudge(jev, passages_per_page=3))
 FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/systemone", model="english")))  # a remote `python -m laya.serve`
@@ -455,8 +455,9 @@ FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/sys
 
 | Runner | Model | Where | Batching |
 |---|---|---|---|
-| `LayaRunner(model="english")` (default) | Laya: `english`, `multilingual` (~2.2x faster), `typed-decisions` | local GPU / CPU, one model per device per process | requests merged across callers, 32 rows per pass |
-| `SystemOneRunner(model="~typesafe/jev-latest")` | Jev (System One protocol), or a `laya.serve` server | OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
+| `LayaRunner(model="english")` | Laya: `english`, `multilingual` (~2.2x faster), `typed-decisions` | local GPU / CPU, one model per device per process | requests merged across callers, 32 rows per pass |
+| `SystemOneRunner(model="~typesafe/jev-latest")` (default) | Jev (System One protocol), or a `laya.serve` server | OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
+| `OpenAIDecisionRunner(model="gpt-6-luna")` | gpt-6-luna (OpenAI's Decisions API, `OPENAI_API_KEY`) | OpenAI | like Jev: one claim's passages per call (up to 40), 16 calls in flight, 429s and 5xx retried; input tokens only, $0.10 per 1M |
 
 A runner is a `Protocol`: anything with `batch_size` and `async predict(requests)` works, and
 `isinstance(x, DecisionRunner)` checks it. `factassessor.decisions` has the request and response models.
@@ -515,7 +516,7 @@ FactAssessor(judge=DecisionJudge(LLMRunner("openai:gpt-5.4-mini", batch_size=20)
 |---|---|---|
 | `LLMRunner` gpt-6-luna | **15/15** (3 of 4 runs; 14 in the other) | ~2.1s (API) |
 | `LLMRunner` gpt-5.6-luna | 14/15 | ~2.1s (API) |
-| `LayaRunner` (default, MPS) | 13/15 | 0.2s |
+| `LayaRunner` (MPS) | 13/15 | 0.2s |
 | `GlinerRunner` fp32 (CPU) | 12/15 | 1.8s |
 | `GlinerRunner` int8 (CPU) | 7/15 | 1.0s |
 
@@ -598,8 +599,8 @@ factassessor/
   pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Predicate: the streaming runner
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
   decisions.py       DecisionRunner (role, a Protocol), DecisionRequest / DecisionResponse, Batcher,
-                     SystemOneRunner (Jev over HTTP), LLMRunner (any chat model)
-  laya.py            LayaRunner (default): in-process Laya, one model per device per process, micro-batching, batch cap
+                     SystemOneRunner (default: Jev over HTTP), OpenAIDecisionRunner, LLMRunner (any chat model)
+  laya.py            LayaRunner: in-process Laya, one model per device per process, micro-batching, batch cap
   gliner.py          GlinerRunner (optional extra): GLiNER2.5-decide via ONNX, one model per (model, variant) per process
   claim_filters/     atoms -> the factual claims
     _base.py         ClaimFilter (role)
