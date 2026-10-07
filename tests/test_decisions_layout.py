@@ -9,7 +9,7 @@ import factassessor.decisions as decisions
 
 LAYOUT = {
     "types": ["Question", "DecisionRequest", "Answer", "DecisionResponse", "DecisionRunner", "DecisionPacking"],
-    "utils": ["Batcher", "pack", "post_with_retries"],
+    "utils": ["Batcher", "pack", "post_packed", "post_with_retries", "RUN_LOCALLY"],
     "systemone": ["SystemOneRunner"],
     "openai": ["OpenAIDecisionRunner"],
     "llm": ["LLMRunner"],

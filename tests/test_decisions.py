@@ -242,3 +242,19 @@ async def test_when_every_retry_is_a_network_error_that_error_is_raised(monkeypa
 
     with pytest.raises(httpx.HTTPStatusError):
         await runner(always_busy).predict([request("1903")])
+
+
+async def test_post_packed_sends_field_states_in_one_call_and_each_string_alone_answers_in_order():
+    from factassessor.decisions.utils import post_packed
+
+    calls = []
+
+    async def post(group):
+        calls.append([r.state if isinstance(r.state, str) else r.state["evidence"] for r in group])
+        return [f"answer {c}" for c in calls[-1]]
+
+    requests = [request("e0"), DecisionRequest(state="s1", questions=STANCE), request("e2"),
+                DecisionRequest(state="s3", questions=STANCE), request("e4")]
+    assert await post_packed(requests, post) == ["answer e0", "answer s1", "answer e2", "answer s3", "answer e4"]
+    assert sorted(calls) == [["e0", "e2", "e4"], ["s1"], ["s3"]]
+

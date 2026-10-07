@@ -600,7 +600,7 @@ factassessor/
   atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
   decisions/         the model behind the claim filter and the judge: one module per runner
     types.py         DecisionRunner (role, a Protocol), DecisionRequest / DecisionResponse, Question, Answer, DecisionPacking
-    utils.py         shared by the runners: Batcher (merges concurrent callers), pack, post_with_retries
+    utils.py         shared by the runners: Batcher (merges concurrent callers), pack, post_packed, post_with_retries
     systemone.py     SystemOneRunner (default): Jev over HTTP
     openai.py        OpenAIDecisionRunner: OpenAI's Decisions API
     llm.py           LLMRunner: any chat model

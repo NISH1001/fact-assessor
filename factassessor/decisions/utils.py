@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from factassessor.decisions.types import DecisionRequest
+from factassessor.decisions.types import DecisionRequest, DecisionResponse
 
 RUN_LOCALLY = "To run without an API key, use the local model: FactAssessor(runner=LayaRunner())."  # what a runner without its API key suggests
 
@@ -114,6 +114,18 @@ def pack(requests: list[DecisionRequest], model: str) -> tuple[dict[str, Any], l
             questions[route[k]] = {**q.wire(), "instructions": instructions}
         routes.append(route)
     return {"model": requests[0].model or model, "state": state, "questions": questions}, routes
+
+
+async def post_packed(
+    requests: list[DecisionRequest], post: Callable[[list[DecisionRequest]], Awaitable[list[DecisionResponse]]]
+) -> list[DecisionResponse]:
+    """The dict-state requests in one `post` call (packed); a string state can't be packed, so each goes alone.
+    The calls run at once; the answers come back in the requests' order."""
+    packed = [i for i, r in enumerate(requests) if isinstance(r.state, dict)]
+    calls = ([packed] if packed else []) + [[i] for i, r in enumerate(requests) if not isinstance(r.state, dict)]
+    results = await asyncio.gather(*(post([requests[i] for i in call]) for call in calls))
+    answered = {i: res for call, group in zip(calls, results) for i, res in zip(call, group)}
+    return [answered[i] for i in range(len(requests))]
 
 
 async def post_with_retries(http: httpx.AsyncClient, url: str, body: dict[str, Any], attempts: int = 4) -> dict[str, Any]:
