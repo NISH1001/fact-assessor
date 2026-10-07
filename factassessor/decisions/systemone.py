@@ -8,7 +8,7 @@ import os
 import httpx
 
 from factassessor.decisions.types import Answer, DecisionPacking, DecisionRequest, DecisionResponse, DecisionRunner
-from factassessor.decisions.utils import Batcher, pack, post_with_retries
+from factassessor.decisions.utils import RUN_LOCALLY, Batcher, pack, post_with_retries
 from factassessor.keys import require_key
 
 
@@ -53,7 +53,7 @@ class SystemOneRunner(DecisionRunner):
         self.url = url or os.environ.get("OPENROUTER_DECISIONS_URL", "").strip() or self.URL
         if "openrouter.ai" in self.url:  # a local Laya server needs no key
             api_key = require_key("OPENROUTER_API_KEY", api_key, needed_by="Jev (SystemOneRunner, on OpenRouter)",
-                                  instead="To run without an API key, use the local model: FactAssessor(runner=LayaRunner()).")
+                                  instead=RUN_LOCALLY)
         self.api_key = api_key
         self.batch_size = batch_size
         self.packing = DecisionPacking(packing)

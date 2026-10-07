@@ -5,8 +5,9 @@ import logging
 
 import pytest
 
-from factassessor import FactAssessor, LayaRunner, LLMRunner, MissingAPIKeyError, SerperSearcher, SystemOneRunner
+from factassessor import FactAssessor, LayaRunner, LLMRunner, MissingAPIKeyError, OpenAIDecisionRunner, SerperSearcher, SystemOneRunner
 from factassessor.atomizer import LLMAtomizer
+from factassessor.decisions.utils import RUN_LOCALLY
 
 
 def test_jev_without_an_openrouter_key_fails_at_creation_and_points_to_local_laya(monkeypatch, caplog):
@@ -44,3 +45,12 @@ def test_fact_assessor_defaults_to_jev_and_runs_on_laya_with_no_openrouter_key(m
         FactAssessor()  # at creation, not at the first check
     fa = FactAssessor(runner=LayaRunner())  # local: no OpenRouter key needed
     assert isinstance(fa.judge.runner, LayaRunner) and fa.claim_filter.runner is fa.judge.runner
+
+
+@pytest.mark.parametrize("make, env", [(lambda: SystemOneRunner(), "OPENROUTER_API_KEY"), (lambda: LLMRunner(), "OPENAI_API_KEY"),
+                                       (lambda: OpenAIDecisionRunner(), "OPENAI_API_KEY")])
+def test_every_api_runner_without_its_key_points_to_the_same_local_alternative(monkeypatch, make, env):
+    monkeypatch.delenv(env, raising=False)
+    with pytest.raises(MissingAPIKeyError) as err:
+        make()
+    assert str(err.value).endswith(RUN_LOCALLY)
