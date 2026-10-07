@@ -125,3 +125,11 @@ def test_fact_assessor_runs_its_filter_and_judge_on_it():
 
     fa = FactAssessor(runner=OpenAIDecisionRunner())
     assert isinstance(fa.judge.runner, OpenAIDecisionRunner) and fa.claim_filter.runner is fa.judge.runner
+
+
+async def test_plain_string_states_go_one_per_call_and_come_back_in_order():
+    bodies = []
+    texts = ["Paris is in France.", "Curie won it in 1903.", "Bees."]
+    res = await runner(fake(bodies)).predict([DecisionRequest(state=t, questions=QUESTION) for t in texts])
+    assert sorted(b["input"] for b in bodies) == sorted(texts)  # a string has no fields to pack: one call each
+    assert [x.answers["stance"].label for x in res] == ["not_enough_info", "supports", "not_enough_info"]
