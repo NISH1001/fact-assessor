@@ -1,6 +1,6 @@
 [project]
 name = "fact-assessor"
-version = "0.3.1"
+version = "0.3.2"
 description = "Fast, async-first fact assessment for any text: atomic claims -> web evidence -> verdicts, fact score, and knowledge graph."
 readme = "README.md"
 license = "MIT"
