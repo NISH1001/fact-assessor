@@ -1,8 +1,6 @@
 """A component that needs an API key says so when it is created, with what to do instead, not at its first call
 (or never: without OPENAI_API_KEY the atomizer used to fall back to sentence atoms silently)."""
 
-import logging
-
 import pytest
 
 from factassessor import FactAssessor, LayaRunner, LLMRunner, MissingAPIKeyError, OpenAIDecisionRunner, SerperSearcher, SystemOneRunner
@@ -10,11 +8,11 @@ from factassessor.atomizer import LLMAtomizer
 from factassessor.decisions.utils import RUN_LOCALLY
 
 
-def test_jev_without_an_openrouter_key_fails_at_creation_and_points_to_local_laya(monkeypatch, caplog):
+def test_jev_without_an_openrouter_key_fails_at_creation_and_points_to_local_laya(monkeypatch, logs):
     monkeypatch.delenv("OPENROUTER_API_KEY")
-    with caplog.at_level(logging.ERROR), pytest.raises(MissingAPIKeyError, match="OPENROUTER_API_KEY") as err:
+    with pytest.raises(MissingAPIKeyError, match="OPENROUTER_API_KEY") as err:
         SystemOneRunner()
-    assert "LayaRunner()" in str(err.value) and "OPENROUTER_API_KEY" in caplog.text  # logged too
+    assert "LayaRunner()" in str(err.value) and any(line.startswith("ERROR") and "OPENROUTER_API_KEY" in line for line in logs)  # logged too
     SystemOneRunner(api_key="sk-or-...")  # passed in: fine
     SystemOneRunner(url="http://localhost:8000/v1/systemone", model="english")  # a local Laya server needs none
 
