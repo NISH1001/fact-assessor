@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 import httpx
+from loguru import logger
 
 from factassessor.decisions.types import Answer, DecisionPacking, DecisionRequest, DecisionResponse, DecisionRunner
 from factassessor.decisions.utils import RUN_LOCALLY, Batcher, pack, post_with_retries
@@ -20,7 +21,13 @@ class OpenAIDecisionRunner(DecisionRunner):
     for Jev (`pack`: the shared claim once, the passages numbered), then written out as text: `evidence[0]: ...`
     lines and `claim: ...`, which the questions name in backticks (`` `evidence[2]` ``). Question types: `choice`
     (options with descriptions), `noul` -> OpenAI's `predicate` (yes/no: `{"yes": p, "no": 1 - p}`), `score`
-    (ordered levels). `cost` is the USD spent so far when the response reports input tokens ($0.10 per million)."""
+    (ordered levels). `cost` is the USD spent so far when the response reports input tokens ($0.10 per million).
+
+    `packing`: `CALL` (the default) sends a claim's passages in one call. `NONE` sends each passage alone, the
+    layout OpenAI's docs describe (one input, questions about that input). Measured on 10 answers, same pages:
+    `NONE` F1 0.668 vs 0.637, about the same cost, but 3x slower (77 s vs 25 s), because a claim's ~30 calls queue
+    for `max_concurrent` (16 by default, shared by every claim). With `NONE`, raise `max_concurrent` (e.g. 64) as
+    far as your OpenAI rate limit allows; a 429 is retried with backoff."""
 
     URL = "https://api.openai.com/v1/decisions"
     PRICE_PER_INPUT_TOKEN = 0.10 / 1e6
@@ -46,6 +53,10 @@ class OpenAIDecisionRunner(DecisionRunner):
         self.cost = 0.0
         self._batch = Batcher(self._run, max_wait_ms, max_concurrent, take=batch_size)
         self._http: httpx.AsyncClient | None = None
+        if self.packing is DecisionPacking.NONE and max_concurrent <= 16:
+            logger.info("OpenAIDecisionRunner(packing='none') makes one call per passage, {} in flight: claims queue "
+                        "(3x slower than packing='call' on the eval). Raise max_concurrent (e.g. 64) as far as your "
+                        "OpenAI rate limit allows.", max_concurrent)
 
     async def aload(self) -> None:
         if self._http is None:

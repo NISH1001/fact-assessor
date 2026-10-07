@@ -133,3 +133,9 @@ async def test_plain_string_states_go_one_per_call_and_come_back_in_order():
     res = await runner(fake(bodies)).predict([DecisionRequest(state=t, questions=QUESTION) for t in texts])
     assert sorted(b["input"] for b in bodies) == sorted(texts)  # a string has no fields to pack: one call each
     assert [x.answers["stance"].label for x in res] == ["not_enough_info", "supports", "not_enough_info"]
+
+
+@pytest.mark.parametrize("kw, says", [({"packing": "none"}, True), ({}, False), ({"packing": "none", "max_concurrent": 64}, False)])
+def test_one_passage_per_call_at_the_default_concurrency_suggests_raising_it(logs, kw, says):
+    OpenAIDecisionRunner(**kw)
+    assert any(line.startswith("INFO") and "max_concurrent" in line for line in logs) is says
