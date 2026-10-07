@@ -3,10 +3,10 @@ not a failure at the first call (or a silent fallback, as the atomizer's sentenc
 
 from __future__ import annotations
 
-import logging
 import os
 
-logger = logging.getLogger("factassessor")
+from loguru import logger
+
 
 # pydantic-ai model prefix -> the environment variable its provider reads; models not listed (ollama, local
 # endpoints, test models) need no key from us

@@ -115,3 +115,19 @@ async def test_source_queries_alone_for_claims_from_elsewhere():
     with atomizer.source_agent.override(model=model):
         assert await atomizer.source_queries_for(TEXT) == ["Nepal earthquake 2015 report", "Gorkha earthquake damage"]
     assert await LLMAtomizer().source_queries_for(TEXT) == []  # asked for none
+
+
+async def test_an_llm_outage_with_fallback_is_logged_as_a_warning(logs):
+    # the sentence fallback is never silent: a run with degraded claims says so
+    from pydantic_ai.models.function import FunctionModel
+
+    def down(messages, info):
+        raise RuntimeError("insufficient_quota")
+
+    atomizer = LLMAtomizer(source_queries=2)
+    with atomizer.agent.override(model=FunctionModel(down)), atomizer.source_agent.override(model=FunctionModel(down)):
+        await atomizer.atomize(TEXT)
+        await atomizer.source_queries_for(TEXT)
+    warnings = [line for line in logs if line.startswith("WARNING")]
+    assert len(warnings) == 2 and all("insufficient_quota" in w for w in warnings)
+    assert "falling back to sentences" in warnings[0] and "search on their own" in warnings[1]

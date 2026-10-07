@@ -6,10 +6,10 @@ Compose: `LLMAtomizer() >> DecisionClaimFilter() >> Take(8)`.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from loguru import logger
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
@@ -19,7 +19,6 @@ from factassessor.keys import require_model_key
 from factassessor.schema import Atom
 from factassessor.utils import locate, sentences
 
-logger = logging.getLogger(__name__)
 
 INSTRUCTIONS = """\
 Split the text into atomic claims for fact-checking.
@@ -125,7 +124,7 @@ class LLMAtomizer(Atomizer):
         except Exception as exc:
             if not self.fallback:
                 raise
-            logger.warning("source queries LLM failed, the claims search on their own: %r", exc)
+            logger.warning("source queries LLM failed, the claims search on their own: {!r}", exc)
             return []
         return list(dict.fromkeys(q.strip() for q in out.source_queries if q.strip()))[: self.source_queries]
 
@@ -137,7 +136,7 @@ class LLMAtomizer(Atomizer):
         except Exception as exc:  # best effort: an LLM outage degrades to sentence atoms, not a failed check
             if not self.fallback:
                 raise
-            logger.warning("atomizer LLM failed, falling back to sentences: %r", exc)
+            logger.warning("atomizer LLM failed, falling back to sentences: {!r}", exc)
             return [Atom(id=i, text=text[s:e], span=(s, e)) for i, (s, e) in enumerate(sentences(text))]
         queries = list(dict.fromkeys(q.strip() for q in out.source_queries if q.strip()))[: self.source_queries]
         return [  # span: the sentence the claim was made from, found here rather than quoted by the model
