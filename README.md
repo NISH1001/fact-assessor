@@ -1,8 +1,16 @@
 # fact-assessor
 
+**An opinionated fact-assessment tool that balances latency and accuracy.**
+
 Fast, async-first fact assessment for any piece of text: a sentence, a paragraph, a model's answer.
 It splits the text into atomic claims, finds web evidence for each one, and returns a verdict per claim,
 an overall fact score, and a knowledge graph linking claims to their sources.
+
+<p align="center"><img src="docs/figures/pipeline.png" alt="The fact-assessor pipeline: claim extraction (atomization, claim filtering), then each claim verified in parallel (search, snippet judgment, full-text resolution, crawling, passage ranking, passage judgment, verdict), then aggregation" width="560"></p>
+
+Claims are verified concurrently, each with its own deadline: a claim that its search snippets already settle stops
+there, the rest crawl their pages in parallel and judge each page as it lands
+([concurrency diagram](docs/figures/pipeline-concurrency.png)).
 
 ```python
 from factassessor import FactAssessor, kg
