@@ -1,7 +1,9 @@
+from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 
 from factassessor import LLMAtomizer
+from factassessor.atomizers.llm import INSTRUCTIONS
 
 TEXT = "It was believed that Nepal's earthquake in 2017 of 7.8 magnitude scale caused massive damage. Total lives lost were 1 million people."
 
@@ -106,6 +108,27 @@ async def test_fallback_false_raises_on_an_llm_error_instead_of_using_sentences(
 
 def test_the_model_is_asked_for_exactly_n_source_queries():
     assert "exactly 2" in LLMAtomizer(source_queries=2).instructions
+
+
+async def test_your_own_instructions_replace_the_default_and_keep_the_source_queries_rule():
+    assert LLMAtomizer().instructions == INSTRUCTIONS  # the default prompt, unchanged
+    atomizer = LLMAtomizer(instructions="Split the text into claims, in its own words.", source_queries=2)
+    assert atomizer.instructions.startswith("Split the text into claims, in its own words.")
+    assert "exactly 2" in atomizer.instructions and INSTRUCTIONS not in atomizer.instructions
+    seen = []
+
+    def model(messages, info):
+        seen.append(messages[-1].instructions)
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"atoms": [{"text": "NASA was founded in 1958."}]})])
+
+    with atomizer.agent.override(model=FunctionModel(model)):
+        await atomizer.atomize("NASA was founded in 1958.")
+    assert seen == [atomizer.instructions]  # what the model is actually sent
+
+
+def test_instructions_can_be_a_list_of_parts_like_pydantic_ais():
+    atomizer = LLMAtomizer(instructions=[INSTRUCTIONS, "- Use the text's own words."])
+    assert atomizer.instructions == INSTRUCTIONS + "\n- Use the text's own words."
 
 
 async def test_source_queries_alone_for_claims_from_elsewhere():

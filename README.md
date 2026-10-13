@@ -378,7 +378,8 @@ Another LLM for atomization (install its extra first, e.g. `uv add "pydantic-ai-
 `LLMAtomizer("anthropic:claude-haiku-4-5", model_settings={})`. Each LLM request has a 90 s limit
 (`LLMAtomizer(timeout=...)`; the OpenAI client's own is 600 s), above the slowest real call on long answers (69 s);
 a request that times out is retried twice by the client, then falls back to sentences like any outage
-(`fallback=False` raises instead).
+(`fallback=False` raises instead). Your own prompt: `LLMAtomizer(instructions=...)` (the default is
+`factassessor.atomizers.llm.INSTRUCTIONS`; a string or a list of parts; the source-queries rule is added to yours too).
 
 A local atomizer, no LLM call: `SpanAtomizer` runs our span model
 ([atomizer-gliner-small](https://huggingface.co/nishparadox/atomizer-gliner-small), 163M params, tens of ms per

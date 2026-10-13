@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from loguru import logger
@@ -74,6 +75,7 @@ class LLMAtomizer(Atomizer):
         source_queries: int = 0,
         fallback: bool = True,  # on an LLM error, plain sentences as atoms (no source queries); False: raise (evals)
         timeout: float = 90.0,  # seconds per LLM request (the OpenAI client's own is 600; it retries twice either way)
+        instructions: str | Sequence[str] = INSTRUCTIONS,  # the prompt, or its parts (joined by newlines); the source-queries rule is added to yours too
     ) -> None:
         self.fallback = fallback
         self.key_env = model_key(model)  # the variable a rejected key error names
@@ -82,7 +84,8 @@ class LLMAtomizer(Atomizer):
         if source_queries < 0:
             raise ValueError(f"source_queries must be >= 0, not {source_queries}")
         self.source_queries = source_queries
-        self.instructions = INSTRUCTIONS + (SOURCE_QUERIES_RULE.format(n=source_queries) if source_queries else "")
+        prompt = instructions if isinstance(instructions, str) else "\n".join(instructions)
+        self.instructions = prompt + (SOURCE_QUERIES_RULE.format(n=source_queries) if source_queries else "")
         # a stalled request held one text for the client's 600 s; the slowest real call on long answers was 69 s
         settings = {**(reasoning_off(model) if model_settings is None else model_settings), "timeout": timeout}
         self.agent = Agent(
