@@ -13,7 +13,7 @@ load_dotenv(find_dotenv(usecwd=True))
 
 from factassessor import kg  # noqa: E402
 from factassessor.assessor import FactAssessor
-from factassessor.atomizers import Atomizer, LLMAtomizer
+from factassessor.atomizers import Atomizer, LLMAtomizer, SpanAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
 from factassessor.keys import InvalidAPIKeyError, MissingAPIKeyError
 from factassessor.crawlers import Crawl4AICrawler, Crawler, CascadedCrawler, Fetch, HTTPXCrawler, ImpitCrawler, NoCrawler
@@ -51,7 +51,7 @@ __all__ = [
     # the ready-made pipeline
     "FactAssessor",
     # roles (base types) and their implementations
-    "Atomizer", "LLMAtomizer",
+    "Atomizer", "LLMAtomizer", "SpanAtomizer",
     "ClaimFilter", "DecisionClaimFilter",
     "Searcher", "SerperSearcher", "DuckDuckGoSearcher", "SearxngSearcher", "DocumentSearcher", "SearchType",
     "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "ImpitCrawler", "CascadedCrawler", "NoCrawler", "Fetch", "MissingAPIKeyError", "InvalidAPIKeyError",

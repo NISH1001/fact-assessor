@@ -336,7 +336,7 @@ come for free.
 
 | Argument | Role | You implement | Default |
 |---|---|---|---|
-| `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer()` |
+| `atomizer=` | `Atomizer` (or a chain starting with one) | `atomize(text) -> list[Atom]` | `LLMAtomizer()`; or `SpanAtomizer()` (local) |
 | `claim_filter=` | `ClaimFilter` (or any step; `None` = no filter) | `score(atom) -> P(factual claim)` | `DecisionClaimFilter(threshold=0.4)` on Jev; `DecisionClaimFilter(runner)` for another model |
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())`; `None` turns it off |
@@ -379,6 +379,24 @@ Another LLM for atomization (install its extra first, e.g. `uv add "pydantic-ai-
 (`LLMAtomizer(timeout=...)`; the OpenAI client's own is 600 s), above the slowest real call on long answers (69 s);
 a request that times out is retried twice by the client, then falls back to sentences like any outage
 (`fallback=False` raises instead).
+
+A local atomizer, no LLM call: `SpanAtomizer` runs our span model
+([atomizer-gliner-small](https://huggingface.co/nishparadox/atomizer-gliner-small), 163M params, tens of ms per
+text). It builds each claim from the text's own words, swapping a reference ("She") for what it names, and scores it
+with a critic (`verifiable`, kept as `atom.claim_score`). The `atomizer` package is private for now, so it isn't a
+dependency: `uv add "atomizer @ git+ssh://git@github.com/NISH1001/atomizer@v0.1.0"`.
+
+```python
+from factassessor import FactAssessor, SpanAtomizer
+
+# the critic as the claim filter (dropped atoms land in result.skipped); it writes no source queries
+fa = FactAssessor(atomizer=SpanAtomizer(min_verifiable=0.5), claim_filter=None, source_queries=0)
+```
+
+Its parameters are the package's own, with the same defaults (every atom; the model's decoding thresholds):
+`model`, `revision` (`"v0.5"`), `device`, `batch_size`, `anchor_threshold`, `ante_threshold`, `min_verifiable`,
+`min_checkworthy` (a cut-off, or `"auto"` for the model's). Loading takes ~30 s once per process (`await
+atomizer.aload()` at startup). It can't rephrase, so a reference to an event ("the decision") stays as written.
 
 How the composition works under the hood (streams, `>>`, concurrency, cancellation, where it isn't pure):
 [docs/design/functional.md](docs/design/functional.md).
@@ -617,6 +635,7 @@ factassessor/
   atomizers/         text -> atoms
     _base.py         Atomizer (role)
     llm.py           LLMAtomizer (default): one fast-LLM call
+    span.py          SpanAtomizer: our local span model (the atomizer package), no LLM call
   decisions/         the model behind the claim filter and the judge: one module per runner
     types.py         DecisionRunner (role, a Protocol), DecisionRequest / DecisionResponse, Question, Answer, DecisionPacking
     utils.py         shared by the runners: Batcher (merges concurrent callers), pack, post_packed, post_with_retries
