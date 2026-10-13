@@ -9,7 +9,7 @@ from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models.function import FunctionModel
 
 from factassessor import Atom, Evidence, FactAssessor, Filter, FlatMap, InvalidAPIKeyError, Map, Step
-from factassessor.atomizer import LLMAtomizer
+from factassessor.atomizers import LLMAtomizer
 from factassessor.keys import auth_error
 
 

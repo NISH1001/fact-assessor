@@ -1,20 +1,15 @@
-"""Atomizers: text -> self-contained atomic claims. A step: texts -> atoms.
-
-`Atomizer` is the role: implement `atomize(text)`. `LLMAtomizer` does it in one fast-LLM call.
-Compose: `LLMAtomizer() >> DecisionClaimFilter() >> Take(8)`.
-"""
+"""LLMAtomizer: text -> self-contained atomic claims in one fast-LLM call."""
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
-from factassessor.pipeline import FlatMap, Step
 from factassessor._llm import reasoning_off
+from factassessor.atomizers._base import Atomizer
 from factassessor.keys import auth_error, model_key, require_model_key
 from factassessor.schema import Atom
 from factassessor.utils import locate, sentences
@@ -61,20 +56,6 @@ SOURCE_QUERIES_ONLY = "Read the text and write search queries for the document i
 class Claims(BaseModel):
     atoms: list[Claim]
     source_queries: list[str] = []
-
-
-class Atomizer(Step):
-    """Role: text -> atoms. Implement `atomize`; streaming, concurrency, and chaining come from here."""
-
-    async def atomize(self, text: str) -> list[Atom]:
-        raise NotImplementedError(f"{type(self).__name__}.atomize")
-
-    def __call__(self, texts: AsyncIterator[str]) -> AsyncIterator[Atom]:
-        async def atoms(text: str) -> AsyncIterator[Atom]:
-            for atom in await self.atomize(text):
-                yield atom
-
-        return FlatMap(atoms)(texts)
 
 
 class LLMAtomizer(Atomizer):

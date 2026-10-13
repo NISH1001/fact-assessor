@@ -614,7 +614,9 @@ Layout:
 factassessor/
   assessor.py        FactAssessor: builds the default chain; stream / assess / assess_sync; lifecycle
   pipeline.py        Step, >>, Map, FlatMap, Filter, Take, Scan, TakeUntil, Predicate: the streaming runner
-  atomizer.py        Atomizer (role), LLMAtomizer: text -> atoms
+  atomizers/         text -> atoms
+    _base.py         Atomizer (role)
+    llm.py           LLMAtomizer (default): one fast-LLM call
   decisions/         the model behind the claim filter and the judge: one module per runner
     types.py         DecisionRunner (role, a Protocol), DecisionRequest / DecisionResponse, Question, Answer, DecisionPacking
     utils.py         shared by the runners: Batcher (merges concurrent callers), pack, post_packed, post_with_retries

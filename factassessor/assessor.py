@@ -26,8 +26,8 @@ from typing import Any
 
 from loguru import logger
 
-from factassessor.atomizer import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
-from factassessor.atomizer import LLMAtomizer
+from factassessor.atomizers import DEFAULT_MODEL as DEFAULT_ATOMIZER_MODEL
+from factassessor.atomizers import LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
 from factassessor.crawlers import CascadedCrawler, ContentType, Crawl4AICrawler, HTTPXCrawler, ImpitCrawler, StatusIn
 from factassessor.judges import DecisionJudge, Judge
