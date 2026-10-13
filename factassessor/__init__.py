@@ -13,7 +13,7 @@ load_dotenv(find_dotenv(usecwd=True))
 
 from factassessor import kg  # noqa: E402
 from factassessor.assessor import FactAssessor
-from factassessor.atomizer import Atomizer, LLMAtomizer
+from factassessor.atomizers import Atomizer, LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
 from factassessor.keys import InvalidAPIKeyError, MissingAPIKeyError
 from factassessor.crawlers import Crawl4AICrawler, Crawler, CascadedCrawler, Fetch, HTTPXCrawler, ImpitCrawler, NoCrawler

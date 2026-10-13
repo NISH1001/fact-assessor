@@ -56,7 +56,7 @@ import httpx
 
 from factassessor import Atom, Crawl4AICrawler, DecisionClaimFilter, DecisionJudge, FactAssessor, LayaRunner, LLMRunner, SerperSearcher
 from factassessor._llm import reasoning_off
-from factassessor.atomizer import Atomizer, LLMAtomizer
+from factassessor.atomizers import Atomizer, LLMAtomizer
 from factassessor.crawlers import Crawler, Fetch, HTTPXCrawler
 from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, PMCResolver, locations
 from factassessor.verify import read_first

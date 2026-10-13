@@ -76,7 +76,7 @@ lifecycle) around your one method; no abstract base classes anywhere.
 
 | Role | Interface | Implementations | File |
 |---|---|---|---|
-| `Atomizer` | `atomize(text) -> list[Atom]` | `LLMAtomizer` (pydantic-ai; falls back to sentences if the LLM fails) | `atomizer.py` |
+| `Atomizer` | `atomize(text) -> list[Atom]` | `LLMAtomizer` (pydantic-ai; falls back to sentences if the LLM fails) | `atomizers/` |
 | `ClaimFilter` | `score(atoms)` -> P(factual claim) | `DecisionClaimFilter` (one decision per atom, on any runner) | `claim_filters/` |
 | `Searcher` | `search(query) -> list[hit]` | `SerperSearcher` (web or Google Scholar), `SearxngSearcher` (self-hosted; general or science engines), `DuckDuckGoSearcher`, `DocumentSearcher` (given documents: in-domain checks) | `search/` |
 | `Resolver` (Protocol) | `resolve(url) -> list[str]` | `ArxivResolver`, `OpenAlexResolver`, `CompositeResolver` | `resolvers.py` |

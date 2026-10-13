@@ -4,7 +4,7 @@
 import pytest
 
 from factassessor import FactAssessor, LayaRunner, LLMRunner, MissingAPIKeyError, OpenAIDecisionRunner, SerperSearcher, SystemOneRunner
-from factassessor.atomizer import LLMAtomizer
+from factassessor.atomizers import LLMAtomizer
 from factassessor.decisions.utils import RUN_LOCALLY
 
 
