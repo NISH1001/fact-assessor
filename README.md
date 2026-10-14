@@ -398,6 +398,7 @@ Its parameters are the package's own, with the same defaults (every atom; the mo
 `model`, `revision` (`"v0.5"`), `device`, `batch_size`, `anchor_threshold`, `ante_threshold`, `min_verifiable`,
 `min_checkworthy` (a cut-off, or `"auto"` for the model's). Loading takes ~30 s once per process (`await
 atomizer.aload()` at startup). It can't rephrase, so a reference to an event ("the decision") stays as written.
+How it compares with `LLMAtomizer`, and its critic with the claim filters: [docs/EVALS.md](docs/EVALS.md).
 
 How the composition works under the hood (streams, `>>`, concurrency, cancellation, where it isn't pure):
 [docs/design/functional.md](docs/design/functional.md).
