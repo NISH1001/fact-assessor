@@ -1,6 +1,6 @@
 # LLMAtomizer vs SpanAtomizer
 
-`LLMAtomizer` (openai:gpt-6-luna, the default prompt) vs `SpanAtomizer` (atomizer-gliner-small v0.5, its defaults). Written by scripts/compare_atomizers.py.
+`LLMAtomizer` (openai:gpt-6-luna, the default prompt) vs `SpanAtomizer` (atomizer-gliner-small v0.5, its defaults). Claim filters: Jev 1.13 (jev), Laya. Written by scripts/compare_atomizers.py.
 
 ## Atomization
 

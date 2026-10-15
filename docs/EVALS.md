@@ -63,12 +63,13 @@ all-MiniLM-L6-v2 (it forgives paraphrase). F1 shown; P / R in the full tables.
 ### Critic vs the claim filters
 
 The span model's critic (`verifiable`, `SpanAtomizer(min_verifiable=...)`) against `DecisionClaimFilter` on Jev (the
-default) and on Laya, scoring the same 1,982 human-labelled atoms (1,583 verifiable) one by one.
+default; jev-1.13, `~typesafe/jev-latest` on 2026-10-13) and on Laya, scoring the same 1,982 human-labelled atoms
+(1,583 verifiable) one by one.
 
 | Scorer | AUC | F1 at its cut-off | Best F1 (cut-off) | Cost |
 |---|---|---|---|---|
 | critic | **0.975** | **0.966** (0.5) | 0.966 (0.55) | local, in the atomizer's pass |
-| Jev | 0.881 | 0.947 (0.4) | 0.955 (0.85) | $0.034 for 1,982 atoms |
+| Jev 1.13 | 0.881 | 0.947 (0.4) | 0.955 (0.85) | $0.034 for 1,982 atoms |
 | Laya | 0.792 | 0.914 (0.4) | 0.917 (0.35) | local |
 
 Agreement on keep / drop: critic–Jev 93.9%, critic–Laya 87.9%, Jev–Laya 91.0%.
@@ -78,7 +79,7 @@ Agreement on keep / drop: critic–Jev 93.9%, critic–Laya 87.9%, Jev–Laya 91
 | At its default cut-off | Verifiable claims dropped (of 1,583) | Not verifiable kept (of 399) |
 |---|---|---|
 | critic (0.5) | 25 (1.6%) | **85** (21%) |
-| Jev (0.4) | **2** (0.1%) | 176 (44%) |
+| Jev 1.13 (0.4) | **2** (0.1%) | 176 (44%) |
 | Laya (0.4) | 78 (4.9%) | 206 (52%) |
 
 - **The critic's scores are bimodal** (almost all near 0 or 1), as are Jev's; Laya's spread out. 0.5 is the critic's

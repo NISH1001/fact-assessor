@@ -289,7 +289,7 @@ All keyword arguments to `FactAssessor`:
 from factassessor import FactAssessor, LayaRunner, LLMRunner, OpenAIDecisionRunner
 
 FactAssessor()                                  # the measured setup: Jev on OpenRouter filters and judges (OPENROUTER_API_KEY)
-FactAssessor(runner=LayaRunner())               # local: Laya on your GPU/CPU, no model API key (F1 0.624 vs 0.821 for Jev)
+FactAssessor(runner=LayaRunner())               # local: Laya on your GPU/CPU, no model API key (F1 0.624 vs 0.821 for Jev 1.13)
 FactAssessor(runner=OpenAIDecisionRunner())     # gpt-6-luna through OpenAI's Decisions API (OPENAI_API_KEY): faster
                                                 # than Jev and lets fewer false claims through, but confirms fewer true
                                                 # ones (paper eval, same pages: F1 0.678 vs 0.832, recall 0.55 vs 0.76)
@@ -493,7 +493,7 @@ FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/sys
 | Runner | Model | Where | Batching |
 |---|---|---|---|
 | `LayaRunner(model="english")` | Laya: `english`, `multilingual` (~2.2x faster), `typed-decisions` | local GPU / CPU, one model per device per process | requests merged across callers, 32 rows per pass |
-| `SystemOneRunner(model="~typesafe/jev-latest")` (default) | Jev (System One protocol), or a `laya.serve` server | OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
+| `SystemOneRunner(model="typesafe/jev-1.13.0")` (default) | Jev 1.13, pinned (`~typesafe/jev-latest` for the newest; System One protocol), or a `laya.serve` server | OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
 | `OpenAIDecisionRunner(model="gpt-6-luna")` | gpt-6-luna (OpenAI's Decisions API, `OPENAI_API_KEY`) | OpenAI | like Jev: one claim's passages per call (up to 40), 16 calls in flight, 429s and 5xx retried; input tokens only, $0.10 per 1M. `packing="none"` (one passage per call, as OpenAI's docs show): +0.03 F1 on 10 answers but 3x slower at 16 in flight; raise `max_concurrent` with it |
 
 A runner is a `Protocol`: anything with `batch_size` and `async predict(requests)` works, and
