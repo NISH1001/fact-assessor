@@ -61,8 +61,9 @@ SETS = {  # name: (file, split, at most this many texts)
     "propositionizer": ("propositionizer.jsonl", "test", 500),
 }
 ATOMIZERS = ["llm", "span"]
-# the Jev that scored the cached atoms: ~typesafe/jev-latest on 2026-10-13, before it moved to jev-1.14 on 2026-10-14
-JEV = "Jev 1.13"
+# the Jev that scored the cached atoms: ~typesafe/jev-latest on 2026-10-13, which was this snapshot (re-scoring 50 of
+# them with it: same keep / drop on all 50, mean |diff| 0.003; with jev-1.14-20261014: one flip, mean |diff| 0.012)
+JEV = "jev-1.13-20260917"
 CUT = {"critic": 0.5, "jev": 0.4, "laya": 0.4}  # each scorer's default cut-off (SpanAtomizer "auto"; ClaimFilter)
 
 
@@ -351,7 +352,7 @@ def cmd_report(args: argparse.Namespace) -> None:
     critic_md, critic = report_critic(out_dir)
     text = "\n".join(["# LLMAtomizer vs SpanAtomizer", "",
                       f"`LLMAtomizer` ({LLM_MODEL}, the default prompt) vs `SpanAtomizer` (atomizer-gliner-small v0.5, "
-                      f"its defaults). Claim filters: {JEV} (jev), Laya. Written by scripts/compare_atomizers.py.", "", *atoms_md, *critic_md, ""])
+                      f"its defaults). Claim filters: Jev ({JEV}), Laya. Written by scripts/compare_atomizers.py.", "", *atoms_md, *critic_md, ""])
     (out_dir / "atomizers.md").write_text(text)
     (out_dir / "atomizers.json").write_text(json.dumps({"atoms": atoms, "critic": critic}, indent=1))
     print(text)
@@ -431,13 +432,13 @@ def cmd_figure(args: argparse.Namespace) -> None:
 
     ax = axes[1][1]  # (d) critic vs claim filters
     labels = [r["label"] for r in critic]
-    styles = {"critic": ("SpanAtomizer critic", "black", "-"), "jev": (f"{JEV} claim filter", "0.35", "--"),
+    styles = {"critic": ("SpanAtomizer critic", "black", "-"), "jev": ("Jev claim filter", "0.35", "--"),
               "laya": ("Laya claim filter", "0.6", ":")}
     for s, (label, c, ls) in styles.items():
         if critic and all(s in r for r in critic):
             scores = [r[s] for r in critic]
             fpr, tpr = roc(scores, labels)
-            ax.plot(fpr, tpr, color=c, linestyle=ls, linewidth=1.4, label=f"{label} (AUC {auc(scores, labels):.3f})")
+            ax.plot(fpr, tpr, color=c, linestyle=ls, linewidth=1.4, label=f"{label} ({JEV + ', ' if s == 'jev' else ''}AUC {auc(scores, labels):.3f})")
     ax.plot([0, 1], [0, 1], color="0.8", linewidth=0.6)
     ax.set_xlabel("false positive rate")
     ax.set_ylabel("true positive rate")
@@ -477,7 +478,7 @@ def cmd_distribution(args: argparse.Namespace) -> None:
     bins = np.linspace(0, 1, 11)
     w = (bins[1] - bins[0]) * 0.4
     style = {"critic": ("SpanAtomizer critic (cut-off 0.5)", "0.25", ""),
-             "jev": (f"{JEV} claim filter (cut-off 0.4)", "0.82", "////")}
+             "jev": (f"Jev claim filter ({JEV}, cut-off 0.4)", "0.82", "////")}
     fig, axes = plt.subplots(1, 2, figsize=(7.0, 2.8), sharey=True)
     for ax, label, title in ((axes[0], 1, "verifiable"), (axes[1], 0, "not verifiable")):
         sub = [r for r in rows if r["label"] == label]
