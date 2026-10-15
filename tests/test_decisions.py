@@ -58,6 +58,11 @@ def runner(handler, **kwargs):
     return r
 
 
+def test_the_default_jev_is_pinned_to_the_version_we_measured():
+    # jev-latest moves to jev-1.14.0; a pinned default keeps every measured number reproducible
+    assert SystemOneRunner(api_key="test-key").model == "typesafe/jev-1.13.0"
+
+
 async def test_one_request_goes_out_verbatim_as_layas_request():
     bodies = []
     [res] = await runner(jev(bodies), model="~typesafe/jev-latest").predict([request("Curie shared the 1903 Nobel Prize.")])
