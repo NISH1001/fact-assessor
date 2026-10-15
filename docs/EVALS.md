@@ -73,6 +73,8 @@ default; `~typesafe/jev-latest` on 2026-10-13, which was `typesafe/jev-1.13-2026
 | Laya | 0.792 | 0.914 (0.4) | 0.917 (0.35) | local |
 
 Agreement on keep / drop: critic–Jev 93.9%, critic–Laya 87.9%, Jev–Laya 91.0%.
+Jev's model wasn't logged at scoring time; re-scoring 50 of the atoms with `typesafe/jev-1.13-20260917` gave the same
+keep / drop on all 50 (mean score change 0.003), and with `typesafe/jev-1.14-20261014` one flip (mean change 0.012).
 
 ![Critic and Jev scores on verifiable and not verifiable claims](figures/atomizers-scores.png)
 
