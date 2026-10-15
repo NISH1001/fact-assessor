@@ -59,8 +59,8 @@ def runner(handler, **kwargs):
 
 
 def test_the_default_jev_is_pinned_to_the_version_we_measured():
-    # jev-latest moves to jev-1.14.0; a pinned default keeps every measured number reproducible
-    assert SystemOneRunner(api_key="test-key").model == "typesafe/jev-1.13.0"
+    # ~typesafe/jev-latest moved to jev-1.14 on 2026-10-14; a pinned default keeps every measured number reproducible
+    assert SystemOneRunner(api_key="test-key").model == "typesafe/jev-1.13-20260917"  # OpenRouter's 1.13 snapshot
 
 
 async def test_one_request_goes_out_verbatim_as_layas_request():

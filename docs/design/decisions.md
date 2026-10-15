@@ -1,8 +1,8 @@
 # Decisions and measurements
 
 What we tried while building the prototype, what we measured, and what we picked. Numbers are from an M-series
-Mac (MPS), Sept 2026. Every Jev number is jev-1.13 (`~typesafe/jev-latest` before it moves to
-jev-1.14.0, announced Oct 2026). Revisit a decision when its evidence changes.
+Mac (MPS), Sept 2026. Every Jev number is jev-1.13 (`~typesafe/jev-latest` until it moved to
+jev-1.14 on 2026-10-14; the default now pins `typesafe/jev-1.13-20260917`). Revisit a decision when its evidence changes.
 
 ## Atomization
 

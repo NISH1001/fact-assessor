@@ -40,7 +40,7 @@ class SystemOneRunner(DecisionRunner):
 
     def __init__(
         self,
-        model: str = "typesafe/jev-1.13.0",  # pinned: ~typesafe/jev-latest moves to jev-1.14.0
+        model: str = "typesafe/jev-1.13-20260917",  # pinned: ~typesafe/jev-latest is jev-1.14 since 2026-10-14
         url: str | None = None,
         api_key: str | None = None,
         batch_size: int = 40,  # requests per call

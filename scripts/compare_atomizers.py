@@ -61,7 +61,7 @@ SETS = {  # name: (file, split, at most this many texts)
     "propositionizer": ("propositionizer.jsonl", "test", 500),
 }
 ATOMIZERS = ["llm", "span"]
-# the Jev that scored the cached atoms: ~typesafe/jev-latest on 2026-10-13, before it moved to jev-1.14.0
+# the Jev that scored the cached atoms: ~typesafe/jev-latest on 2026-10-13, before it moved to jev-1.14 on 2026-10-14
 JEV = "Jev 1.13"
 CUT = {"critic": 0.5, "jev": 0.4, "laya": 0.4}  # each scorer's default cut-off (SpanAtomizer "auto"; ClaimFilter)
 
