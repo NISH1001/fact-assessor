@@ -599,24 +599,13 @@ waits ~3s for a slot; Serper needs no such cap.
 
 DuckDuckGo needs no setup but is slower (0.7–3.3s per query vs ~0.8s for Serper) and unofficial, so heavy use can
 get rate-limited. Public SearXNG instances don't work for this (none of 25 healthy ones served JSON in our check);
-run your own. A `settings.yml` that works:
-
-```yaml
-use_default_settings: true
-server:
-  secret_key: "<openssl rand -hex 32>"
-  limiter: false        # local, single user (the limiter needs Valkey)
-search:
-  formats: [html, json] # SearxngSearcher reads JSON
-engines:                # more general engines, so one throttling doesn't leave a single source
-  - {name: google, disabled: false}
-  - {name: bing, disabled: false}
-  - {name: yahoo, disabled: false}
-  - {name: qwant, disabled: false}
-```
+run your own. [deploy/searxng/settings.yml](deploy/searxng/settings.yml) is the config we use: JSON on, more
+general engines, and social media, forums and video hosts (`BLOCKED_DOMAINS`) removed at the server, which
+SearXNG's default config doesn't do. The secret key comes from the environment, not the file:
 
 ```bash
-docker run -d --name searxng -p 127.0.0.1:8080:8080 -v "$PWD/searxng:/etc/searxng" searxng/searxng
+docker run -d --name searxng -p 127.0.0.1:8080:8080 -e SEARXNG_SECRET="$(openssl rand -hex 32)" \
+  -v "$PWD/deploy/searxng:/etc/searxng" searxng/searxng
 ```
 
 With that, Google, Bing, and Yahoo answered most queries (30-47 results each); Brave and DuckDuckGo rate-limit or

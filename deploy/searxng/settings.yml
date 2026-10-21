@@ -1,0 +1,56 @@
+use_default_settings: true
+# A local SearXNG for SearxngSearcher. Run it with (from the repo root):
+#   docker run -d --name searxng -p 127.0.0.1:8080:8080 -e SEARXNG_SECRET="$(openssl rand -hex 32)" \
+#     -v "$PWD/deploy/searxng:/etc/searxng" searxng/searxng
+# The secret key comes from SEARXNG_SECRET, never this file; SearXNG won't start without one.
+server:
+  limiter: false        # local, single user: no rate limiter (it would need Valkey)
+  image_proxy: false
+search:
+  formats: [html, json] # SearxngSearcher reads JSON
+# More general web engines, so one engine throttling (Brave: "too many requests", DuckDuckGo: CAPTCHA) doesn't
+# leave a search with a single source. Each is switched on explicitly; the rest keep SearXNG's defaults.
+engines:
+  - name: google
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: yahoo
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: wikipedia
+    disabled: false
+# Drop social media, forums, and video hosts at the server, across every engine: the same list as
+# factassessor.search.BLOCKED_DOMAINS (tests/test_search.py keeps the two in sync). Cheaper than -site: operators
+# in the query, which Yahoo fails to parse. SearXNG's default config removes none of them.
+# `plugins:` replaces SearXNG's default mapping (it does not merge), so the defaults are listed here explicitly
+# with their stock states; only hostnames is new.
+plugins:
+  searx.plugins.calculator.SXNGPlugin: {active: true}
+  searx.plugins.hash_plugin.SXNGPlugin: {active: true}
+  searx.plugins.self_info.SXNGPlugin: {active: true}
+  searx.plugins.unit_converter.SXNGPlugin: {active: true}
+  searx.plugins.time_zone.SXNGPlugin: {active: true}
+  searx.plugins.tracker_url_remover.SXNGPlugin: {active: true}   # strips utm_* etc. from result URLs
+  searx.plugins.infinite_scroll.SXNGPlugin: {active: false}
+  searx.plugins.oa_doi_rewrite.SXNGPlugin: {active: false}
+  searx.plugins.tor_check.SXNGPlugin: {active: false}
+  searx.plugins.hostnames.SXNGPlugin: {active: true}
+hostnames:
+  remove:
+    - '(.*\.)?facebook\.com$'
+    - '(.*\.)?fb\.com$'
+    - '(.*\.)?instagram\.com$'
+    - '(.*\.)?threads\.com$'
+    - '(.*\.)?threads\.net$'
+    - '(.*\.)?tiktok\.com$'
+    - '(.*\.)?pinterest\.com$'
+    - '(.*\.)?twitter\.com$'
+    - '(.*\.)?x\.com$'
+    - '(.*\.)?reddit\.com$'
+    - '(.*\.)?quora\.com$'
+    - '(.*\.)?linkedin\.com$'
+    - '(.*\.)?tumblr\.com$'
+    - '(.*\.)?youtube\.com$'
+    - '(.*\.)?youtu\.be$'
