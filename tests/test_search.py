@@ -94,6 +94,19 @@ def test_blocked_domains_cover_subdomains_but_not_lookalikes():
     assert not_blocked(("example.com",))({"url": "https://facebook.com/x"})  # custom list
 
 
+def test_the_searxng_config_removes_exactly_the_blocked_domains():
+    # deploy/searxng/settings.yml drops these at the server (hostnames plugin); the two lists must not drift apart
+    import pathlib
+    import re
+
+    from factassessor.search import BLOCKED_DOMAINS
+
+    settings = (pathlib.Path(__file__).parent.parent / "deploy" / "searxng" / "settings.yml").read_text()
+    removed = re.findall(r"^\s*- '\(\.\*\\\.\)\?(.+)\$'$", settings, re.M)
+    assert sorted(d.replace("\\.", ".") for d in removed) == sorted(BLOCKED_DOMAINS)
+    assert "secret_key" not in settings  # the secret comes from SEARXNG_SECRET, never the repo
+
+
 async def test_http_error_raises():
     s = serper(lambda r: httpx.Response(403, json={"message": "bad key"}))
     with pytest.raises(httpx.HTTPStatusError):
