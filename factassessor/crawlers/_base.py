@@ -18,12 +18,17 @@ class Crawler(Step):
 
     `accept` is what counts as a usable page from this crawler. None (the base default): every page fetched is
     usable. As a step, every url is crawled concurrently and the usable pages come out in the order they finish,
-    so each can be judged the moment it lands."""
+    so each can be judged the moment it lands. `concurrency` bounds the urls read at once per stream (per claim in
+    Verify): None reads them all at once, right when most hits fail to read (web search); with a source whose every
+    page reads (AKD's full text) and a page cap, cap + a few spares keeps the reads the cap will cancel from ever
+    starting and queueing ahead of other claims' (10 texts at once: 6,086 of 7,300 reads cancelled, p50 wait 15s)."""
 
-    accept: Predicate | None = None  # the default for crawlers that never call super().__init__()
+    accept: Predicate | None = None  # the defaults for crawlers that never call super().__init__()
+    concurrency: int | None = None
 
-    def __init__(self, accept: Predicate | None = None) -> None:
+    def __init__(self, accept: Predicate | None = None, concurrency: int | None = None) -> None:
         self.accept = accept
+        self.concurrency = concurrency
 
     async def crawl(self, url: str) -> Fetch:
         raise NotImplementedError(f"{type(self).__name__}.crawl")
@@ -38,7 +43,7 @@ class Crawler(Step):
             f = await self.crawl(url)
             return f.page if f else None  # dropped unless usable
 
-        return Map(page)(urls)
+        return Map(page, concurrency=self.concurrency)(urls)
 
 
 class NoCrawler(Crawler):
@@ -61,10 +66,10 @@ class CascadedCrawler(Crawler):
     can read. The cascade has no `accept` of its own: it returns the `Fetch` of the crawler it stopped at, with that
     crawler's name and verdict. A cascade is a crawler, so it nests."""
 
-    def __init__(self, *crawlers: Crawler, when: Predicate | None = None) -> None:
+    def __init__(self, *crawlers: Crawler, when: Predicate | None = None, concurrency: int | None = None) -> None:
         if not crawlers:
             raise ValueError("CascadedCrawler needs at least one crawler")
-        super().__init__()
+        super().__init__(concurrency=concurrency)
         self.crawlers = list(crawlers)
         self.when = when
 

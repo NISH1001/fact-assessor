@@ -156,3 +156,31 @@ def test_the_browser_says_it_is_a_current_desktop_chrome():
 
     assert Crawl4AICrawler().user_agent == CHROME_USER_AGENT and "Chrome/" in CHROME_USER_AGENT and "Headless" not in CHROME_USER_AGENT
     assert Crawl4AICrawler(user_agent="mine").user_agent == "mine"
+
+
+async def test_a_crawler_step_reads_at_most_concurrency_urls_at_once():
+    """Per claim, Verify starts reading every hit and the page cap cancels the rest: with AKD (every page readable,
+    ~60 hits per claim, cap 10) 6,086 of 7,300 reads in a 10-text batch were started only to be cancelled, queueing
+    ahead of other claims' first reads. `concurrency` bounds the reads in flight per stream (default: all at once)."""
+    from factassessor import CascadedCrawler, Crawler, Fetch
+
+    class Slow(Crawler):
+        def __init__(self):
+            super().__init__()
+            self.in_flight = self.peak = 0
+
+        async def crawl(self, url):
+            self.in_flight += 1
+            self.peak = max(self.peak, self.in_flight)
+            await asyncio.sleep(0.01)
+            self.in_flight -= 1
+            return self.mark(Fetch(url=url, status=200, page={"url": url, "title": "", "text": "x"}))
+
+    async def urls():
+        for i in range(12):
+            yield f"https://s{i}.org"
+
+    slow = Slow()
+    assert len(await collect(CascadedCrawler(slow, concurrency=3)(urls()))) == 12 and slow.peak == 3
+    slow = Slow()
+    assert len(await collect(slow(urls()))) == 12 and slow.peak == 12  # the default: every url at once
