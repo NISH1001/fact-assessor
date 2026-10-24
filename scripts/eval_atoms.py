@@ -45,6 +45,10 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from factassessor import (
+    NoCrawler,
+    ResolvingCrawler,
+    AKDDoiCrawler,
+    AKDScholarSearcher,
     OpenAIDecisionRunner,
     LLMRunner,
     FactAssessor,
@@ -53,6 +57,7 @@ from factassessor import (
     SerperSearcher, Step, SystemOneRunner, Take, Verify, WeightedPolicy, collect, not_blocked, once,
 )
 from factassessor._llm import reasoning_off
+from factassessor.assessor import _DEFAULT as _DEFAULT_PAGES  # FactAssessor's own default pages per claim
 from factassessor.rankers import HybridRanker
 from factassessor.resolvers import PMCResolver, locations
 
@@ -277,6 +282,39 @@ def _save(path: Path, data: Any) -> None:
     path.write_bytes(gzip.compress(json.dumps(data, ensure_ascii=False).encode()))
 
 
+class Saver:
+    """A run's files written off the event loop: `save` snapshots the dict or list on the loop (a shallow copy:
+    entries are never changed once set) and compresses and writes it in a thread, at most every `every` seconds per
+    file; `flush` writes whatever is newer (the end of the run). Rewriting hits.json.gz synchronously after every
+    search blocked the loop ~1s per search by the end of an AKD run (9.5 MB of 840-word snippets, 608 searches):
+    claims timed out on our own disk writes, the later answers 6s -> 100s."""
+
+    def __init__(self, every: float = 10.0) -> None:
+        self.every = every
+        self._last: dict[Path, float] = {}
+        self._newer: dict[Path, Any] = {}  # the latest data not yet written, per file
+        self._writing: dict[Path, asyncio.Task[None]] = {}
+
+    def save(self, path: Path, data: Any) -> None:
+        self._newer[path] = data
+        if path not in self._writing and time.monotonic() - self._last.get(path, 0.0) >= self.every:
+            self._start(path)
+
+    def _start(self, path: Path) -> None:
+        data = self._newer.pop(path)
+        snapshot = dict(data) if isinstance(data, dict) else list(data)
+        self._last[path] = time.monotonic()
+        task = asyncio.create_task(asyncio.to_thread(_save, path, snapshot))
+        task.add_done_callback(lambda _: self._writing.pop(path, None))
+        self._writing[path] = task
+
+    async def flush(self) -> None:
+        await asyncio.gather(*self._writing.values())
+        for path in list(self._newer):
+            self._start(path)
+        await asyncio.gather(*self._writing.values())
+
+
 def _write_meta(run_dir: Path, args: argparse.Namespace) -> None:
     """When, which code, which settings: `meta.json` next to a run's results (appended per invocation)."""
     import subprocess
@@ -362,14 +400,18 @@ class Pipeline:
         self.claim_filter = DecisionClaimFilter(self.judge.runner, threshold=getattr(args, "claim_threshold", 0.4))
         if args.searcher == "serper":  # 10 results = 1 credit; blocked hosts excluded in the query, so all 10 are usable
             base_search: Step = SerperSearcher(num=10, hedge_after=None, search_type=args.search_type)
+        elif args.searcher == "akd":  # AKD Scholar Search: 10 papers (S2ORC, BM25), their passages as snippets; no credits
+            base_search = AKDScholarSearcher(num=args.akd_top, max_matches=args.akd_matches, context_words=args.akd_context)
         else:
             base_search = SearxngSearcher(args.searxng, num=2 * TOP_K, timeout=20.0, search_type=args.search_type, hedge_after=None)
-        searcher = base_search >> not_blocked() >> Take(math.ceil(TOP_K * (1 + args.overfetch)))
+        keep = args.akd_top if args.searcher == "akd" else math.ceil(TOP_K * (1 + args.overfetch))  # AKD: its own top-N
+        searcher = base_search >> not_blocked() >> Take(keep)
         self.resolver = None if args.no_resolver else CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())
         self.crawler = FactAssessor(claim_filter=None, judge=self.judge).crawler  # the library's default cascade
-        save_hits = lambda: _save(run_dir / "hits.json.gz", hits)  # noqa: E731  # every paid search on disk at once
+        self.saver = Saver()  # every paid search on disk within seconds, without blocking the event loop
+        save_hits = lambda: self.saver.save(run_dir / "hits.json.gz", hits)  # noqa: E731
         # searches made by an earlier run of this tag are reused; new ones are searched and saved at once
-        self.searcher = TimedSearch(searcher, hits, slots=50 if args.searcher == "serper" else 4, save=save_hits)  # Serper: its own limit, 50/s
+        self.searcher = TimedSearch(searcher, hits, slots={"serper": 50, "akd": 16}.get(args.searcher, 4), save=save_hits)  # Serper: its own limit, 50/s; AKD: our server
         self.verify = Verify(
             self.searcher,
             TimedCrawler(self.crawler), TimedJudge(self.judge, pages), WeightedPolicy(strong=args.strong, strong_refute=args.strong_refute), timeout=args.timeout,
@@ -399,7 +441,15 @@ async def live(args: argparse.Namespace) -> None:
         # (2026-10-04: OpenAI credits ran out mid-session and a run measured something else)
         atomizer=LLMAtomizer(args.atomizer, source_queries=args.source_queries, fallback=False),
         claim_filter=None, runner=pipe.judge.runner, judge=TimedJudge(pipe.judge, pages), searcher=pipe.searcher,
-        resolver=_DEFAULT_RESOLVER if not args.no_resolver else None, source_queries=args.source_queries,
+        # --crawler akd-doi: a hit with a DOI is read from AKD's full text (/doi), the rest are judged on their snippet only
+        # none: judged on search snippets only (AKD's matched passages), nothing crawled or resolved
+        # akd-doi+web: AKD's full text first; only for hits AKD can't read, free copies resolved once and read with
+        # the library's web cascade (ResolvingCrawler), so the resolver lives inside the crawler, not in Verify
+        crawler={"akd-doi": AKDDoiCrawler, "none": NoCrawler,
+                 "akd-doi+web": lambda: CascadedCrawler(AKDDoiCrawler(), ResolvingCrawler(_DEFAULT_RESOLVER, pipe.crawler)),
+                 }.get(args.crawler, lambda: None)(),
+        resolver=None if (args.no_resolver or args.crawler != "default") else _DEFAULT_RESOLVER, source_queries=args.source_queries,
+        pages_per_claim=args.pages_per_claim if args.pages_per_claim else _DEFAULT_PAGES,
         overfetch=args.overfetch, passages_per_page=args.passages, timeout=args.timeout,
         strong_evidence=args.strong, strong_refutation=args.strong_refute,
     )
@@ -423,15 +473,15 @@ async def live(args: argparse.Namespace) -> None:
                                   "searches_cached": searches_cached or args.parallel > 1}
             queries = [a["text"] for a in answer["atoms"]] + source_queries
             await fill_pages(hits, pages, fa.verify.resolver, fa.crawler, queries)
-            _save(run_dir / "hits.json.gz", hits)  # synchronous dumps: no other answer mutates the dicts meanwhile
-            _save(run_dir / "pages.json.gz", pages)
-            _save(run_dir / "results.json.gz", list(done.values()))
+            for name, data in (("hits", hits), ("pages", pages), ("results", list(done.values()))):
+                pipe.saver.save(run_dir / f"{name}.json.gz", data)
             s = sum(a["verdict"] == "supported" for a in atoms)
             timeouts = sum(a["error"] == "timeout" for a in atoms)
             print(f"[{n:3d}/{len(answers)}] {answer['id']}: {len(atoms)} atoms, {s} supported, {timeouts} at the deadline; "
                   f"{total:.1f}s", flush=True)
 
     await asyncio.gather(*(one(n, a) for n, a in enumerate(todo, 1 + len(answers) - len(todo))))
+    await pipe.saver.flush()
     await fa.aclose()
     report(list(done.values()), args.tag)
     print(f"judge: {args.judge}{_cost(pipe.judge)}")
@@ -515,9 +565,8 @@ async def synth(args: argparse.Namespace) -> None:
                                      "filtered": filtered, "time": {"verify": verify_s}}
             queries = [a["text"] for a in kept] + source_queries
             await fill_pages(hits, pages, pipe.resolver, pipe.crawler, queries)
-            _save(run_dir / "hits.json.gz", hits)
-            _save(run_dir / "pages.json.gz", pages)
-            _save(run_dir / "results.json.gz", list(done.values()))
+            for name, data in (("hits", hits), ("pages", pages), ("results", list(done.values()))):
+                pipe.saver.save(run_dir / f"{name}.json.gz", data)
             caught = sum(a["label"] == "NS" and a["verdict"] != "supported" for a in verified)
             confirmed = sum(a["label"] == "S" and a["verdict"] == "supported" for a in verified)
             print(f"[{n:3d}/{len(answers)}] {synthetic['id']}: {len(ours)} atoms + {len(corrupted)} corruptions, {len(filtered)} filtered; "
@@ -525,6 +574,7 @@ async def synth(args: argparse.Namespace) -> None:
                   f"verify {verify_s:.1f}s", flush=True)
 
     await asyncio.gather(*(one(n, a) for n, a in enumerate(todo, 1 + len(answers) - len(todo))))
+    await pipe.saver.flush()
     await pipe.aclose()
     results = list(done.values())
     report(results, args.tag)
@@ -659,11 +709,15 @@ def main() -> None:
     lv.add_argument("--limit", type=int, help="first N pairs")
     lv.add_argument("--sample", type=int, help="N random pairs (same ids as a full run, which then skips them)")
     lv.add_argument("--seed", type=int, default=0)
-    lv.add_argument("--searcher", default="searxng", choices=["searxng", "serper"], help="serper: Google via Serper, 1 credit per query")
+    lv.add_argument("--searcher", default="searxng", choices=["searxng", "serper", "akd"], help="serper: Google via Serper, 1 credit per query; akd: AKD Scholar Search (papers only)")
     lv.add_argument("--searxng", default="http://localhost:8080")
     lv.add_argument("--search-type", default="general", choices=["general", "science"])
     lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
     lv.add_argument("--no-resolver", action="store_true")
+    lv.add_argument("--crawler", default="default", choices=["default", "akd-doi", "akd-doi+web", "none"],
+                    help="akd-doi: pages only from AKD Scholar Search's full text by DOI (no web crawl, no resolver); "
+                         "akd-doi+web: AKD first, else free copies resolved once + the web cascade; none: snippets only")
+    lv.add_argument("--pages-per-claim", type=int, help="readable pages judged per claim (FactAssessor's default: 10)")
     lv.add_argument("--source-queries", type=int, default=2, help="searches the atomizer writes for each text's source document (0: claims search on their own only)")
     lv.add_argument("--parallel", type=int, default=1, help="answers at once (> 1: per-answer latency not comparable)")
     lv.add_argument("--overfetch", type=float, default=0.0,
@@ -696,7 +750,7 @@ def main() -> None:
     sy.add_argument("--limit", type=int, help="first N pairs")
     sy.add_argument("--sample", type=int, help="N random pairs")
     sy.add_argument("--seed", type=int, default=0)
-    sy.add_argument("--searcher", default="serper", choices=["searxng", "serper"])
+    sy.add_argument("--searcher", default="serper", choices=["searxng", "serper", "akd"])
     sy.add_argument("--searxng", default="http://localhost:8080")
     sy.add_argument("--search-type", default="general", choices=["general", "science"])
     sy.add_argument("--atomizer", default="openai:gpt-6-luna")
@@ -711,6 +765,10 @@ def main() -> None:
     sy.add_argument("--timeout", type=float, default=60.0, help="per-claim deadline; the replay re-judges every page anyway")
     sy.add_argument("--ranker", default="bm25", choices=["bm25", "hybrid"])
     sy.add_argument("--alpha", type=float, default=0.5)
+    for p in (lv, sy):
+        p.add_argument("--akd-top", type=int, default=10, help="--searcher akd: papers kept per search")
+        p.add_argument("--akd-matches", type=int, default=3, help="--searcher akd: matched passages per paper in its snippet")
+        p.add_argument("--akd-context", type=int, default=40, help="--searcher akd: words of context on either side of each match")
     for p in (lv, rp, sy):
         p.add_argument("--passage-words", type=int, default=90, help="words per page window (90 ~ 130 tokens on scientific text)")
         p.add_argument("--judge", default="decision" if p is sy else "laya", choices=["laya", "decision", "openai", "llm"], help="the judge's runner: local Laya, Jev on OpenRouter, OpenAI's Decisions API, or a chat LLM (--llm-model)")
