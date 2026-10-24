@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from factassessor.passages import BM25Index, word_windows
-from factassessor.search._base import Searcher
+from factassessor.search._base import Hit, Searcher
 
 
 class DocumentSearcher(Searcher):
@@ -24,7 +24,7 @@ class DocumentSearcher(Searcher):
                 self.passages.append((doc, n, text))
         self.index = BM25Index([text for _, _, text in self.passages])
 
-    async def search(self, query: str) -> list[dict[str, Any]]:
+    async def search(self, query: str) -> list[Hit]:
         best = self.index.top(query, self.num, matching_only=True)
         return [
             {"url": f"{doc['url']}#p{n}", "title": doc.get("title") or "", "snippet": text}

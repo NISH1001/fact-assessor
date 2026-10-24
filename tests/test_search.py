@@ -334,3 +334,16 @@ async def test_searxng_limits_requests_in_flight():
     await s.stop()
     assert all(len(h) == 1 for h in hits) and peak == 3
     assert SearxngSearcher("http://searx").max_concurrent == 4  # the default that kept every engine answering
+
+
+def test_merge_orders_the_searches_rankings_three_ways_each_url_once():
+    from factassessor.search import HitOrder, merge
+
+    a, b, c, d = ({"url": f"https://{u}.org", "title": "t", "snippet": "s"} for u in "abcd")
+    rankings = [[a, b, c], [b, d]]  # the claim's search, then a source query; b found by both
+    urls = lambda hits: [h["url"][8] for h in hits]  # noqa: E731
+    assert urls(merge(rankings, HitOrder.ORIGINAL)) == ["a", "b", "c", "d"]  # the claim's hits, then the source query's
+    assert urls(merge(rankings, HitOrder.INTERLEAVED)) == ["a", "b", "d", "c"]  # rank 1 of each, then rank 2 of each...
+    assert urls(merge(rankings, HitOrder.RRF)) == ["b", "a", "d", "c"]  # b, in both rankings, comes first; then by rank
+    assert urls(merge(rankings)) == urls(merge(rankings, "original"))  # the default (until re-measured), strings accepted
+    assert merge([]) == [] and urls(merge([[a], []], HitOrder.RRF)) == ["a"]

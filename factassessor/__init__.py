@@ -37,6 +37,7 @@ from factassessor.schema import (
 from factassessor.search import (
     BLOCKED_DOMAINS,
     AKDScholarSearcher,
+    HitOrder,
     DocumentSearcher,
     DuckDuckGoSearcher,
     Searcher,
@@ -58,7 +59,7 @@ __all__ = [
     "Crawler", "Crawl4AICrawler", "HTTPXCrawler", "ImpitCrawler", "CascadedCrawler", "NoCrawler", "AKDDoiCrawler", "ResolvingCrawler", "Fetch", "MissingAPIKeyError", "InvalidAPIKeyError",
     "Resolver", "ArxivResolver", "OpenAlexResolver", "PMCResolver", "CompositeResolver",
     "Ranker", "BM25Ranker", "EmbeddingRanker", "HybridRanker",
-    "Judge", "DecisionJudge",
+    "Judge", "DecisionJudge", "HitOrder",
     "Policy", "WeightedPolicy",
     "Verify",
     # decision runners (the model behind the claim filter and the judge) and their request/response types

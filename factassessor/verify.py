@@ -11,6 +11,7 @@ from factassessor.keys import auth_error
 from factassessor.pipeline import Map, Scan, Slots, Step, Take, TakeUntil, collect, last, once
 from factassessor.resolvers import Resolver, locations
 from factassessor.schema import Atom, AtomResult, Evidence, Verdict
+from factassessor.search import HitOrder, merge
 
 _FROM_JUDGE: Any = object()  # "use the judge's concurrency" (so concurrency=None can mean "no limit")
 
@@ -90,6 +91,7 @@ class Verify(Step):
         resolver: Resolver | None = None,
         min_copy_words: int = 300,
         pages_per_claim: int | None = None,
+        hit_order: HitOrder | str = HitOrder.ORIGINAL,
     ) -> None:
         if resolver is not None and not callable(getattr(crawler, "crawl", None)):
             raise TypeError("resolving needs a Crawler (crawl(url) -> page) to read each location")
@@ -99,6 +101,7 @@ class Verify(Step):
         # overfetch: with more hits than this, the first `pages_per_claim` that turn out readable are judged and the
         # other crawls are cancelled, so a paywalled or blocked hit is replaced by the next one instead of lost
         self.pages_per_claim = pages_per_claim
+        self.hit_order = HitOrder(hit_order)
         self.min_copy_words = min_copy_words
         self.judge = judge
         self.policy = policy or WeightedPolicy()
@@ -129,13 +132,13 @@ class Verify(Step):
 
     async def _verify(self, atom: Atom, so_far: list[Evidence]) -> AtomResult:
         # the claim's own search, plus the text's source queries when the atomizer wrote them (a claim about a detail
-        # inside a paper rarely finds the paper by itself); the claim's hits come first, each url once
+        # inside a paper rarely finds the paper by itself); their hits merged in `hit_order` (see HitOrder)
         queries = list(dict.fromkeys([atom.text, *atom.source_queries]))
         found = await asyncio.gather(*(collect(self.searcher(once(q))) for q in queries), return_exceptions=True)
         failed = [f for f in found if isinstance(f, BaseException)]
         if len(failed) == len(found):
             raise failed[0]  # every search failed: the claim comes back unverified with the error
-        hits = list({h["url"]: h for hs in found if not isinstance(hs, BaseException) for h in hs}.values())
+        hits = merge([hs for hs in found if not isinstance(hs, BaseException)], self.hit_order)
         evidence = await self.judge.judge(atom.text, hits)  # snippets first: often enough on their own
         so_far[:] = evidence
         if hits and not self.policy.settled(evidence):

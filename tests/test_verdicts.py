@@ -385,7 +385,36 @@ async def test_a_claim_with_source_queries_searches_each_and_merges_the_hits():
     await Verify(searcher, PageCrawler({}), judge).verify(atom)
     assert sorted(searcher.queries) == ["claim", "paper query", "paper title"]  # the claim's own text searched once
     urls = [h["url"] for h in judge.snippet_docs]
-    assert urls == ["https://a.org", "https://b.org", "https://paper.org", "https://copy.org"]  # own hits first, each url once
+    assert urls == ["https://a.org", "https://b.org", "https://paper.org", "https://copy.org"]  # each url once
+
+
+async def test_hits_are_read_best_of_each_search_first_so_a_page_cap_reaches_the_source_query():
+    # rank 1 of every search, then rank 2...: with a cap of 3 pages the source query's top hits are read, instead of
+    # the claim's own first 3 (with every page readable, that order left the source paper unread)
+    searcher = SearchByQuery({"claim": [hit("https://c1.org"), hit("https://c2.org"), hit("https://c3.org")],
+                              "paper query": [hit("https://p1.org"), hit("https://p2.org")]})
+    judge = RecordingJudge()
+    atom = Atom(id=0, text="claim", span=(0, 5), source_queries=["paper query"])
+    pages = {u: PAPER_TEXT for u in ("https://c1.org", "https://c2.org", "https://c3.org", "https://p1.org", "https://p2.org")}
+    await Verify(searcher, PageCrawler(pages), judge, pages_per_claim=3, hit_order="interleaved").verify(atom)
+    assert [h["url"] for h in judge.snippet_docs] == ["https://c1.org", "https://p1.org", "https://c2.org", "https://p2.org", "https://c3.org"]
+    assert sorted(p["url"] for p in judge.pages) == ["https://c1.org", "https://c2.org", "https://p1.org"]
+
+
+async def test_hit_order_original_is_the_default_and_reads_the_claims_own_hits_first():
+    from factassessor import FactAssessor, HitOrder
+
+    searcher = SearchByQuery({"claim": [hit("https://c1.org"), hit("https://c2.org"), hit("https://c3.org")],
+                              "paper query": [hit("https://p1.org"), hit("https://p2.org")]})
+    judge = RecordingJudge()
+    atom = Atom(id=0, text="claim", span=(0, 5), source_queries=["paper query"])
+    pages = {u: PAPER_TEXT for u in ("https://c1.org", "https://c2.org", "https://c3.org", "https://p1.org", "https://p2.org")}
+    await Verify(searcher, PageCrawler(pages), judge, pages_per_claim=3).verify(atom)  # the default
+    assert [h["url"] for h in judge.snippet_docs] == ["https://c1.org", "https://c2.org", "https://c3.org", "https://p1.org", "https://p2.org"]
+    assert sorted(p["url"] for p in judge.pages) == ["https://c1.org", "https://c2.org", "https://c3.org"]  # the cap never reaches p1
+    fa = FactAssessor(atomizer=FakeSearcher(), claim_filter=None, searcher=searcher, crawler=PageCrawler({}), judge=judge,
+                      resolver=None, hit_order="interleaved")
+    assert fa.verify.hit_order is HitOrder.INTERLEAVED and Verify(searcher, PageCrawler({}), judge).hit_order is HitOrder.ORIGINAL
 
 
 async def test_no_source_query_means_one_search_as_before():

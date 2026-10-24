@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from factassessor.search._base import Searcher
+from factassessor.search._base import Hit, Searcher
 
 
 class DuckDuckGoSearcher(Searcher):
@@ -20,7 +20,7 @@ class DuckDuckGoSearcher(Searcher):
         self.retry_after = retry_after
         self._client_factory = client_factory  # tests pass a fake; default: ddgs.DDGS
 
-    async def search(self, query: str) -> list[dict[str, Any]]:
+    async def search(self, query: str) -> list[Hit]:
         results = await asyncio.to_thread(self._search_sync, query)  # ddgs is synchronous
         if results is None:  # ddgs says "no results", which from DuckDuckGo usually means throttling: retry once
             await asyncio.sleep(self.retry_after)

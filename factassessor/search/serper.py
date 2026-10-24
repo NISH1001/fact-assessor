@@ -8,7 +8,7 @@ import httpx
 
 from factassessor.keys import require_key
 
-from factassessor.search._base import BLOCKED_DOMAINS, Searcher, SearchType, hedged
+from factassessor.search._base import BLOCKED_DOMAINS, Hit, SearchType, Searcher, hedged
 
 SERPER_URL = "https://google.serper.dev/search"
 SERPER_SCHOLAR_URL = "https://google.serper.dev/scholar"
@@ -53,7 +53,7 @@ class SerperSearcher(Searcher):
         room = max(0, GOOGLE_QUERY_WORDS - len(query.split()))
         return " ".join([query, *(f"-site:{host}" for host in self.exclude[:room])])
 
-    async def search(self, query: str) -> list[dict[str, Any]]:
+    async def search(self, query: str) -> list[Hit]:
         if self.hedge_after is None:
             return await self._request(query)
         return await hedged(lambda: self._request(query), self.hedge_after)
@@ -67,7 +67,7 @@ class SerperSearcher(Searcher):
             await self._http.aclose()
             self._http = None
 
-    async def _request(self, query: str) -> list[dict[str, Any]]:
+    async def _request(self, query: str) -> list[Hit]:
         await self.start()
         url = SERPER_SCHOLAR_URL if self.search_type is SearchType.SCIENCE else SERPER_URL
         response = await self._http.post(url, headers={"X-API-KEY": self.api_key}, json={"q": self.query(query), "num": self.num})

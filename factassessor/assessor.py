@@ -37,7 +37,7 @@ from factassessor.keys import InvalidAPIKeyError, auth_error
 from factassessor.pipeline import Cache, Map, Slots, Step, Take, dropped, once, unchecked
 from factassessor.utils import locate
 from factassessor.schema import Atom, AtomResult, CheckResult, ClaimFound, ClaimVerified, Done, Event
-from factassessor.search import BLOCKED_DOMAINS, SerperSearcher, not_blocked
+from factassessor.search import BLOCKED_DOMAINS, HitOrder, SerperSearcher, not_blocked
 from factassessor.verify import Policy, Verify, WeightedPolicy
 from factassessor.resolvers import ArxivResolver, CompositeResolver, OpenAlexResolver, PMCResolver, Resolver
 
@@ -74,6 +74,7 @@ class FactAssessor:
         source_queries: int = 2,  # searches for the text's source document: the paper found for 88/100 answers vs 77 with one (70 with the old prompt)
         passages_per_page: int = PASSAGES_PER_PAGE,  # windows of each page the judge sees (3 vs 1: +0.10 F1 on the paper eval)
         pages_per_claim: int | None | Any = _DEFAULT,  # readable pages judged per claim; default 2 x top_k (with overfetch)
+        hit_order: HitOrder | str = HitOrder.ORIGINAL,  # how the claim's and the source queries' hits merge (which pages the cap keeps)
         atomizer: Step | None = None,  # an Atomizer, or any chain starting with one (text -> atoms)
         claim_filter: ClaimFilter | Step | None = _DEFAULT,  # None: no filter (e.g. your atomizer chain already filters)
         searcher: Step | None = None,  # a Searcher, or any chain starting with one (query -> hits)
@@ -107,7 +108,7 @@ class FactAssessor:
         self.judge = judge or DecisionJudge(runner, passages_per_page=passages_per_page)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf, strong_refute=strong_refutation)
         self.verify = Verify(
-            self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, resolver=resolver,
+            self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, resolver=resolver, hit_order=hit_order,
             pages_per_claim=((top_k * (2 if source_queries else 1) if overfetch else None)  # own hits + the source queries'
                              if pages_per_claim is _DEFAULT else pages_per_claim),
             concurrency=Slots(limit) if (limit := (getattr(self.judge, "concurrency", None) or 50)

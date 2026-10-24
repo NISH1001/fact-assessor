@@ -417,6 +417,7 @@ class Pipeline:
             TimedCrawler(self.crawler), TimedJudge(self.judge, pages), WeightedPolicy(strong=args.strong, strong_refute=args.strong_refute), timeout=args.timeout,
             resolver=TimedResolver(self.resolver) if self.resolver else None,
             pages_per_claim=TOP_K * 2 if args.overfetch else None,  # as the library: 10, however many source queries
+            hit_order=args.hit_order,
         )
 
     async def aclose(self) -> None:
@@ -449,7 +450,7 @@ async def live(args: argparse.Namespace) -> None:
                  "akd-doi+web": lambda: CascadedCrawler(AKDDoiCrawler(), ResolvingCrawler(_DEFAULT_RESOLVER, pipe.crawler)),
                  }.get(args.crawler, lambda: None)(),
         resolver=None if (args.no_resolver or args.crawler != "default") else _DEFAULT_RESOLVER, source_queries=args.source_queries,
-        pages_per_claim=args.pages_per_claim if args.pages_per_claim else _DEFAULT_PAGES,
+        pages_per_claim=args.pages_per_claim if args.pages_per_claim else _DEFAULT_PAGES, hit_order=args.hit_order,
         overfetch=args.overfetch, passages_per_page=args.passages, timeout=args.timeout,
         strong_evidence=args.strong, strong_refutation=args.strong_refute,
     )
@@ -624,11 +625,11 @@ async def replay(args: argparse.Namespace) -> None:
             crawler = CascadedCrawler(HTTPXCrawler(max_concurrent=20), Crawl4AICrawler(
                 user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36"))
         verify = Verify(CachedSearch(hits, caps, limit=args.hits), TimedCrawler(crawler), TimedJudge(judge, {}),
-                        WeightedPolicy(strong=args.strong, strong_refute=args.strong_refute), timeout=args.timeout, resolver=TimedResolver(resolver),
+                        WeightedPolicy(strong=args.strong, strong_refute=args.strong_refute), timeout=args.timeout, resolver=TimedResolver(resolver), hit_order=args.hit_order,
                         pages_per_claim=args.pages_per_claim or TOP_K * (2 if n_source else 1))  # as live
     else:
         verify = Verify(CachedSearch(hits, caps, limit=args.hits), CachedCrawler(pages), judge, WeightedPolicy(strong=args.strong, strong_refute=args.strong_refute),
-                        timeout=120, pages_per_claim=args.pages_per_claim)
+                        timeout=120, pages_per_claim=args.pages_per_claim, hit_order=args.hit_order)
     start = time.perf_counter()
     slots = asyncio.Semaphore(args.parallel)  # answers at once: several answers' passages fill the runner's batches
 
@@ -770,6 +771,9 @@ def main() -> None:
         p.add_argument("--akd-matches", type=int, default=3, help="--searcher akd: matched passages per paper in its snippet")
         p.add_argument("--akd-context", type=int, default=40, help="--searcher akd: words of context on either side of each match")
     for p in (lv, rp, sy):
+        p.add_argument("--hit-order", default="original", choices=["original", "interleaved", "rrf"],
+                       help="how a claim's searches merge (which pages the cap keeps): original = the claim's own hits first (default, every run "
+                            "before 2026-10-24); interleaved = rank 1 of each search first; rrf = reciprocal rank fusion")
         p.add_argument("--passage-words", type=int, default=90, help="words per page window (90 ~ 130 tokens on scientific text)")
         p.add_argument("--judge", default="decision" if p is sy else "laya", choices=["laya", "decision", "openai", "llm"], help="the judge's runner: local Laya, Jev on OpenRouter, OpenAI's Decisions API, or a chat LLM (--llm-model)")
         p.add_argument("--llm-model", default="openai:gpt-6-luna", help="model for --judge llm (pydantic-ai model id)")

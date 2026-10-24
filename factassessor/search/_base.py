@@ -1,11 +1,13 @@
-"""The searcher role: query -> hits `{"url", "title", "snippet"}`, what to search (SearchType), and hit filters."""
+"""The searcher role: query -> hits (`Hit`: url, title, snippet), what to search (SearchType), hit filters, and how
+several searches' rankings merge (`HitOrder`, `merge`)."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
-from enum import Enum
-from typing import Any
+from collections.abc import AsyncIterator, Callable
+from enum import Enum, StrEnum
+from itertools import zip_longest
+from typing import Any, TypedDict
 from urllib.parse import urlparse
 
 from factassessor.pipeline import FlatMap, Predicate, Step
@@ -31,14 +33,70 @@ BLOCKED_DOMAINS = (
 )
 
 
+class Hit(TypedDict):
+    """One search result, what every searcher yields: the judge reads `snippet`, the crawler fetches `url`."""
+
+    url: str
+    title: str
+    snippet: str
+
+
+Ranking = list[Hit]  # one search's hits, best first
+
+
+class HitOrder(StrEnum):
+    """How a claim's rankings (its own search's, then the text's source queries') merge into the one list its pages
+    are read in, so the page cap (`pages_per_claim`) decides between the searches.
+
+    ORIGINAL (default until the Serper runs are re-measured with the others): the claim's own hits, then each
+    source query's: the order of every run before 2026-10-24. With every page readable (AKD's full text) a cap of 10
+    filled with the claim's own hits before the source paper (cap 30 scored 0.840 vs 0.672 at cap 10).
+    INTERLEAVED: rank 1 of every search, then rank 2...: a cap reaches each search's best hits.
+    RRF: reciprocal rank fusion, the sum of 1 / (60 + rank) over the searches a url appears in: a paper that several
+    searches return (the claim's and a source query's: likely the source paper) comes first; ties fall back to the
+    interleaved order.
+    """
+
+    ORIGINAL = "original"
+    INTERLEAVED = "interleaved"
+    RRF = "rrf"
+
+
+def merge(rankings: list[Ranking], order: HitOrder | str = HitOrder.ORIGINAL) -> Ranking:
+    """The rankings as one list in `order`, each url once (its first appearance)."""
+    return list({h["url"]: h for h in _MERGE[HitOrder(order)](rankings)}.values())
+
+
+def _interleaved(rankings: list[Ranking]) -> list[Hit]:
+    return [h for rank in zip_longest(*rankings) for h in rank if h is not None]
+
+
+def _original(rankings: list[Ranking]) -> list[Hit]:
+    return [h for ranking in rankings for h in ranking]
+
+
+def _rrf(rankings: list[Ranking], k: int = 60) -> list[Hit]:
+    score: dict[str, float] = {}
+    for ranking in rankings:
+        for rank, h in enumerate(ranking):
+            score[h["url"]] = score.get(h["url"], 0.0) + 1 / (k + rank)
+    by_url = {h["url"]: h for h in _interleaved(rankings)}  # first appearance in interleaved order breaks ties
+    return [by_url[url] for url in sorted(by_url, key=lambda url: -score[url])]
+
+
+_MERGE: dict[HitOrder, Callable[[list[Ranking]], list[Hit]]] = {
+    HitOrder.ORIGINAL: _original, HitOrder.INTERLEAVED: _interleaved, HitOrder.RRF: _rrf,
+}
+
+
 class Searcher(Step):
     """Role: query -> hits. Implement `search`; streaming, concurrency, and chaining come from here."""
 
-    async def search(self, query: str) -> list[dict[str, Any]]:
+    async def search(self, query: str) -> list[Hit]:
         raise NotImplementedError(f"{type(self).__name__}.search")
 
-    def __call__(self, queries: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
-        async def hits(query: str) -> AsyncIterator[dict[str, Any]]:
+    def __call__(self, queries: AsyncIterator[str]) -> AsyncIterator[Hit]:
+        async def hits(query: str) -> AsyncIterator[Hit]:
             for hit in await self.search(query):
                 yield hit
 

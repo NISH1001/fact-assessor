@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from factassessor.search._base import Searcher, SearchType, hedged
+from factassessor.search._base import Hit, SearchType, Searcher, hedged
 
 
 class SearxngSearcher(Searcher):
@@ -47,13 +47,13 @@ class SearxngSearcher(Searcher):
         self._slots = asyncio.Semaphore(max_concurrent) if max_concurrent else None
         self._http: httpx.AsyncClient | None = None
 
-    async def search(self, query: str) -> list[dict[str, Any]]:
+    async def search(self, query: str) -> list[Hit]:
         if self._slots is None:
             return await self._search(query)
         async with self._slots:
             return await self._search(query)
 
-    async def _search(self, query: str) -> list[dict[str, Any]]:
+    async def _search(self, query: str) -> list[Hit]:
         if self.hedge_after is None:
             return await self._request(query)
         return await hedged(lambda: self._request(query), self.hedge_after)
@@ -67,7 +67,7 @@ class SearxngSearcher(Searcher):
             await self._http.aclose()
             self._http = None
 
-    async def _request(self, query: str) -> list[dict[str, Any]]:
+    async def _request(self, query: str) -> list[Hit]:
         await self.start()
         params = {"q": query, "format": "json"}
         if self.categories:
