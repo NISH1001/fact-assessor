@@ -11,6 +11,8 @@ from typing import Any, TypeVar, overload
 
 import re
 
+import httpx
+
 from factassessor.passages import BM25Index
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -156,3 +158,14 @@ def _forget_failure(entries: Any, key: Any, task: asyncio.Future[Any]) -> None:
     if task.cancelled() or task.exception() is not None:
         if entries.get(key) is task:
             entries.pop(key, None)
+
+
+def http_pool(timeout: float, connections: int, headers: dict[str, str] | None = None, pool_wait: float = 30.0) -> httpx.AsyncClient:
+    """An HTTP client that opens `connections` keep-alive connections once and reuses them for every request; a
+    request beyond that waits `pool_wait` seconds for a free one instead of failing. httpx's defaults (100
+    connections, 20 kept alive) open and close sockets under a burst, and a burst of new sockets stalls macOS's socket
+    calls on the main thread for tens of seconds, freezing the event loop: 256 concurrent requests took 77s with 91
+    timeouts on the defaults, 1.3s on 32 reused connections (2026-10-23). Keep each pool's size small too: ~100 new
+    sockets at once across all clients (TLS included) brings the stall back."""
+    return httpx.AsyncClient(timeout=httpx.Timeout(timeout, pool=pool_wait), headers=headers,
+                             limits=httpx.Limits(max_connections=connections, max_keepalive_connections=connections))

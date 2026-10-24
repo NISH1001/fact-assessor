@@ -11,6 +11,7 @@ from loguru import logger
 from factassessor.decisions.types import Answer, DecisionPacking, DecisionRequest, DecisionResponse, DecisionRunner
 from factassessor.decisions.utils import RUN_LOCALLY, Batcher, pack, post_packed, post_with_retries
 from factassessor.keys import require_key
+from factassessor.utils import http_pool
 
 
 class OpenAIDecisionRunner(DecisionRunner):
@@ -51,6 +52,7 @@ class OpenAIDecisionRunner(DecisionRunner):
         self.packing = DecisionPacking(packing)
         self.timeout = timeout
         self.cost = 0.0
+        self.max_concurrent = max_concurrent
         self._batch = Batcher(partial(post_packed, post=self._post), max_wait_ms, max_concurrent, take=batch_size)
         self._http: httpx.AsyncClient | None = None
         if self.packing is DecisionPacking.NONE and max_concurrent <= 16:
@@ -60,7 +62,7 @@ class OpenAIDecisionRunner(DecisionRunner):
 
     async def aload(self) -> None:
         if self._http is None:
-            self._http = httpx.AsyncClient(timeout=self.timeout, headers={"Authorization": f"Bearer {self.api_key}"})
+            self._http = http_pool(self.timeout, self.max_concurrent, headers={"Authorization": f"Bearer {self.api_key}"})
 
     async def aclose(self) -> None:
         if self._http is not None:

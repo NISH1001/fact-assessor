@@ -10,6 +10,7 @@ import httpx
 from factassessor.decisions.types import Answer, DecisionPacking, DecisionRequest, DecisionResponse, DecisionRunner
 from factassessor.decisions.utils import RUN_LOCALLY, Batcher, pack, post_packed, post_with_retries
 from factassessor.keys import require_key
+from factassessor.utils import http_pool
 
 
 class SystemOneRunner(DecisionRunner):
@@ -74,12 +75,7 @@ class SystemOneRunner(DecisionRunner):
 
     async def aload(self) -> None:
         if self._http is None:
-            # as many keep-alive connections as calls in flight, all reused: httpx's defaults keep 20 alive and open
-            # and close the rest, and a burst of new TLS connections stalls macOS's socket calls for tens of seconds
-            # (64 calls in flight: every component's requests froze ~45s; see search/akd.py `akd_client`)
-            self._http = httpx.AsyncClient(timeout=self.timeout, headers=self._headers(),
-                                           limits=httpx.Limits(max_connections=self.max_concurrent,
-                                                               max_keepalive_connections=self.max_concurrent))
+            self._http = http_pool(self.timeout, self.max_concurrent, headers=self._headers())
 
     async def aclose(self) -> None:
         if self._http is not None:

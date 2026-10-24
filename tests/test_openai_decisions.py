@@ -139,3 +139,19 @@ async def test_plain_string_states_go_one_per_call_and_come_back_in_order():
 def test_one_passage_per_call_at_the_default_concurrency_suggests_raising_it(logs, kw, says):
     OpenAIDecisionRunner(**kw)
     assert any(line.startswith("INFO") and "max_concurrent" in line for line in logs) is says
+
+
+async def test_openai_runner_keeps_one_reused_connection_per_call_in_flight(monkeypatch):
+    """As SystemOneRunner: a burst of new TLS connections stalls macOS's socket calls, so the pool holds exactly
+    `max_concurrent` keep-alive connections and reuses them."""
+    import httpx
+    from factassessor import OpenAIDecisionRunner
+
+    made = []
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: made.append(kw) or real(**kw))
+    runner = OpenAIDecisionRunner(api_key="k", max_concurrent=64)
+    await runner.aload()
+    await runner.aclose()
+    [kw] = made
+    assert (kw["limits"].max_connections, kw["limits"].max_keepalive_connections) == (64, 64)
