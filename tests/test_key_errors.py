@@ -34,6 +34,15 @@ def test_only_a_providers_rejection_counts_not_a_websites_or_another_failure():
     assert auth_error(ValueError("nope")) is None
 
 
+def test_akd_scholar_searchs_host_comes_from_its_url_in_the_environment(monkeypatch):
+    monkeypatch.setenv("AKD_SCHOLAR_SEARCH_URL", "http://10.0.0.5:8000")
+    request = httpx.Request("GET", "http://10.0.0.5:8000/search")
+    response = httpx.Response(401, json={"detail": "Invalid API key"}, request=request)
+    err = auth_error(httpx.HTTPStatusError("401", request=request, response=response))
+    assert err.env == "AKD_SCHOLAR_SEARCH_API_KEY" and err.reason == "Invalid API key"  # FastAPI's {"detail": ...}
+    assert auth_error(rejected("http://10.0.0.6:8000/search")) is None  # another server: not AKD's key
+
+
 def test_an_llm_providers_rejection_names_the_key_given_by_the_caller():
     err = auth_error(ModelHTTPError(401, "gpt-6-luna", {"message": "Incorrect API key provided"}), env="OPENAI_API_KEY")
     assert isinstance(err, InvalidAPIKeyError) and err.env == "OPENAI_API_KEY" and "Incorrect API key" in err.reason
@@ -157,9 +166,3 @@ async def test_a_halt_is_logged_once_with_the_key_and_what_was_cancelled(logs):
     warnings = [line for line in logs if line.startswith("WARNING")]
     assert len(errors) == 1 and "OPENROUTER_API_KEY" in errors[0] and "API key expired." in errors[0]  # once, not per claim
     assert len(warnings) == 1 and "cancelling 2 other text" in warnings[0]
-
-
-def test_auth_error_passes_an_invalid_key_error_through():
-    from factassessor.keys import InvalidAPIKeyError, auth_error
-    err = InvalidAPIKeyError("AKD_SCHOLAR_SEARCH_API_KEY", "Invalid API key")
-    assert auth_error(err) is err

@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from factassessor import AKDDoiCrawler, AKDScholarSearcher, CascadedCrawler, Crawler, Fetch, Take, collect, once
-from factassessor.keys import InvalidAPIKeyError, MissingAPIKeyError
+from factassessor.keys import MissingAPIKeyError, auth_error
 
 BASE = "http://scholar.test:8000"
 
@@ -80,11 +80,12 @@ async def test_http_error_raises():
         await s.search("aspirin")
 
 
-async def test_a_rejected_key_stops_the_check_with_the_variable_to_renew():
+async def test_a_rejected_key_raises_the_http_error_that_auth_error_names(monkeypatch):
+    monkeypatch.setenv("AKD_SCHOLAR_SEARCH_URL", BASE)
     s = searcher(lambda r: httpx.Response(401, json={"detail": "Invalid API key"}))
-    with pytest.raises(InvalidAPIKeyError) as err:
+    with pytest.raises(httpx.HTTPStatusError) as err:
         await s.search("aspirin")
-    assert err.value.env == "AKD_SCHOLAR_SEARCH_API_KEY" and "Invalid API key" in str(err.value)
+    assert auth_error(err.value).env == "AKD_SCHOLAR_SEARCH_API_KEY"  # as SerperSearcher: Verify stops the check
 
 
 def test_url_and_key_come_from_the_environment(monkeypatch):
@@ -169,8 +170,9 @@ async def test_doi_crawler_first_in_a_cascade_hands_non_doi_urls_on():
     assert (await cascade.crawl("https://example.org/x")).page["text"] == "plain page"
 
 
-async def test_doi_crawler_raises_on_a_rejected_key_instead_of_a_silent_miss():
+async def test_doi_crawler_raises_on_a_rejected_key_instead_of_a_silent_miss(monkeypatch):
+    monkeypatch.setenv("AKD_SCHOLAR_SEARCH_URL", BASE)
     c = doi_crawler(lambda r: httpx.Response(403, json={"detail": "Forbidden"}))
-    with pytest.raises(InvalidAPIKeyError) as err:
+    with pytest.raises(httpx.HTTPStatusError) as err:
         await c.crawl("https://doi.org/10.1038/sj.bjc.6603442")
-    assert err.value.env == "AKD_SCHOLAR_SEARCH_API_KEY"
+    assert auth_error(err.value).env == "AKD_SCHOLAR_SEARCH_API_KEY"

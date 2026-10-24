@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -26,6 +27,14 @@ PROVIDER_KEYS = {
 PROVIDER_HOSTS = {"openrouter.ai": "OPENROUTER_API_KEY", "api.openai.com": "OPENAI_API_KEY", "google.serper.dev": "SERPER_API_KEY"}
 
 
+def provider_hosts() -> dict[str, str]:
+    """PROVIDER_HOSTS plus AKD Scholar Search's server, whose host isn't fixed: it's AKD_SCHOLAR_SEARCH_URL's."""
+    hosts = dict(PROVIDER_HOSTS)
+    if akd := urlparse(os.environ.get("AKD_SCHOLAR_SEARCH_URL", "").strip()).hostname:
+        hosts[akd] = "AKD_SCHOLAR_SEARCH_API_KEY"
+    return hosts
+
+
 class MissingAPIKeyError(RuntimeError):
     """A component needs an API key that is neither passed in nor in the environment (or `.env`)."""
 
@@ -40,16 +49,14 @@ class InvalidAPIKeyError(RuntimeError):
 
 
 def auth_error(exc: BaseException, env: str | None = None) -> InvalidAPIKeyError | None:
-    """`exc` as an InvalidAPIKeyError if it is one, or a provider's 401/403 (`httpx.HTTPStatusError` from a provider
-    host, or pydantic-ai's `ModelHTTPError`, whose key the caller names with `env`); None for anything else."""
+    """`exc` as an InvalidAPIKeyError if it is a provider's 401/403 (`httpx.HTTPStatusError` from a provider host,
+    or pydantic-ai's `ModelHTTPError`, whose key the caller names with `env`); None for anything else."""
     from pydantic_ai.exceptions import ModelHTTPError
     import httpx
 
-    if isinstance(exc, InvalidAPIKeyError):  # already one (e.g. raised by a component that knows its key)
-        return exc
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403):
         host = exc.request.url.host
-        known = next((v for h, v in PROVIDER_HOSTS.items() if host == h or host.endswith("." + h)), None)
+        known = next((v for h, v in provider_hosts().items() if host == h or host.endswith("." + h)), None)
         return InvalidAPIKeyError(known, _reason(_json(exc.response), exc.response.text)) if known else None
     if isinstance(exc, ModelHTTPError) and exc.status_code in (401, 403):
         return InvalidAPIKeyError(env, _reason(exc.body, str(exc.body)))
@@ -64,8 +71,11 @@ def _json(response: Any) -> Any:
 
 
 def _reason(body: Any, fallback: str) -> str:
-    """The provider's own message: `{"error": {"message": ...}}` (OpenRouter, OpenAI) or `{"message": ...}`."""
+    """The provider's own message: `{"error": {"message": ...}}` (OpenRouter, OpenAI), `{"message": ...}`, or
+    `{"detail": ...}` (FastAPI servers such as AKD Scholar Search)."""
     if isinstance(body, dict):
+        if isinstance(body.get("detail"), str):
+            return body["detail"]
         inner = body.get("error", body)
         if isinstance(inner, dict) and inner.get("message"):
             return str(inner["message"])

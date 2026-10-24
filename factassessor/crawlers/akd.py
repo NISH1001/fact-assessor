@@ -8,7 +8,7 @@ from factassessor.crawlers._base import Crawler
 from factassessor.crawlers.predicates import Fetch
 from factassessor.pipeline import Predicate
 from factassessor.resolvers import doi_in
-from factassessor.search.akd import akd_settings, check_key
+from factassessor.search.akd import akd_settings
 
 
 class AKDDoiCrawler(Crawler):
@@ -16,7 +16,8 @@ class AKDDoiCrawler(Crawler):
     doi.org links `AKDScholarSearcher` returns, publisher pages. ~0.1s, no paywalls or bot checks (two thirds of
     AKD's doi.org hits failed to crawl from the publisher). A url without a DOI, or a DOI the index doesn't hold
     (404), is a `Fetch` without a page, so put it first in a cascade: `CascadedCrawler(AKDDoiCrawler(), HTTPXCrawler())`.
-    The one exception to never raising: a rejected key (401/403) raises InvalidAPIKeyError, which stops the check.
+    The one exception to never raising: a rejected key (401/403) raises the HTTP error, which `keys.auth_error`
+    turns into InvalidAPIKeyError (AKD's host comes from AKD_SCHOLAR_SEARCH_URL), stopping the check.
     """
 
     def __init__(self, url: str | None = None, api_key: str | None = None, timeout: float = 10.0,
@@ -44,7 +45,8 @@ class AKDDoiCrawler(Crawler):
             response = await self._http.get(f"{self.url}/doi/{doi}", headers={"Authorization": f"Bearer {self.api_key}"})
         except httpx.HTTPError as exc:
             return self.mark(Fetch(url=url, error=type(exc).__name__))
-        check_key(response)  # a rejected key stops the check: never a silent miss on every hit
+        if response.status_code in (401, 403):  # a rejected key: raised, so keys.auth_error stops the check
+            response.raise_for_status()           # instead of every hit quietly falling back to the web
         f = Fetch(url=url, status=response.status_code, content_type="application/json")
         if response.status_code == 200:
             paper = response.json()

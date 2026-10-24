@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from factassessor.keys import InvalidAPIKeyError, require_key
+from factassessor.keys import require_key
 from factassessor.search._base import Searcher, hedged
 
 
@@ -18,17 +18,6 @@ def akd_settings(url: str | None, api_key: str | None, needed_by: str) -> tuple[
         raise ValueError(f"{needed_by} needs the server's URL: set AKD_SCHOLAR_SEARCH_URL or pass url=")
     key = require_key("AKD_SCHOLAR_SEARCH_API_KEY", api_key, needed_by=needed_by, instead="Or search the web: SerperSearcher().")
     return base, key
-
-
-def check_key(response: httpx.Response) -> None:
-    """A 401/403 from AKD Scholar Search is a rejected key: every call would fail the same way, so the whole check
-    stops (InvalidAPIKeyError) instead of each search or paper read quietly coming back empty."""
-    if response.status_code in (401, 403):
-        try:
-            reason = response.json().get("detail") or response.text
-        except ValueError:
-            reason = response.text
-        raise InvalidAPIKeyError("AKD_SCHOLAR_SEARCH_API_KEY", str(reason)[:200])
 
 
 class AKDScholarSearcher(Searcher):
@@ -80,8 +69,7 @@ class AKDScholarSearcher(Searcher):
         params = {"q": query, "top_k": min(100, 2 * self.num), "index": self.index,
                   "context_words": self.context_words, "max_matches": self.max_matches}
         response = await self._http.get(f"{self.url}/search", params=params, headers={"Authorization": f"Bearer {self.api_key}"})
-        check_key(response)
-        response.raise_for_status()
+        response.raise_for_status()  # a 401/403 from this server: keys.auth_error names AKD_SCHOLAR_SEARCH_API_KEY
         papers: dict[str, dict[str, Any]] = {}  # url -> hit, passages merged across repeats, in rank order
         for d in response.json().get("docs", []):
             url = d.get("link") or (f"https://doi.org/{d['doi']}" if d.get("doi") else "")
