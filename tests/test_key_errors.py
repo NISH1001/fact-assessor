@@ -157,3 +157,9 @@ async def test_a_halt_is_logged_once_with_the_key_and_what_was_cancelled(logs):
     warnings = [line for line in logs if line.startswith("WARNING")]
     assert len(errors) == 1 and "OPENROUTER_API_KEY" in errors[0] and "API key expired." in errors[0]  # once, not per claim
     assert len(warnings) == 1 and "cancelling 2 other text" in warnings[0]
+
+
+def test_auth_error_passes_an_invalid_key_error_through():
+    from factassessor.keys import InvalidAPIKeyError, auth_error
+    err = InvalidAPIKeyError("AKD_SCHOLAR_SEARCH_API_KEY", "Invalid API key")
+    assert auth_error(err) is err

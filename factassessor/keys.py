@@ -40,11 +40,13 @@ class InvalidAPIKeyError(RuntimeError):
 
 
 def auth_error(exc: BaseException, env: str | None = None) -> InvalidAPIKeyError | None:
-    """`exc` as an InvalidAPIKeyError if it is a provider's 401/403 (`httpx.HTTPStatusError` from a provider host,
-    or pydantic-ai's `ModelHTTPError`, whose key the caller names with `env`); None for anything else."""
+    """`exc` as an InvalidAPIKeyError if it is one, or a provider's 401/403 (`httpx.HTTPStatusError` from a provider
+    host, or pydantic-ai's `ModelHTTPError`, whose key the caller names with `env`); None for anything else."""
     from pydantic_ai.exceptions import ModelHTTPError
     import httpx
 
+    if isinstance(exc, InvalidAPIKeyError):  # already one (e.g. raised by a component that knows its key)
+        return exc
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403):
         host = exc.request.url.host
         known = next((v for h, v in PROVIDER_HOSTS.items() if host == h or host.endswith("." + h)), None)
