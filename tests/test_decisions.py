@@ -263,3 +263,39 @@ async def test_post_packed_sends_field_states_in_one_call_and_each_string_alone_
     assert await post_packed(requests, post) == ["answer e0", "answer s1", "answer e2", "answer s3", "answer e4"]
     assert sorted(calls) == [["e0", "e2", "e4"], ["s1"], ["s3"]]
 
+
+
+async def test_systemone_keeps_one_reused_connection_per_call_in_flight(monkeypatch):
+    """A burst of new TLS connections to OpenRouter stalls macOS's socket calls (64 in flight: ~45s frozen), so the
+    pool holds exactly `max_concurrent` keep-alive connections and reuses them."""
+    import httpx
+    from factassessor import SystemOneRunner
+
+    made = []
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: made.append(kw) or real(**kw))
+    runner = SystemOneRunner(api_key="k", max_concurrent=64)
+    await runner.aload()
+    await runner.aclose()
+    [kw] = made
+    assert (kw["limits"].max_connections, kw["limits"].max_keepalive_connections) == (64, 64)
+
+
+async def test_a_corrupted_tls_record_is_retried_like_any_network_error():
+    """ssl.SSLError (SSLV3_ALERT_BAD_RECORD_MAC on a reused connection) reaches us raw, not as an httpx.TransportError:
+    115 of 1,667 claims failed on it in one replay (2026-10-24). One retry on a fresh connection is enough."""
+    import ssl
+    import httpx
+    from factassessor.decisions.utils import post_with_retries
+
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) == 1:
+            raise ssl.SSLError(1, "[SSL: SSLV3_ALERT_BAD_RECORD_MAC] sslv3 alert bad record mac")
+        return httpx.Response(200, json={"answers": {}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        assert await post_with_retries(http, "https://openrouter.ai/api/v1/systemone", {}) == {"answers": {}}
+    assert len(calls) == 2

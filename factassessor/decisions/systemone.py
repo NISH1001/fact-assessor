@@ -59,6 +59,7 @@ class SystemOneRunner(DecisionRunner):
         self.packing = DecisionPacking(packing)
         self.timeout = timeout
         self.cost = 0.0
+        self.max_concurrent = max_concurrent
         self._batch = Batcher(partial(post_packed, post=self._post), max_wait_ms, max_concurrent, take=batch_size)
         self._http: httpx.AsyncClient | None = None
 
@@ -73,7 +74,12 @@ class SystemOneRunner(DecisionRunner):
 
     async def aload(self) -> None:
         if self._http is None:
-            self._http = httpx.AsyncClient(timeout=self.timeout, headers=self._headers())
+            # as many keep-alive connections as calls in flight, all reused: httpx's defaults keep 20 alive and open
+            # and close the rest, and a burst of new TLS connections stalls macOS's socket calls for tens of seconds
+            # (64 calls in flight: every component's requests froze ~45s; see search/akd.py `akd_client`)
+            self._http = httpx.AsyncClient(timeout=self.timeout, headers=self._headers(),
+                                           limits=httpx.Limits(max_connections=self.max_concurrent,
+                                                               max_keepalive_connections=self.max_concurrent))
 
     async def aclose(self) -> None:
         if self._http is not None:

@@ -176,3 +176,16 @@ async def test_doi_crawler_raises_on_a_rejected_key_instead_of_a_silent_miss(mon
     with pytest.raises(httpx.HTTPStatusError) as err:
         await c.crawl("https://doi.org/10.1038/sj.bjc.6603442")
     assert auth_error(err.value).env == "AKD_SCHOLAR_SEARCH_API_KEY"
+
+
+async def test_akd_clients_use_a_small_reused_keep_alive_pool(monkeypatch):
+    """256 /doi calls at once through httpx's defaults (100 connections, 20 kept alive) took 77s on a Mac, the event
+    loop stuck 42s in the OS's socket calls; 32 reused connections: 1.3s, no errors."""
+    made = []
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: made.append(kw) or real(**kw))
+    for component in (AKDScholarSearcher(url=BASE, api_key="k"), AKDDoiCrawler(url=BASE, api_key="k", max_connections=8)):
+        await component.start()
+        await component.stop()
+    assert [(kw["limits"].max_connections, kw["limits"].max_keepalive_connections) for kw in made] == [(32, 32), (8, 8)]
+    assert all(kw["timeout"].pool == 30.0 for kw in made)  # a queued request waits for a connection, it doesn't fail

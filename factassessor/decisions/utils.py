@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -129,16 +130,16 @@ async def post_packed(
 
 
 async def post_with_retries(http: httpx.AsyncClient, url: str, body: dict[str, Any], attempts: int = 4) -> dict[str, Any]:
-    """POST `body`, retrying network errors, 429s and 5xx with backoff; the response JSON. Out of retries, the most
+    """POST `body`, retrying network errors (incl. a corrupted TLS record), 429s and 5xx with backoff; the response JSON. Out of retries, the most
     recent failure is raised: the network error, or the HTTP error. An HTTP error carries the server's explanation
     (the response body), so a rejected request says why, not just "400 Bad Request"."""
     response: httpx.Response | None = None  # the most recent reply; None when the last attempt never got one
-    network_error: httpx.TransportError | None = None
+    network_error: Exception | None = None
     for attempt in range(attempts):
         try:
             response = await http.post(url, json=body)
-        except httpx.TransportError as exc:
-            response, network_error = None, exc
+        except (httpx.TransportError, ssl.SSLError) as exc:  # ssl.SSLError: a corrupted TLS record on a reused
+            response, network_error = None, exc  # connection (BAD_RECORD_MAC) comes through raw, not wrapped by httpx
             await asyncio.sleep(0.5 * 2**attempt)
             continue
         if response.status_code == 429 or response.status_code >= 500:

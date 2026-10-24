@@ -8,7 +8,7 @@ from factassessor.crawlers._base import Crawler
 from factassessor.crawlers.predicates import Fetch
 from factassessor.pipeline import Predicate
 from factassessor.resolvers import doi_in
-from factassessor.search.akd import akd_settings
+from factassessor.search.akd import akd_client, akd_settings
 
 
 class AKDDoiCrawler(Crawler):
@@ -21,15 +21,16 @@ class AKDDoiCrawler(Crawler):
     """
 
     def __init__(self, url: str | None = None, api_key: str | None = None, timeout: float = 10.0,
-                 accept: Predicate | None = None) -> None:
+                 max_connections: int = 32, accept: Predicate | None = None) -> None:  # connections: see akd_client
         super().__init__(accept)
         self.url, self.api_key = akd_settings(url, api_key, needed_by="AKD Scholar Search (AKDDoiCrawler)")
         self.timeout = timeout
+        self.max_connections = max_connections
         self._http: httpx.AsyncClient | None = None
 
     async def start(self) -> None:
         if self._http is None:
-            self._http = httpx.AsyncClient(timeout=self.timeout)
+            self._http = akd_client(self.timeout, self.max_connections)
 
     async def stop(self) -> None:
         if self._http is not None:

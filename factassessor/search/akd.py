@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from factassessor.keys import require_key
-from factassessor.search._base import Searcher, hedged
+from factassessor.search._base import Hit, Searcher, hedged
 
 
 def akd_settings(url: str | None, api_key: str | None, needed_by: str) -> tuple[str, str]:
@@ -18,6 +18,14 @@ def akd_settings(url: str | None, api_key: str | None, needed_by: str) -> tuple[
         raise ValueError(f"{needed_by} needs the server's URL: set AKD_SCHOLAR_SEARCH_URL or pass url=")
     key = require_key("AKD_SCHOLAR_SEARCH_API_KEY", api_key, needed_by=needed_by, instead="Or search the web: SerperSearcher().")
     return base, key
+
+
+def akd_client(timeout: float, max_connections: int) -> httpx.AsyncClient:
+    """One pool of `max_connections` keep-alive connections, all reused, and a 30s wait for a free one. Opening
+    many new connections at once stalls macOS's socket calls: 256 /doi calls through httpx's defaults (100
+    connections, 20 kept alive) took 77s with the event loop stuck 42s in socket()/close(); 32 reused ones, 1.3s."""
+    return httpx.AsyncClient(timeout=httpx.Timeout(timeout, pool=30.0),
+                             limits=httpx.Limits(max_connections=max_connections, max_keepalive_connections=max_connections))
 
 
 class AKDScholarSearcher(Searcher):
@@ -40,6 +48,7 @@ class AKDScholarSearcher(Searcher):
         index: str = "all",  # all = title + body, text = body only, title = title only
         timeout: float = 10.0,
         hedge_after: float | None = None,
+        max_connections: int = 32,  # keep-alive connections, reused (see akd_client)
     ) -> None:
         self.url, self.api_key = akd_settings(url, api_key, needed_by="AKD Scholar Search (AKDScholarSearcher)")
         self.num = num
@@ -48,23 +57,24 @@ class AKDScholarSearcher(Searcher):
         self.index = index
         self.timeout = timeout
         self.hedge_after = hedge_after
+        self.max_connections = max_connections
         self._http: httpx.AsyncClient | None = None
 
-    async def search(self, query: str) -> list[dict[str, Any]]:
+    async def search(self, query: str) -> list[Hit]:
         if self.hedge_after is None:
             return await self._request(query)
         return await hedged(lambda: self._request(query), self.hedge_after)
 
     async def start(self) -> None:
         if self._http is None:
-            self._http = httpx.AsyncClient(timeout=self.timeout)
+            self._http = akd_client(self.timeout, self.max_connections)
 
     async def stop(self) -> None:
         if self._http is not None:
             await self._http.aclose()
             self._http = None
 
-    async def _request(self, query: str) -> list[dict[str, Any]]:
+    async def _request(self, query: str) -> list[Hit]:
         await self.start()
         params = {"q": query, "top_k": min(100, 2 * self.num), "index": self.index,
                   "context_words": self.context_words, "max_matches": self.max_matches}
