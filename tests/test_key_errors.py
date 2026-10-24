@@ -27,6 +27,13 @@ def test_auth_error_names_the_key_from_the_provider_and_keeps_the_servers_reason
     assert auth_error(rejected("https://google.serper.dev/search", 403, "Unauthorized")).env == "SERPER_API_KEY"
 
 
+def test_a_providers_empty_balance_stops_the_check_like_a_rejected_key():
+    # 402 Insufficient credits: every call with that key fails the same way (a 10-text batch ground through all its
+    # claims failing one by one, 2026-10-24), so it stops the check and names the key to top up
+    err = auth_error(rejected("https://openrouter.ai/api/v1/systemone", 402, "Insufficient credits. Add more using https://openrouter.ai/settings/credits"))
+    assert isinstance(err, InvalidAPIKeyError) and err.env == "OPENROUTER_API_KEY" and "Insufficient credits" in err.reason
+
+
 def test_only_a_providers_rejection_counts_not_a_websites_or_another_failure():
     assert auth_error(rejected("https://www.nature.com/articles/x", 403, "Forbidden")) is None  # a paywall, not our key
     assert auth_error(rejected("https://openrouter.ai/api/v1/systemone", 500, "busy")) is None

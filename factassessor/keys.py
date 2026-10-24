@@ -40,8 +40,9 @@ class MissingAPIKeyError(RuntimeError):
 
 
 class InvalidAPIKeyError(RuntimeError):
-    """A provider rejected an API key (expired, revoked, wrong): the whole check stops, since every call with that key
-    would fail the same way. `env` is the variable to renew (None if unknown), `reason` the provider's message."""
+    """A provider rejected an API key (expired, revoked, wrong) or its account has no credits left (402): the whole
+    check stops, since every call with that key would fail the same way. `env` is the variable to renew or top up
+    (None if unknown), `reason` the provider's message."""
 
     def __init__(self, env: str | None, reason: str) -> None:
         self.env, self.reason = env, reason
@@ -54,11 +55,11 @@ def auth_error(exc: BaseException, env: str | None = None) -> InvalidAPIKeyError
     from pydantic_ai.exceptions import ModelHTTPError
     import httpx
 
-    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403):
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 402, 403):  # 402: no credits left
         host = exc.request.url.host
         known = next((v for h, v in provider_hosts().items() if host == h or host.endswith("." + h)), None)
         return InvalidAPIKeyError(known, _reason(_json(exc.response), exc.response.text)) if known else None
-    if isinstance(exc, ModelHTTPError) and exc.status_code in (401, 403):
+    if isinstance(exc, ModelHTTPError) and exc.status_code in (401, 402, 403):
         return InvalidAPIKeyError(env, _reason(exc.body, str(exc.body)))
     return None
 
