@@ -31,7 +31,8 @@ def fake(bodies, status=200, fail_first=0, text=None):
         assert req.headers["authorization"] == "Bearer test-key" and req.url.path == "/v1/decisions"
         answers = []
         for q in body["questions"]:
-            passage = q["instructions"] if "evidence: " in q["instructions"] else body["input"]  # its own, else the shared input
+            index = q["instructions"].split("`evidence[")[1].split("]")[0] if "`evidence[" in q["instructions"] else None
+            passage = body["input"].split(f"evidence[{index}]: ")[1].split("\n")[0] if index is not None else body["input"]
             p = 0.9 if "1903" in passage else 0.05
             probs = [{"value": "supports", "probability": p}, {"value": "refutes", "probability": 0.05},
                      {"value": "not_enough_info", "probability": 0.95 - p}]
@@ -63,13 +64,14 @@ async def test_one_request_becomes_openai_input_text_and_a_choice_question():
     assert res.answers["stance"].label == "supports" and res.answers["stance"].probabilities["supports"] == 0.9
 
 
-async def test_a_claims_passages_share_one_call_and_each_is_judged_on_its_own():
-    """OpenAI's layout for several candidates against one reference: the claim is the call's input, each passage
-    is its own question, and each passage's answer comes back to its request."""
+async def test_a_claims_passages_are_packed_into_one_call_with_numbered_evidence():
     bodies = []
     res = await runner(fake(bodies)).predict([request("Paris is in France."), request("Curie won it in 1903."), request("Bees.")])
     [body] = bodies  # one call for the claim's three passages
-    assert body["input"] == f"claim: {CLAIM}" and len(body["questions"]) == 3
+    assert "evidence[0]: Paris is in France.\nevidence[1]: Curie won it in 1903.\nevidence[2]: Bees.\n" in body["input"]
+    assert body["input"].endswith(f"claim: {CLAIM}")  # the shared claim once
+    assert [q["name"] for q in body["questions"]] == ["stance_0", "stance_1", "stance_2"]
+    assert "`evidence[1]`" in body["questions"][1]["instructions"]
     assert [x.answers["stance"].label for x in res] == ["not_enough_info", "supports", "not_enough_info"]
 
 
