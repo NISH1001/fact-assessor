@@ -374,12 +374,16 @@ async def verify_answer(verify: Verify, answer: dict[str, Any]) -> tuple[list[di
 
 
 async def fill_pages(cache_hits: dict[str, Any], pages: dict[str, Any], resolver: Any, crawler: Crawler,
-                     queries: list[str], min_copy_words: int = 300) -> None:
-    """Read the hits the live run skipped (early exit), so replays with another judge see every page. Untimed."""
+                     queries: list[str], min_copy_words: int = 300, at_once: int = 32) -> None:
+    """Read the hits the live run skipped (early exit, the page cap), so replays with another judge see every page.
+    Runs once, after the last answer, never beside live claims: it shares their crawler and its connection pool, and
+    with AKD (60 readable papers per claim) each answer's fill was hundreds of reads, 8 at a time per answer, 10
+    answers at once, each read cut at 8s. Four full runs collapsed on it (2026-10-25): the AKD reader's live calls
+    starved behind the fill backlog, every claim at its deadline from one answer on, no recovery."""
     from factassessor.verify import read_first
 
     todo = {h["url"] for q in queries for h in cache_hits.get(q, [])} - set(pages)
-    slots = asyncio.Semaphore(8)
+    slots = asyncio.Semaphore(at_once)
 
     async def read(url: str) -> None:
         async with slots:
@@ -478,8 +482,7 @@ async def live(args: argparse.Namespace) -> None:
             done[answer["id"]] = {**{k: answer[k] for k in ("id", "pair", "kind")}, "source_queries": source_queries,
                                   "atoms": atoms, "time": {"verify": total, "total": total},
                                   "searches_cached": searches_cached or args.parallel > 1}
-            queries = [a["text"] for a in answer["atoms"]] + source_queries
-            await fill_pages(hits, pages, fa.verify.resolver, fa.crawler, queries)
+            fill_queries.extend([a["text"] for a in answer["atoms"]] + source_queries)
             for name, data in (("hits", hits), ("pages", pages), ("results", list(done.values()))):
                 pipe.saver.save(run_dir / f"{name}.json.gz", data)
             s = sum(a["verdict"] == "supported" for a in atoms)
@@ -487,11 +490,16 @@ async def live(args: argparse.Namespace) -> None:
             print(f"[{n:3d}/{len(answers)}] {answer['id']}: {len(atoms)} atoms, {s} supported, {timeouts} at the deadline; "
                   f"{total:.1f}s", flush=True)
 
+    fill_queries: list[str] = []
     await asyncio.gather(*(one(n, a) for n, a in enumerate(todo, 1 + len(answers) - len(todo))))
+    report(list(done.values()), args.tag)
+    print(f"judge: {args.judge}{_cost(pipe.judge)}", flush=True)
+    if not args.no_fill:  # after the numbers: the replay cache's unread hits, with the whole pool to itself
+        print("filling the replay cache with the hits the run didn't judge...", flush=True)
+        await fill_pages(hits, pages, fa.verify.resolver, fa.crawler, fill_queries)
+        pipe.saver.save(run_dir / "pages.json.gz", pages)
     await pipe.saver.flush()
     await fa.aclose()
-    report(list(done.values()), args.tag)
-    print(f"judge: {args.judge}{_cost(pipe.judge)}")
 
 
 # --- end to end on our own atoms, with synthetic labels ---------------------------------------------------------
@@ -570,8 +578,7 @@ async def synth(args: argparse.Namespace) -> None:
             verified, verify_s = await verify_answer(pipe.verify, synthetic)
             done[synthetic["id"]] = {**{k: synthetic[k] for k in ("id", "pair", "kind", "source_queries")}, "atoms": verified,
                                      "filtered": filtered, "time": {"verify": verify_s}}
-            queries = [a["text"] for a in kept] + source_queries
-            await fill_pages(hits, pages, pipe.resolver, pipe.crawler, queries)
+            fill_queries.extend([a["text"] for a in kept] + source_queries)
             for name, data in (("hits", hits), ("pages", pages), ("results", list(done.values()))):
                 pipe.saver.save(run_dir / f"{name}.json.gz", data)
             caught = sum(a["label"] == "NS" and a["verdict"] != "supported" for a in verified)
@@ -580,13 +587,18 @@ async def synth(args: argparse.Namespace) -> None:
                   f"true confirmed {confirmed}/{sum(a['label'] == 'S' for a in verified)}, false caught {caught}/{sum(a['label'] == 'NS' for a in verified)}; "
                   f"verify {verify_s:.1f}s", flush=True)
 
+    fill_queries: list[str] = []
     await asyncio.gather(*(one(n, a) for n, a in enumerate(todo, 1 + len(answers) - len(todo))))
-    await pipe.saver.flush()
-    await pipe.aclose()
     results = list(done.values())
     report(results, args.tag)
     synth_report(results)
-    print(f"judge: {args.judge}{_cost(pipe.judge)}")
+    print(f"judge: {args.judge}{_cost(pipe.judge)}", flush=True)
+    if not args.no_fill:
+        print("filling the replay cache with the hits the run didn't judge...", flush=True)
+        await fill_pages(hits, pages, pipe.resolver, pipe.crawler, fill_queries)
+        pipe.saver.save(run_dir / "pages.json.gz", pages)
+    await pipe.saver.flush()
+    await pipe.aclose()
 
 
 def synth_report(results: list[dict[str, Any]]) -> None:
@@ -721,6 +733,7 @@ def main() -> None:
     lv.add_argument("--search-type", default="general", choices=["general", "science"])
     lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
     lv.add_argument("--no-resolver", action="store_true")
+    lv.add_argument("--no-fill", action="store_true", help="don't read the hits the run didn't judge at the end (the replay cache then holds judged pages only)")
     lv.add_argument("--crawler", default="default", choices=["default", "akd-doi", "akd-doi+web", "none"],
                     help="akd-doi: pages only from AKD Scholar Search's full text by DOI (no web crawl, no resolver); "
                          "akd-doi+web: AKD first, else free copies resolved once + the web cascade; none: snippets only")
@@ -764,6 +777,7 @@ def main() -> None:
     sy.add_argument("--corruptor", default="openai:gpt-6-luna", help="pydantic-ai model that writes the one-detail corruptions")
     sy.add_argument("--claim-threshold", type=float, default=0.4)
     sy.add_argument("--no-resolver", action="store_true")
+    sy.add_argument("--no-fill", action="store_true", help="as live")
     sy.add_argument("--source-queries", type=int, default=1, help="searches the atomizer writes for each text's source document")
     sy.add_argument("--parallel", type=int, default=3, help="answers at once (the crawler is the limit)")
     sy.add_argument("--overfetch", type=float, default=1.0)
