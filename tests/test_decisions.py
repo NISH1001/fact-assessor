@@ -277,20 +277,13 @@ async def test_post_packed_sends_field_states_in_one_call_and_each_string_alone_
 
 
 
-async def test_systemone_keeps_one_reused_connection_per_call_in_flight(monkeypatch):
-    """A burst of new TLS connections to OpenRouter stalls macOS's socket calls (64 in flight: ~45s frozen), so the
-    pool holds exactly `max_concurrent` keep-alive connections and reuses them."""
-    import httpx
-    from factassessor import SystemOneRunner
-
-    made = []
-    real = httpx.AsyncClient
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: made.append(kw) or real(**kw))
+async def test_systemone_keeps_one_reused_connection_per_call_in_flight():
+    """As every fan-out component: the runner's calls go through one bounded, reused pool of `max_concurrent`
+    connections (a burst of new TLS connections stalls macOS's socket calls; a queue inside httpx goes quadratic)."""
     runner = SystemOneRunner(api_key="k", max_concurrent=64)
     await runner.aload()
+    assert runner._http.slots == 64
     await runner.aclose()
-    [kw] = made
-    assert (kw["limits"].max_connections, kw["limits"].max_keepalive_connections) == (64, 64)
 
 
 async def test_a_corrupted_tls_record_is_retried_like_any_network_error():

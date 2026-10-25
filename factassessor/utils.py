@@ -160,12 +160,29 @@ def _forget_failure(entries: Any, key: Any, task: asyncio.Future[Any]) -> None:
             entries.pop(key, None)
 
 
-def http_pool(timeout: float, connections: int, headers: dict[str, str] | None = None, pool_wait: float = 30.0) -> httpx.AsyncClient:
-    """An HTTP client that opens `connections` keep-alive connections once and reuses them for every request; a
-    request beyond that waits `pool_wait` seconds for a free one instead of failing. httpx's defaults (100
-    connections, 20 kept alive) open and close sockets under a burst, and a burst of new sockets stalls macOS's socket
-    calls on the main thread for tens of seconds, freezing the event loop: 256 concurrent requests took 77s with 91
-    timeouts on the defaults, 1.3s on 32 reused connections (2026-10-23). Keep each pool's size small too: ~100 new
-    sockets at once across all clients (TLS included) brings the stall back."""
-    return httpx.AsyncClient(timeout=httpx.Timeout(timeout, pool=pool_wait), headers=headers,
-                             limits=httpx.Limits(max_connections=connections, max_keepalive_connections=connections))
+class BoundedClient(httpx.AsyncClient):
+    """An httpx client whose requests wait in an asyncio semaphore, `slots` at a time, before they reach the
+    connection pool. httpcore's pool re-scans every queued request against every connection on each event, so
+    hundreds of requests queued inside it go quadratic on the main thread: a 100-answer eval with ~750 paper reads
+    waiting on 32 connections ran at 200% CPU with every claim at its deadline (2026-10-25). Waiting here is O(1)."""
+
+    def __init__(self, *args: Any, slots: int, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.slots = slots
+        self._slots = asyncio.Semaphore(slots)
+
+    async def send(self, *args: Any, **kwargs: Any) -> httpx.Response:
+        async with self._slots:
+            return await super().send(*args, **kwargs)
+
+
+def http_pool(timeout: float, connections: int, headers: dict[str, str] | None = None, pool_wait: float = 30.0,
+              transport: httpx.AsyncBaseTransport | None = None) -> BoundedClient:
+    """An HTTP client that opens `connections` keep-alive connections once and reuses them for every request, and
+    lets only that many requests through at once: the rest wait in the client (`BoundedClient`), never queued inside
+    httpx. httpx's defaults (100 connections, 20 kept alive) open and close sockets under a burst, and a burst of new
+    sockets stalls macOS's socket calls on the main thread for tens of seconds, freezing the event loop: 256
+    concurrent requests took 77s with 91 timeouts on the defaults, 1.3s on 32 reused connections (2026-10-23). Keep
+    each pool's size small too: ~100 new sockets at once across all clients (TLS included) brings the stall back."""
+    return BoundedClient(timeout=httpx.Timeout(timeout, pool=pool_wait), headers=headers, transport=transport, slots=connections,
+                         limits=httpx.Limits(max_connections=connections, max_keepalive_connections=connections))

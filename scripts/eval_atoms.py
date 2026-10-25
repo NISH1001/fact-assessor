@@ -293,7 +293,7 @@ class Saver:
     search blocked the loop ~1s per search by the end of an AKD run (9.5 MB of 840-word snippets, 608 searches):
     claims timed out on our own disk writes, the later answers 6s -> 100s."""
 
-    def __init__(self, every: float = 10.0) -> None:
+    def __init__(self, every: float = 60.0) -> None:  # json.dumps holds the GIL ~2.7s per cycle by the end of a 100-answer run
         self.every = every
         self._last: dict[Path, float] = {}
         self._newer: dict[Path, Any] = {}  # the latest data not yet written, per file

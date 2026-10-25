@@ -178,14 +178,33 @@ async def test_doi_crawler_raises_on_a_rejected_key_instead_of_a_silent_miss(mon
     assert auth_error(err.value).env == "AKD_SCHOLAR_SEARCH_API_KEY"
 
 
-async def test_akd_clients_use_a_small_reused_keep_alive_pool(monkeypatch):
-    """256 /doi calls at once through httpx's defaults (100 connections, 20 kept alive) took 77s on a Mac, the event
-    loop stuck 42s in the OS's socket calls; 32 reused connections: 1.3s, no errors."""
-    made = []
-    real = httpx.AsyncClient
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: made.append(kw) or real(**kw))
-    for component in (AKDScholarSearcher(url=BASE, api_key="k"), AKDDoiCrawler(url=BASE, api_key="k", max_connections=8)):
-        await component.start()
-        await component.stop()
-    assert [(kw["limits"].max_connections, kw["limits"].max_keepalive_connections) for kw in made] == [(32, 32), (8, 8)]
-    assert all(kw["timeout"].pool == 30.0 for kw in made)  # a queued request waits for a connection, it doesn't fail
+async def test_the_pool_lets_only_its_connections_worth_of_requests_through_at_once():
+    """Requests beyond the pool's size wait in the client, not inside httpx, whose queue goes quadratic: an eval
+    with ~750 paper reads waiting on 32 connections ran at 200% CPU with every claim at its deadline (2026-10-25)."""
+    import asyncio
+    from factassessor.utils import http_pool
+
+    in_flight = peak = 0
+
+    async def handler(request):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.005)
+        in_flight -= 1
+        return httpx.Response(200, json={})
+
+    http = http_pool(timeout=5, connections=2, transport=httpx.MockTransport(handler))
+    await asyncio.gather(*(http.get("https://pool.test/") for _ in range(20)))
+    assert peak == 2
+
+
+async def test_akd_components_bound_their_requests_to_their_connections():
+    searcher, crawler = AKDScholarSearcher(url=BASE, api_key="k"), AKDDoiCrawler(url=BASE, api_key="k", max_connections=8)
+    await searcher.start()
+    await crawler.start()
+    assert (searcher._http.slots, crawler._http.slots) == (32, 8)
+    await searcher.stop()
+    await crawler.stop()
+
+
