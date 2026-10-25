@@ -21,8 +21,15 @@ class NoAtomizer(Step):
 
 
 class Searcher(Step):
+    def __init__(self, delay=0.0):
+        self.delay, self.in_flight, self.peak = delay, 0, 0
+
     def __call__(self, queries):
         async def hits(query):
+            self.in_flight += 1
+            self.peak = max(self.peak, self.in_flight)
+            await asyncio.sleep(self.delay)
+            self.in_flight -= 1
             for i in range(2):
                 yield {"url": f"https://s{i}.org/{i}", "title": "t", "snippet": "s"}
 
@@ -43,9 +50,13 @@ class Judge:
                          label="supports" if page else "not_enough_info", prob=0.9 if page else 0.5) for d in docs]
 
 
+def assessor(searcher):
+    return FactAssessor(atomizer=NoAtomizer(), claim_filter=None, searcher=searcher, crawler=Reader(), resolver=None,
+                        judge=Judge(), source_queries=0)
+
+
 async def test_a_live_run_records_each_claims_time_per_component():
-    fa = FactAssessor(atomizer=NoAtomizer(), claim_filter=None, searcher=Searcher(), crawler=Reader(), resolver=None,
-                      judge=Judge(), source_queries=0)
+    fa = assessor(harness.TimedSearch(Searcher(), {}, slots=50))  # as the live pipeline wires its searcher
     timings = harness.instrument(fa)
     result = await fa.assess("Some text.", claims=["the first claim", "the second claim"])
     assert [r.verdict for r in result.atoms] == ["supported", "supported"]
@@ -53,3 +64,13 @@ async def test_a_live_run_records_each_claims_time_per_component():
         times = harness.component_times(timings[id(r.atom)])
         assert times["search"] >= 0 and times["judge_snippets"] >= 0.02
         assert times["crawl"] >= 0.02 and times["judge_pages"] >= 0.02
+
+
+async def test_instrumenting_the_assessor_does_not_limit_how_many_searches_run_at_once():
+    """The 2026-10-25 Serper run: the instrumentation wrapped the searcher in a 4-slot TimedSearch, and every claim
+    of the run waited ~20s for a search slot."""
+    searcher = Searcher(delay=0.05)
+    fa = assessor(harness.TimedSearch(searcher, {}, slots=50))
+    harness.instrument(fa)
+    await fa.assess("Some text.", claims=[f"claim {i}" for i in range(16)])
+    assert searcher.peak == 16

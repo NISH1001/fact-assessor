@@ -161,8 +161,9 @@ def instrument(fa: FactAssessor) -> dict[int, dict[str, list[tuple[float, float]
         return await inner(atom)
 
     verify.verify = verify_timed  # type: ignore[method-assign]
-    if not isinstance(verify.searcher, TimedSearch):
-        verify.searcher = TimedSearch(verify.searcher, {})
+    # the searcher is not wrapped here: the live pipeline's TimedSearch (its own slots, its hit cache) is already
+    # inside it. Wrapping it in another TimedSearch gave the whole run that wrapper's 4 search slots (a34ad71, the
+    # 2026-10-25 Serper run: every claim waited ~20s for a search slot)
     if not isinstance(verify.crawler, TimedCrawler):
         verify.crawler = TimedCrawler(verify.crawler)
     if verify.resolver is not None and not isinstance(verify.resolver, TimedResolver):
