@@ -380,3 +380,21 @@ overlapping the reads with the snippet judgment (~0.3-1s per claim).
 402 (no credits left) stops the check like a rejected key (`keys.auth_error`: 401 / 402 / 403; AKD's host joins the
 provider hosts from `AKD_SCHOLAR_SEARCH_URL`). gpt-6-luna through the Decisions API over-refutes (0.678 vs Jev 0.832 at
 90 words), so it served only as a latency stand-in; Jev stays the judge.
+
+## OpenAI Decisions request layout (2026-10-25)
+
+`OpenAIDecisionRunner` used to write Jev's request out as text: every passage of a claim in the `input` as
+`evidence[i]: ...` lines plus `claim: ...`, one question per passage naming its line. OpenAI's Decisions guide
+describes one shared `input` with independent questions about it, and for several candidates against one reference
+"each candidate gets its own question" (shown with images in the question's instructions). The runner now sends the
+fields every packed request shares (the claim) as the input and each request's own fields (its passage) inside its
+own question, so a passage is judged with only the claim in view; a single request, or a string state, is the input
+itself with its questions, and requests sharing no field go one by one. Jev keeps its native state-and-list format.
+Evidence for the change: with the old layout, one passage per call scored 0.668 against 0.637 packed on 10 answers
+(2026-10-06), and luna refuted 358 true atoms where Jev refuted 81, consistent with passages influencing each other
+inside one input. Luna e2e with the new layout (AKD setup, one run each): 5 texts at once p50 11.4s / p90 13.9s,
+10 at once 22.3 / 29.1s, 0 claims cut, cost per claim unchanged (0.53 cents), supported share 29.6% vs 26.2%; the
+calls themselves were slower in that run (median 0.58s vs 0.37s). Accuracy of the new layout is measured by the
+batched eval with `--judge openai`, not by the e2e. Still untested: the page as the cached input with the text's
+claims as questions (the guide's caching pattern: a shared prefix of at least 1,024 tokens, questions outside it),
+which would cut calls per text from claims x pages to pages and change `Verify`'s unit of work.

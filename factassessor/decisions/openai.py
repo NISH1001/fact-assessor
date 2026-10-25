@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from functools import partial
 from typing import Any
 
@@ -9,7 +10,7 @@ import httpx
 from loguru import logger
 
 from factassessor.decisions.types import Answer, DecisionPacking, DecisionRequest, DecisionResponse, DecisionRunner
-from factassessor.decisions.utils import RUN_LOCALLY, Batcher, pack, post_packed, post_with_retries
+from factassessor.decisions.utils import RUN_LOCALLY, Batcher, post_packed, post_with_retries
 from factassessor.keys import require_key
 from factassessor.utils import http_pool
 
@@ -18,17 +19,20 @@ class OpenAIDecisionRunner(DecisionRunner):
     """gpt-6-luna through OpenAI's Decisions API (`POST /v1/decisions`): a decision model like Jev (probabilities in
     one pass, no generated text), priced on input tokens only. Key: `api_key`, else `OPENAI_API_KEY`.
 
-    A request is the evidence as `input` text and a list of questions. Our requests are packed per predict call as
-    for Jev (`pack`: the shared claim once, the passages numbered), then written out as text: `evidence[0]: ...`
-    lines and `claim: ...`, which the questions name in backticks (`` `evidence[2]` ``). Question types: `choice`
+    A request is one shared `input` text and a list of questions about it, evaluated independently (OpenAI's
+    Decisions guide). A predict call's requests (a claim's passages) are laid out the way the guide describes for
+    several candidates against one reference: the fields every request shares (`claim: ...`) are the `input`, and
+    each request's own fields (`evidence: ...`) go inside its own questions, so a passage is judged with only the
+    claim in view, not the other passages. A single request, or a string state, is the input itself with its
+    questions. Requests that share no field can't be one call and go one by one. Question types: `choice`
     (options with descriptions), `noul` -> OpenAI's `predicate` (yes/no: `{"yes": p, "no": 1 - p}`), `score`
     (ordered levels). `cost` is the USD spent so far when the response reports input tokens ($0.10 per million).
 
-    `packing`: `CALL` (the default) sends a claim's passages in one call. `NONE` sends each passage alone, the
-    layout OpenAI's docs describe (one input, questions about that input). Measured on 10 answers, same pages:
-    `NONE` F1 0.668 vs 0.637, about the same cost, but 3x slower (77 s vs 25 s), because a claim's ~30 calls queue
-    for `max_concurrent` (16 by default, shared by every claim). With `NONE`, raise `max_concurrent` (e.g. 64) as
-    far as your OpenAI rate limit allows; a 429 is retried with backoff."""
+    `packing`: `CALL` (the default) sends a claim's passages in one call (one input, one question per passage).
+    `NONE` sends each passage alone (3x the calls; with it raise `max_concurrent`, e.g. 64, as far as your OpenAI
+    rate limit allows; a 429 is retried with backoff). Before 2026-10-25 the layout was Jev's written out as text
+    (every passage in the input as `evidence[i]:` lines, questions naming their line); on 10 answers that scored
+    0.637 against 0.668 for one passage per call, so the guide's layout replaced it."""
 
     URL = "https://api.openai.com/v1/decisions"
     PRICE_PER_INPUT_TOKEN = 0.10 / 1e6
@@ -78,9 +82,9 @@ class OpenAIDecisionRunner(DecisionRunner):
         return await self._batch.alone(requests, take=1 if self.packing is DecisionPacking.NONE else None)
 
     async def _post(self, requests: list[DecisionRequest]) -> list[DecisionResponse]:
-        packed, routes = pack(requests, self.model)
-        body = {"model": packed["model"], "input": _as_text(packed["state"]),
-                "questions": [_openai_question(name, q) for name, q in packed["questions"].items()]}
+        body, routes = _body(requests, self.model)
+        if body is None:  # nothing shared between the requests: each is its own call
+            return [res for [res] in await asyncio.gather(*(self._post([r]) for r in requests))]
         data = await post_with_retries(self._http, self.url, body)  # type: ignore[arg-type]
         answers = {a["name"]: _openai_answer(a) for a in data.get("answers", [])}
         tokens = float(((data.get("usage") or {}).get("input_tokens")) or 0)
@@ -89,17 +93,30 @@ class OpenAIDecisionRunner(DecisionRunner):
         return [DecisionResponse(answers={key: answers[sent] for key, sent in route.items()}, usage=share) for route in routes]
 
 
-def _as_text(state: str | dict[str, Any]) -> str:
-    """A packed state as `field: value` lines; a list field as `field[i]: value`, as the questions refer to them."""
-    if isinstance(state, str):
-        return state
-    lines = []
-    for field, value in state.items():
-        if isinstance(value, list):
-            lines += [f"{field}[{i}]: {v}" for i, v in enumerate(value)]
-        else:
-            lines.append(f"{field}: {value}")
-    return "\n".join(lines)
+def _body(requests: list[DecisionRequest], model: str) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
+    """One Decisions request for these requests, and per request its question keys -> the body's question names.
+    Alone (or a string state): the state is the input, the questions as they are. Several: the fields with the same
+    value in every request (the claim) are the input, and each request's own fields (its passage) open its
+    questions as `field: value` lines, one question per request and key (`stance_0`, `stance_1`, ...): OpenAI's
+    layout for several candidates against one reference. No shared field: None (they can't be one call)."""
+    if len(requests) == 1 or not all(isinstance(r.state, dict) for r in requests):
+        [r] = requests
+        state = r.state if isinstance(r.state, str) else "\n".join(f"{f}: {v}" for f, v in r.state.items())
+        return {"model": r.model or model, "input": state, "questions": [_openai_question(k, q.wire()) for k, q in r.questions.items()]}, [{k: k for k in r.questions}]
+    fields = list(dict.fromkeys(f for r in requests for f in r.state))  # type: ignore[union-attr]
+    shared = [f for f in fields if all(r.state.get(f) == requests[0].state.get(f) for r in requests)]  # type: ignore[union-attr]
+    if not shared:
+        return None, []
+    questions, routes = [], []
+    for i, r in enumerate(requests):
+        own = "\n".join(f"{f}: {r.state[f]}" for f in fields if f not in shared and f in r.state)  # type: ignore[index, operator]
+        route = {}
+        for k, q in r.questions.items():
+            route[k] = f"{k}_{i}"
+            questions.append(_openai_question(route[k], {**q.wire(), "instructions": f"{own}\n\n{q.instructions}" if own else q.instructions}))
+        routes.append(route)
+    body = {"model": requests[0].model or model, "input": "\n".join(f"{f}: {requests[0].state[f]}" for f in shared), "questions": questions}  # type: ignore[index]
+    return body, routes
 
 
 def _openai_question(name: str, wire: dict[str, Any]) -> dict[str, Any]:
