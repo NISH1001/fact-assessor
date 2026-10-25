@@ -329,3 +329,51 @@ cap too: `DecisionJudge(passage_chars=)`, default 22 x `passage_words` (about 2,
 into pieces, nothing dropped. Of 1,004,984 real 90-word windows (4,900 pages), the median is 580 characters, p99 814,
 and 573 (0.057%) are over 2,000. The gist page now gives 3 passages of at most 613 characters, judged without error.
 `post_with_retries` now keeps the server's explanation in the error, which is how this was found.
+
+## AKD Scholar Search, judge window, hit order, page cap (2026-10-23/24, branch feature/scholar-search)
+
+Eval: the SciELF paired set (100 answers), Jev 1.14 (`typesafe/jev-1.14-20261014`), replays on frozen evidence
+unless marked live. The server is only ever referred to by `AKD_SCHOLAR_SEARCH_URL` / `AKD_SCHOLAR_SEARCH_API_KEY`.
+
+**Judge window.** Serper evidence, 90-word windows x 3 (Laya's tuning) -> 512 words x 3: combined macro F1 0.806 ->
+**0.834** (corrupted +0.05, precision up), about 2x the judge tokens (~1 cent per answer); 1024: 0.823. 512 is the best
+of the three measured; 256 and 768 untested. A snippet is cut at 2 x `passage_words`, which at 90 cut AKD's ~300-word
+snippets to one window.
+
+**AKD /search as the searcher** (BM25 over 27.7M full-text papers; a hit is a paper, its matching passages as the
+snippet, its doi.org link as the url). At snippet level it ties Google; with the web crawlers it lost on recall: 66%
+of its doi.org links fail to crawl (paywalls, bot checks; the resolvers found no free copy), 0.642 at 90 words.
+Snippets alone (no crawl, wider context: 2 passages x 200 words) 0.586 vs Serper + pages 0.775 on the same 23
+answers: snippets don't replace pages. About 10 of the eval's 50 source papers are not in the index, and BM25 misses
+some that are.
+
+**AKD /doi as the reader** (`AKDDoiCrawler` first in the cascade, then `ResolvingCrawler(copies, web)` for the rest):
+every AKD hit reads in ~0.1s. 20 papers per search, cap 30 pages: 0.840 on the 60 answers clean of timeouts (whole
+run 0.785: 197 claims at the deadline, 12.7 pages judged per claim). With everything readable, the page cap became the
+lever.
+
+**Hit order** (`HitOrder`, `search.merge`). A claim's three searches (its text, two source queries) were appended:
+with every page readable, cap 10 filled with the claim's own hits before the source paper's. On the 30 answers clean
+in every run: cap 30 original 0.804 (12.7 pages/claim), **cap 10 interleaved 0.810 (4.6 pages/claim)**, cap 10
+original 0.700, Serper cap 10 0.840 (4.3 pages/claim). RRF is implemented, not yet replayed. The default stays
+`ORIGINAL` (every earlier run reproduces) until Serper is replayed with the new orders.
+
+**Latency** (live, 10 SciELF texts at once; script kept in tmp/eval_atoms/akd_e2e.py). The first runs took 263s with
+every claim cut. Three causes, each measured: (1) a burst of ~100+ new TCP/TLS connections freezes the loop in macOS
+`socket()` / `close()` for tens of seconds (found with a watchdog thread dumping the main thread's stack, after four
+wrong theories; 256 /doi calls through httpx's defaults 77s, through a 32-connection keep-alive pool 1.3s):
+`utils.http_pool`, used by the AKD components and the decision runners; 32 /doi + 64 Jev connections run clean, 64 +
+64 stall again, and bigger pools don't raise throughput (per-request event-loop cost). (2) With every page readable, a
+claim at cap 10 started ~60 reads to keep 10: 6,086 of 7,300 /doi reads in a 10-text batch were cancelled after
+queueing ahead of other claims' first reads; `Crawler(concurrency=cap + 5)`. (3) cap 30 -> cap 10 interleaved: a third
+of the judge work at the same accuracy. Result, 10 texts at once (gpt-6-luna judge, OpenRouter's daily key limit
+having blocked Jev): **p50 19-21s, p90 23-24s, 0 claims cut** (Serper + Jev defaults 42 / 49); 5 at once 10.0 / 12.6;
+one text with Jev 10.1s (Serper 14.1). Per text ~4-6s atomize + filter, then per claim search 0.8s -> snippet judge
+~1s -> reads 0.4s -> page judges 2-3s; `max_concurrent_claims` 80 and 160 were slower than 50. Left: overlapping the
+reads with the snippet judgment (~0.3-1s per claim).
+
+**Found along the way.** 115 claims failed with `SSLV3_ALERT_BAD_RECORD_MAC` on reused Jev connections under CPython
+3.12.0: `post_with_retries` retries `ssl.SSLError` like a network error, and Python is pinned to 3.12.12. A provider's
+402 (no credits left) stops the check like a rejected key (`keys.auth_error`: 401 / 402 / 403; AKD's host joins the
+provider hosts from `AKD_SCHOLAR_SEARCH_URL`). gpt-6-luna through the Decisions API over-refutes (0.678 vs Jev 0.832 at
+90 words), so it served only as a latency stand-in; Jev stays the judge.

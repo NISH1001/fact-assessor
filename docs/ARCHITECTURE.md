@@ -78,9 +78,9 @@ lifecycle) around your one method; no abstract base classes anywhere.
 |---|---|---|---|
 | `Atomizer` | `atomize(text) -> list[Atom]` | `LLMAtomizer` (pydantic-ai; falls back to sentences if the LLM fails) | `atomizers/` |
 | `ClaimFilter` | `score(atoms)` -> P(factual claim) | `DecisionClaimFilter` (one decision per atom, on any runner) | `claim_filters/` |
-| `Searcher` | `search(query) -> list[hit]` | `SerperSearcher` (web or Google Scholar), `SearxngSearcher` (self-hosted; general or science engines), `DuckDuckGoSearcher`, `DocumentSearcher` (given documents: in-domain checks) | `search/` |
+| `Searcher` | `search(query) -> list[hit]` | `SerperSearcher` (web or Google Scholar), `SearxngSearcher` (self-hosted; general or science engines), `DuckDuckGoSearcher`, `DocumentSearcher` (given documents: in-domain checks), `AKDScholarSearcher` (AKD Scholar Search: BM25 over full-text papers, the matching passages as the snippet; server from `AKD_SCHOLAR_SEARCH_URL` / `AKD_SCHOLAR_SEARCH_API_KEY`) | `search/` |
 | `Resolver` (Protocol) | `resolve(url) -> list[str]` | `ArxivResolver`, `OpenAlexResolver`, `CompositeResolver` | `resolvers.py` |
-| `Crawler` | `crawl(url) -> Fetch` (page, status, `usable` by its `accept`) | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `CascadedCrawler` (waterfall), `NoCrawler` | `crawlers/` |
+| `Crawler` | `crawl(url) -> Fetch` (page, status, `usable` by its `accept`) | `Crawl4AICrawler` (browser), `HTTPXCrawler` (plain HTTP; HTML and PDF), `ImpitCrawler` (HTTP that looks like Firefox), `AKDDoiCrawler` (a paper's full text from AKD Scholar Search by the DOI in its url; no web fetch), `ResolvingCrawler(resolver, crawler)` (free copies first, then the url, as one crawler), `CascadedCrawler` (waterfall; `concurrency=` caps a claim's reads in flight), `NoCrawler` | `crawlers/` |
 | `Judge` (Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge` (one decision per (claim, passage), on any runner) | `judges/` |
 | `Ranker` (Protocol) | `top(claim, chunks, k) -> list[str]` | `BM25Ranker` (default), `EmbeddingRanker` (model2vec), `HybridRanker` | `rankers.py` |
 | `Policy` (Protocol) | `settled(evidence)`, `verdict(evidence)` | `WeightedPolicy` | `verify.py` |
@@ -135,7 +135,10 @@ Serper the same hosts are also excluded in the query itself (`-site:` operators,
 32-word cap, leakiest first), so Google fills those slots with usable sources instead of hits we pay for and drop;
 `not_blocked()` stays as the guarantee.
 When the atom carries `source_queries` (the atomizer's searches for the document the text came from), they are searched
-at the same time and their hits are appended after the claim's own, each URL once. A claim about a detail inside a
+at the same time and the rankings merged in `hit_order` (`search.merge`), each URL once: `HitOrder.ORIGINAL` (the
+default) appends each source query's hits after the claim's own; `INTERLEAVED` takes rank 1 of every search, then
+rank 2, so the page cap reaches every search's best hits; `RRF` is reciprocal rank fusion (a paper several searches
+return comes first). A claim about a detail inside a
 paper rarely finds the paper by itself (about a quarter of claims on scientific passages); the whole text usually
 does. The source query is identical for every claim of a text, so `FactAssessor` wraps the searcher in `Cache`: one
 real search, the other claims wait for it.
@@ -197,6 +200,7 @@ The 2x margin means one stray "refutation" (a related but different fact) doesn'
 | `LayaRunner` | one model and one thread per device per process; every request arriving within 5ms (any claim, page, or component) is merged into one pass, and everything arriving during a pass forms the next | 32 rows per forward pass |
 | `SystemOneRunner` (Jev) | one claim's passages per HTTP call: one state with the passages as a list, one question per passage, up to 40 (`packing=DecisionPacking.ALL` fills calls with every caller's requests in flight instead, `DecisionPacking.NONE` sends each alone); 429s and 5xx retried with backoff | 16 calls in flight |
 | SearXNG | `SearxngSearcher(max_concurrent=4)`: its upstream engines suspend a client that bursts | 4 requests in flight |
+| AKD Scholar Search | `AKDScholarSearcher` and `AKDDoiCrawler` each hold one pool of reused keep-alive connections (`utils.http_pool`; the decision runners too); opening ~100+ new sockets at once freezes the event loop in macOS `socket()` / `close()` for tens of seconds, and more connections don't raise throughput anyway | `max_connections` 32 each; `CascadedCrawler(..., concurrency=pages_per_claim + 5)` so a claim never starts reads the page cap will cancel |
 | browser | one shared headless browser | `max_concurrent_crawls` (10) pages at once, all claims |
 | plain HTTP | one shared connection pool | 20 at once |
 | OpenAlex | one client | 5 at once (OpenAlex asks for ≤ 10/s) |
@@ -267,6 +271,13 @@ fa = FactAssessor(
     crawler=CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()),
 )
 ```
+
+With AKD Scholar Search (full-text papers in one index, so most hits read without a web fetch):
+`searcher=AKDScholarSearcher(num=20)`, `crawler=CascadedCrawler(AKDDoiCrawler(), ResolvingCrawler(copies, web),
+concurrency=pages_per_claim + 5)`, `resolver=None` (the `ResolvingCrawler` resolves only what AKD couldn't read),
+`hit_order=HitOrder.INTERLEAVED` (the page cap reaches every search's best papers) and 512-word judge windows. The
+server comes from `AKD_SCHOLAR_SEARCH_URL` / `AKD_SCHOLAR_SEARCH_API_KEY`. See the README's "Scholarly search over
+full-text papers" and [design/decisions.md](design/decisions.md).
 
 ## Extending
 

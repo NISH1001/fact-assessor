@@ -17,6 +17,8 @@ one DecisionJudge and one DecisionClaimFilter; build order at the end, in progre
   hedging) belong in wrappers around a component, not in the orchestrator.
 - Laya is the local model for classification (filter, judge). It can't generate text. Question wording and state
   field order matter a lot for its accuracy: benchmark changes.
-- Keys live in `.env` (gitignored): `SERPER_API_KEY`, `OPENAI_API_KEY`.
+- Keys live in `.env` (gitignored): `SERPER_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`; AKD Scholar Search
+  (`AKDScholarSearcher`, `AKDDoiCrawler`): `AKD_SCHOLAR_SEARCH_URL`, `AKD_SCHOLAR_SEARCH_API_KEY`. Never write that
+  server's address in code, tests or docs: refer to the variable.
 - Notebooks are marimo (`notebooks/`). Run them with `uv run marimo edit --no-sandbox notebooks/<name>.py`
   (`fa.py` has a PEP 723 header for the no-clone one-liner; in the repo, `--no-sandbox` uses the local code).

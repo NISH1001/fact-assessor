@@ -120,6 +120,7 @@ uv run marimo edit --no-sandbox notebooks/fa_walk.py    # guided walk: building 
 | `SERPER_API_KEY` | web search ([serper.dev](https://serper.dev)) |
 | `OPENAI_API_KEY` | the atomizer (swap in any [pydantic-ai model](https://ai.pydantic.dev/models/), see below) |
 | `OPENROUTER_API_KEY` | the claim filter and the judge: Jev on [OpenRouter](https://openrouter.ai) (`runner=LayaRunner()` needs none) |
+| `AKD_SCHOLAR_SEARCH_URL`, `AKD_SCHOLAR_SEARCH_API_KEY` | AKD Scholar Search (optional): `AKDScholarSearcher` and `AKDDoiCrawler`, full-text papers (see "Scholarly search over full-text papers" below) |
 
 A `.env` in the working directory (or a parent) is loaded when `factassessor` is imported; variables already set
 in the environment win.
@@ -272,6 +273,7 @@ All keyword arguments to `FactAssessor`:
 | `strong_refutation` | 0.9 | min probability for a refuting passage to count: the judge calls a related-but-different fact (another paper by the same authors, another year) a refutation, so refutations need more confidence (recall 0.642 -> 0.700 on the paper eval, same false atoms through) |
 | `overfetch` | 1.0 | keep this much more hits than pages: 10 per search (still 1 Serper credit) |
 | `pages_per_claim` | 10 | readable pages judged per claim (2 x `top_k`); 15 tripled the claims hitting the deadline |
+| `hit_order` | `original` | how a claim's searches (its text, then each source query) merge into the list its pages are read in (`HitOrder`): `original` (the claim's hits, then each source query's), `interleaved` (rank 1 of every search, then rank 2: the page cap reaches every search), `rrf` (reciprocal rank fusion: a paper several searches return comes first). With every page readable (AKD's full text), cap 10 interleaved matched cap 30 at a third of the pages judged |
 | `passages_per_page` | 3 | windows of each page the judge sees |
 | `crawl_timeout` | 2.5 | seconds per page (a hard limit; a page that takes longer is dropped and the claim goes on without it) |
 | `search_hedge_after` | 1.2 | if a search hasn't answered by then, send the same request again and use whichever reply comes first (fixes Serper's occasional 3s+ outliers; only slow searches cost a second credit; `None` turns it off) |
@@ -411,8 +413,8 @@ Every built-in option, one line per role. Mix freely; anything not passed keeps 
 from factassessor import (
     FactAssessor, LLMAtomizer,                                      # atomizer
     DecisionClaimFilter,                                            # claim filter
-    SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, not_blocked, Take,  # searcher
-    Crawl4AICrawler, HTTPXCrawler, CascadedCrawler,                 # crawler
+    SerperSearcher, DuckDuckGoSearcher, SearxngSearcher, AKDScholarSearcher, not_blocked, Take,  # searcher
+    Crawl4AICrawler, HTTPXCrawler, CascadedCrawler, AKDDoiCrawler, ResolvingCrawler,  # crawler
     DecisionJudge,                                                  # judge
     LayaRunner, SystemOneRunner, LLMRunner, GlinerRunner,           # the model behind the filter and the judge
     WeightedPolicy,                                                 # policy
@@ -421,8 +423,8 @@ from factassessor import (
 FactAssessor(
     atomizer=LLMAtomizer("openai:gpt-6-luna"),                       # any pydantic-ai model
     claim_filter=DecisionClaimFilter(threshold=0.4),                 # Jev; or DecisionClaimFilter(LayaRunner()), or None (no filter)
-    searcher=SerperSearcher() >> not_blocked() >> Take(5),           # or DuckDuckGoSearcher(), SearxngSearcher(url)
-    crawler=Crawl4AICrawler(timeout=2.5),                            # or HTTPXCrawler(), CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler())
+    searcher=SerperSearcher() >> not_blocked() >> Take(5),           # or DuckDuckGoSearcher(), SearxngSearcher(url), AKDScholarSearcher() (papers)
+    crawler=Crawl4AICrawler(timeout=2.5),                            # or HTTPXCrawler(), CascadedCrawler(HTTPXCrawler(), Crawl4AICrawler()), AKDDoiCrawler() first for papers
     judge=DecisionJudge(),                                           # Jev; or DecisionJudge(LayaRunner()), DecisionJudge(OpenAIDecisionRunner()), DecisionJudge(LLMRunner())
     policy=WeightedPolicy(strong=0.7, early_exit=0.9),
 )
@@ -611,6 +613,58 @@ docker run -d --name searxng -p 127.0.0.1:8080:8080 -e SEARXNG_SECRET="$(openssl
 With that, Google, Bing, and Yahoo answered most queries (30-47 results each); Brave and DuckDuckGo rate-limit or
 show CAPTCHAs under load, which the others cover.
 
+**Scholarly search over full-text papers (AKD Scholar Search).** `AKDScholarSearcher` searches an AKD Scholar
+Search server (BM25 over 27.7M full-text papers, S2ORC): a hit is one paper, its doi.org link as the url and the
+passages matching the query (`max_matches` 3, `context_words` 40 around each) as the snippet, so the judge sees
+paper text before any crawl. `AKDDoiCrawler` reads a paper's full text from the same index by the DOI in its url,
+about 0.1s with no paywall or bot check (two thirds of AKD's doi.org links fail to crawl from the publisher); a url
+without a DOI, or a DOI the index lacks, is a `Fetch` without a page, so it goes first in a cascade and the web
+crawlers take the rest. `ResolvingCrawler(resolver, crawler)` is the resolver + crawler pair as one crawler (free
+copies first, then the url), so the cascade resolves only what AKD couldn't read, and nothing is resolved twice.
+The server's address and key come from `AKD_SCHOLAR_SEARCH_URL` and `AKD_SCHOLAR_SEARCH_API_KEY` (`.env` or the
+environment; or `url=` / `api_key=`); a rejected key stops the check with `InvalidAPIKeyError`, like Serper's.
+
+```python
+from factassessor import (AKDDoiCrawler, AKDScholarSearcher, ArxivResolver, CascadedCrawler, CompositeResolver,
+                          Crawl4AICrawler, DecisionJudge, FactAssessor, HitOrder, HTTPXCrawler, ImpitCrawler,
+                          OpenAlexResolver, PMCResolver, ResolvingCrawler, SystemOneRunner)
+
+# Where a hit is read from, in order. Every piece is a Crawler, so they nest.
+copies = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())  # a Resolver: where a paper is free (arXiv, OpenAlex, PMC)
+web = CascadedCrawler(HTTPXCrawler(timeout=2.5), ImpitCrawler(timeout=2.5), Crawl4AICrawler(timeout=2.5))  # plain HTTP, Firefox-like HTTP, a browser
+reader = CascadedCrawler(
+    AKDDoiCrawler(),                # 1. any url with a DOI: the paper's full text from the AKD index (~0.1s); no DOI or not indexed -> no page, so
+    ResolvingCrawler(copies, web),  # 2. the web: `copies` resolves the url to its free copies, `web` reads the first that works, else the url itself
+    concurrency=15,                 # reads in flight per claim: pages_per_claim + spares, so a claim never starts reads its cap will cancel
+)
+
+jev = SystemOneRunner()
+fa = FactAssessor(
+    searcher=AKDScholarSearcher(num=20),      # 20 papers per search (no not_blocked / Take: every hit is a paper)
+    crawler=reader,
+    resolver=None,                            # the ResolvingCrawler already resolves: nothing is resolved twice
+    pages_per_claim=10,
+    hit_order=HitOrder.INTERLEAVED,           # rank 1 of every search first, so the cap reaches the source query's papers
+    runner=jev, judge=DecisionJudge(jev, passage_words=512),  # 512-word windows: +0.03 F1 over 90 on Jev (Serper evidence)
+)
+```
+
+`ResolvingCrawler(copies, web)` reads exactly what `FactAssessor(resolver=copies, crawler=web)` reads; as a crawler it
+can sit behind another in a cascade, which `resolver=` can't. Any resolver and any crawler go in its place
+(`ResolvingCrawler(ArxivResolver(), HTTPXCrawler())`), and `reader` alone, without AKD, is
+`ResolvingCrawler(copies, web)`.
+
+Measured (SciELF paper eval, Jev 1.14, 512-word windows, three searches per claim; details in
+[docs/design/decisions.md](docs/design/decisions.md)): on the 30 answers clean in every run, this setup reaches macro
+F1 0.810 judging 4.6 pages per claim, the same as reading up to 30 pages (0.804 at 12.7 pages); with `original` order
+the cap filled with the claim's own hits before the source paper's (0.700). Serper at the same cap: 0.840 at 4.3
+pages. AKD's snippets alone (no crawl) stay well below pages (0.586 vs 0.775 for Serper with pages on the same
+answers), and about 10 of the eval's 50 source papers are not in the index. Latency, 10 texts at once on a laptop:
+p50 21s, p90 24s, no claim at the deadline (Serper with the defaults: 42 / 49; judged by gpt-6-luna; Jev one text
+at a time 10s). Both AKD components keep 32 reused connections (`max_connections`): opening ~100+ new sockets at once
+freezes the event loop on macOS for tens of seconds, and `CascadedCrawler(concurrency=)` keeps a claim from starting
+reads the cap will cancel (6,086 of 7,300 reads in a 10-text batch, before).
+
 ## Development
 
 ```bash
@@ -639,15 +693,18 @@ factassessor/
     _base.py         ClaimFilter (role)
     decision.py      DecisionClaimFilter (default): one decision per atom on any runner
   search/            query -> hits
-    _base.py         Searcher (role), SearchType (general / science), not_blocked, hedging
+    _base.py         Searcher (role), SearchType (general / science), not_blocked, hedging; Hit, HitOrder, merge (how a claim's searches combine)
     serper.py        SerperSearcher (Google web search, or Google Scholar)
     searxng.py       SearxngSearcher (self-hosted)
     duckduckgo.py    DuckDuckGoSearcher (no key)
     documents.py     DocumentSearcher (given documents: in-domain checks)
+    akd.py           AKDScholarSearcher (AKD Scholar Search: BM25 over full-text papers, the matching passages as the snippet)
   crawlers/          url -> clean page text
-    _base.py         Crawler (role), CascadedCrawler, NoCrawler
+    _base.py         Crawler (role; concurrency= caps a claim's reads in flight), CascadedCrawler, NoCrawler
     browser.py       Crawl4AICrawler (headless browser, JavaScript)
     plain_http.py    HTTPXCrawler (plain HTTP, fast; HTML and PDF)
+    akd.py           AKDDoiCrawler (a paper's full text from AKD Scholar Search by the DOI in its url; no web fetch)
+    resolving.py     ResolvingCrawler (resolver + crawler as one crawler: free copies first, then the url)
   resolvers.py       Resolver (role, a Protocol): url -> where to read it in full; Arxiv, OpenAlex, Composite
   rankers.py         Ranker (role, a Protocol): which chunks of a page the judge sees; BM25 (default), Embedding, Hybrid
   extract.py         document -> text: extract() (PDF or HTML, by type or bytes), pdf_text, html_text
