@@ -447,7 +447,9 @@ async def live(args: argparse.Namespace) -> None:
         # akd-doi+web: AKD's full text first; only for hits AKD can't read, free copies resolved once and read with
         # the library's web cascade (ResolvingCrawler), so the resolver lives inside the crawler, not in Verify
         crawler={"akd-doi": AKDDoiCrawler, "none": NoCrawler,
-                 "akd-doi+web": lambda: CascadedCrawler(AKDDoiCrawler(), ResolvingCrawler(_DEFAULT_RESOLVER, pipe.crawler)),
+                 "akd-doi+web": lambda: CascadedCrawler(AKDDoiCrawler(), ResolvingCrawler(_DEFAULT_RESOLVER, pipe.crawler),
+                                                  # a claim keeps cap + 5 reads in flight, not all ~60 of its hits
+                                                  concurrency=(args.pages_per_claim or _DEFAULT_PAGES) + 5),
                  }.get(args.crawler, lambda: None)(),
         resolver=None if (args.no_resolver or args.crawler != "default") else _DEFAULT_RESOLVER, source_queries=args.source_queries,
         pages_per_claim=args.pages_per_claim if args.pages_per_claim else _DEFAULT_PAGES, hit_order=args.hit_order,
