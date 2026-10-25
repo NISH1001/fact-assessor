@@ -406,11 +406,22 @@ once, 30s claim deadline): combined F1 **0.789** (precision 0.932, recall 0.713)
 atoms caught, **no claim at its deadline**, about $9. FactReasoner's paper: 0.731 / 0.694; Serper + Jev 1.14 at 512
 words: 0.834 (0.845 on the same 73 answers where luna scored 0.784).
 
-Three earlier attempts at this run were discarded: from one answer on (41 of 100, then 75 with more judge slots)
-every claim ran to its deadline, while AKD and OpenAI answered in 0.13-0.2s from outside and the process sat at 200%
-CPU. httpcore's connection pool re-scans every queued request against every connection on each event; 50 claims x 15
-paper reads queued on 32 AKD connections made that quadratic on the main thread, and once there it never recovered.
-`utils.http_pool` now returns `BoundedClient`: a semaphore of the pool's size in front of httpx, so a component's
-queue lives in the component (as `HTTPXCrawler`'s slots and the runners' batcher already did). Two eval-harness gaps
-found on the way, both measured settings the harness hadn't carried: the per-claim read limit (`concurrency=cap+5`)
-and 64 judge calls in flight (the runners' default 16 queued claims past the deadline on 20-38-atom answers).
+**Jev 1.14 on ZenMux, the same setup, same day:** combined F1 **0.790** (precision 0.949, recall 0.719), corrupted
+0.759, 226 of 249 false atoms caught, no claim at its deadline, $3.54 (estimated from input tokens). The two judges
+tie on AKD evidence once both use the same-study question; Jev is 2.4x cheaper.
+
+Four earlier attempts at these runs were discarded: from one answer on (41, 75, 50 of 100) every claim ran to its
+deadline while AKD, OpenAI and ZenMux answered a fresh connection in 0.13-0.26s. Three fixes were made before the
+cause was known, and none of them was it: 64 judge calls in flight and the per-claim read limit in the eval (real
+gaps the harness had, kept), and `BoundedClient` (a semaphore in front of each pool, harmless, kept); a reading of
+200% CPU was a decaying `ps` average catching the saver's gzip, and a native `sample` showed every thread idle. A
+per-component trace with outcomes and in-flight counts (tmp/eval_atoms/eval_trace.py) found it in one run: the
+harness's `fill_pages`, which reads the hits the run didn't judge so replays have every page, ran after each answer
+through the live crawler's 32 AKD connections, 8 reads at a time per answer, 10 answers at once, each cut at 8s. With
+Serper that was 15 mostly unreadable web hits per claim; with AKD it is 60 readable papers, hundreds of reads per
+answer, and the backlog starved the live reads (cancelled at exactly 8.00s, zero successes) while Jev, search and the
+web fallback stayed under a second. The fill now runs once after the numbers are printed (`--no-fill` skips it). The
+lesson is written in AGENTS.md: trace components with outcomes before fixing anything, and no helper work shares a
+live pool. Left open: in the eval's load (every labelled atom, up to 41 per answer, 10 answers at once) the AKD
+reader still runs 1,300-1,700 reads in flight at 18-23s each from this Mac (about 50 reads/s), so answers take
+47s p50 / 62s p90 without timing out; on our own atomized texts (16 claims) the reader keeps up (p90 26s).
