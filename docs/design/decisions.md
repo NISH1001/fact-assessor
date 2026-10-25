@@ -366,11 +366,14 @@ wrong theories; 256 /doi calls through httpx's defaults 77s, through a 32-connec
 64 stall again, and bigger pools don't raise throughput (per-request event-loop cost). (2) With every page readable, a
 claim at cap 10 started ~60 reads to keep 10: 6,086 of 7,300 /doi reads in a 10-text batch were cancelled after
 queueing ahead of other claims' first reads; `Crawler(concurrency=cap + 5)`. (3) cap 30 -> cap 10 interleaved: a third
-of the judge work at the same accuracy. Result, 10 texts at once (gpt-6-luna judge, OpenRouter's daily key limit
-having blocked Jev): **p50 19-21s, p90 23-24s, 0 claims cut** (Serper + Jev defaults 42 / 49); 5 at once 10.0 / 12.6;
-one text with Jev 10.1s (Serper 14.1). Per text ~4-6s atomize + filter, then per claim search 0.8s -> snippet judge
-~1s -> reads 0.4s -> page judges 2-3s; `max_concurrent_claims` 80 and 160 were slower than 50. Left: overlapping the
-reads with the snippet judgment (~0.3-1s per claim).
+of the judge work at the same accuracy. Result with Jev (2026-10-25): 10 texts at once **p50 25.5s, p90 29.6s, 0 of
+161 claims cut, $0.37** (Serper + Jev defaults 42 / 49); 5 at once 13.5 / 13.9s; one text 10.1s (Serper 14.1). With
+gpt-6-luna as the judge (while OpenRouter's daily key limit blocked Jev) 19-21 / 23-24s and 10.0 / 12.6s: its calls
+are a little faster (p50 0.37s vs 0.48s), it supports less than half as many claims. At 10 at once three texts finish
+in 8-9s and the rest in 24-30s, consistent with 161 claims going through 50 claim slots in three waves of ~6s each
+after ~8s of atomizing and filtering. Per text ~4-8s atomize + filter, then per claim search 0.8s -> snippet judge
+~1s -> reads 0.5s -> page judges 2-3s; `max_concurrent_claims` 80 and 160 were slower than 50 (luna). Left:
+overlapping the reads with the snippet judgment (~0.3-1s per claim).
 
 **Found along the way.** 115 claims failed with `SSLV3_ALERT_BAD_RECORD_MAC` on reused Jev connections under CPython
 3.12.0: `post_with_retries` retries `ssl.SSLError` like a network error, and Python is pinned to 3.12.12. A provider's

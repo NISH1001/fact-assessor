@@ -659,9 +659,9 @@ Measured (SciELF paper eval, Jev 1.14, 512-word windows, three searches per clai
 F1 0.810 judging 4.6 pages per claim, the same as reading up to 30 pages (0.804 at 12.7 pages); with `original` order
 the cap filled with the claim's own hits before the source paper's (0.700). Serper at the same cap: 0.840 at 4.3
 pages. AKD's snippets alone (no crawl) stay well below pages (0.586 vs 0.775 for Serper with pages on the same
-answers), and about 10 of the eval's 50 source papers are not in the index. Latency, 10 texts at once on a laptop:
-p50 21s, p90 24s, no claim at the deadline (Serper with the defaults: 42 / 49; judged by gpt-6-luna; Jev one text
-at a time 10s). Both AKD components keep 32 reused connections (`max_connections`): opening ~100+ new sockets at once
+answers), and about 10 of the eval's 50 source papers are not in the index. Latency on a laptop, Jev judging: 10
+texts at once p50 26s, p90 30s, no claim at the deadline (Serper with the defaults: 42 / 49); 5 at once 13.5 /
+13.9s; one text 10s. Both AKD components keep 32 reused connections (`max_connections`): opening ~100+ new sockets at once
 freezes the event loop on macOS for tens of seconds, and `CascadedCrawler(concurrency=)` keeps a claim from starting
 reads the cap will cancel (6,086 of 7,300 reads in a 10-text batch, before).
 
