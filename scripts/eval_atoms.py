@@ -254,14 +254,18 @@ class CachedCrawler(Crawler):
 
 # --- runs ---------------------------------------------------------------------------------------------------------
 
+JUDGE_SLOTS = 64  # judge calls in flight, as the latency runs measured (the runners default to 16, too few for 10 answers of
+                  # 20-38 labelled atoms each: claims queued past the deadline)
+
+
 def make_judge(args: argparse.Namespace) -> DecisionJudge:
     """The same judge on `--judge laya` (local, the default) or `--judge decision` (Jev on ZenMux: `--judge-model`,
     `--batch-size` requests per call); the live run's claim filter shares the judge's runner."""
     ranker = HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None
     if args.judge == "decision":
-        runner: Any = SystemOneRunner(model=args.judge_model, packing=args.pack, **({"batch_size": args.batch_size} if args.batch_size else {}))
+        runner: Any = SystemOneRunner(model=args.judge_model, packing=args.pack, max_concurrent=JUDGE_SLOTS, **({"batch_size": args.batch_size} if args.batch_size else {}))
     elif args.judge == "openai":  # gpt-6-luna through OpenAI's Decisions API: probabilities in one pass, like Jev
-        runner = OpenAIDecisionRunner(packing=args.pack, **({"batch_size": args.batch_size} if args.batch_size else {}))
+        runner = OpenAIDecisionRunner(packing=args.pack, max_concurrent=JUDGE_SLOTS, **({"batch_size": args.batch_size} if args.batch_size else {}))
     elif args.judge == "llm":  # any chat model behind the same decision interface (default gpt-6-luna, reasoning off)
         runner = LLMRunner(args.llm_model)
     else:
