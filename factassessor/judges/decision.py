@@ -13,15 +13,17 @@ from factassessor.schema import Evidence
 
 PASSAGES_PER_PAGE = 3  # windows of each page the judge sees: 3 vs 1 gave +0.10 F1 on the paper eval
 
-# Evidence-first state + this wording: 13/15 on our judge benchmark with Laya; claim-first variants topped out at 9/15.
+# Evidence-first state: 13/15 on our judge benchmark with Laya; claim-first variants topped out at 9/15.
+# Refuting needs the same study or subject (2026-10-25, 25 answers of AKD evidence): with "says something different",
+# gpt-6-luna called other papers' passages refutations (164 claims refuted, F1 0.558 -> 0.741 reworded); Jev 0.719 -> 0.733.
 QUESTION = {
     "stance": Question(
         type="choice",
         instructions="According to `evidence`, is `claim` true or false?",
         criteria={
-            "supports": "true: the evidence says the same thing as the claim",
-            "refutes": "false: the evidence says something different that makes the claim wrong",
-            "not_enough_info": "unknown: the evidence does not mention what the claim is about",
+            "supports": "true: the evidence states the same fact as the claim, about the same study or subject",
+            "refutes": "false: the evidence is about the same study or subject as the claim and states something incompatible with it",
+            "not_enough_info": "unknown: the evidence is about a different study or subject, or does not mention what the claim is about",
         },
     )
 }
