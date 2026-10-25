@@ -380,3 +380,20 @@ overlapping the reads with the snippet judgment (~0.3-1s per claim).
 402 (no credits left) stops the check like a rejected key (`keys.auth_error`: 401 / 402 / 403; AKD's host joins the
 provider hosts from `AKD_SCHOLAR_SEARCH_URL`). gpt-6-luna through the Decisions API over-refutes (0.678 vs Jev 0.832 at
 90 words), so it served only as a latency stand-in; Jev stays the judge.
+
+## OpenAI Decisions request layout: tested and kept as it was (2026-10-25)
+
+`OpenAIDecisionRunner` writes Jev's request out as text: every passage of a claim in the `input` as `evidence[i]: ...`
+lines plus `claim: ...`, one question per passage naming its line. OpenAI's Decisions guide describes one shared
+`input` with independent questions, and for several candidates against one reference "each candidate gets its own
+question" (shown with images in the question's instructions). We switched to that (claim as the input, each passage
+inside its own question) and ran the live eval on the first 10 answers (AKD, cap 10 interleaved, 512 x 3, luna):
+combined F1 **0.373** (Jev on the same answers 0.678; "always supported" 0.763), 75 of 122 atoms refuted, 51 of 94
+true atoms refuted. On the same 8 claims and 24 passages, judged three ways at once: the question layout called 16
+unrelated passages refutations at 0.9 or more, one passage per call 7, the original layout 1. With wording written
+for the question layout ("The evidence is the passage above; the claim is in the input ...") it still labelled 11 of
+24 as refutes (the original layout 3). Luna reads a lone unrelated passage as grounds to call the claim false; with
+the claim's passages side by side in the input it answers "not enough info". The change was reverted (commit
+362ccd1); the layout stays Jev's as text, which is what every luna number in this file was measured with. Untested
+still: the page as a cached input with the text's claims as questions (the guide's caching pattern), a different
+unit of work for `Verify`.
