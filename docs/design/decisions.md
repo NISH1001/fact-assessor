@@ -397,3 +397,20 @@ the claim's passages side by side in the input it answers "not enough info". The
 362ccd1); the layout stays Jev's as text, which is what every luna number in this file was measured with. Untested
 still: the page as a cached input with the text's claims as questions (the guide's caching pattern), a different
 unit of work for `Verify`.
+
+## gpt-6-luna on AKD, the full live eval (2026-10-25)
+
+100 answers live (AKD top 20, full text from the index then the web, cap 10 interleaved, 512-word windows x 3, the
+same-study question, luna through the Decisions API in its guide's layout, 64 judge calls in flight, 10 answers at
+once, 30s claim deadline): combined F1 **0.789** (precision 0.932, recall 0.713), corrupted 0.763, 213 of 249 false
+atoms caught, **no claim at its deadline**, about $9. FactReasoner's paper: 0.731 / 0.694; Serper + Jev 1.14 at 512
+words: 0.834 (0.845 on the same 73 answers where luna scored 0.784).
+
+Three earlier attempts at this run were discarded: from one answer on (41 of 100, then 75 with more judge slots)
+every claim ran to its deadline, while AKD and OpenAI answered in 0.13-0.2s from outside and the process sat at 200%
+CPU. httpcore's connection pool re-scans every queued request against every connection on each event; 50 claims x 15
+paper reads queued on 32 AKD connections made that quadratic on the main thread, and once there it never recovered.
+`utils.http_pool` now returns `BoundedClient`: a semaphore of the pool's size in front of httpx, so a component's
+queue lives in the component (as `HTTPXCrawler`'s slots and the runners' batcher already did). Two eval-harness gaps
+found on the way, both measured settings the harness hadn't carried: the per-claim read limit (`concurrency=cap+5`)
+and 64 judge calls in flight (the runners' default 16 queued claims past the deadline on 20-38-atom answers).
