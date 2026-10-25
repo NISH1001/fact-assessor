@@ -422,6 +422,17 @@ Serper that was 15 mostly unreadable web hits per claim; with AKD it is 60 reada
 answer, and the backlog starved the live reads (cancelled at exactly 8.00s, zero successes) while Jev, search and the
 web fallback stayed under a second. The fill now runs once after the numbers are printed (`--no-fill` skips it). The
 lesson is written in AGENTS.md: trace components with outcomes before fixing anything, and no helper work shares a
-live pool. Left open: in the eval's load (every labelled atom, up to 41 per answer, 10 answers at once) the AKD
-reader still runs 1,300-1,700 reads in flight at 18-23s each from this Mac (about 50 reads/s), so answers take
-47s p50 / 62s p90 without timing out; on our own atomized texts (16 claims) the reader keeps up (p90 26s).
+live pool.
+
+Latency of that Jev run, and why it is not Jev's: per answer p50 46.6s / p90 62.5s / max 89.5s (luna's run on the
+same answers: 15.0 / 26.2 / 40.8s; per claim Jev 18.9s p50 vs luna 5.7s). The trace shows where the time went: a
+steady 705 AKD reads in flight (47 claims x 15, so `Crawler(concurrency=cap + 5)` and the 50-claim gate both hold on
+the eval's path), each waiting 18-23s for one of the 32 connections, because the server was delivering only 27
+reads/s (its fill phase: 32 reads in flight, 1.2s each, 800 per 30s) and 120 reads/s in the run's first 30s. Jev on
+ZenMux answered in 0.17-0.4s p50 the whole time with at most 28 of its 64 slots busy. Two hours later (15:16) the same
+DOIs through the same 32-connection pool read at 0.14s each, 350-420 reads/s sustained over 1,920 reads with no decay
+(scratchpad akd_doi_probe2.py; one 10s blip in which the server dropped all 32 keep-alive connections and 4 reads
+failed). So the reader's throughput from this Mac is the AKD server's at the time, 27-420 reads/s, and the eval's
+per-answer latency moves with it: at 350 reads/s ten answers' claims (160-410 claims x 10 pages) take 5-12s of reads.
+The number to quote for Jev + AKD at 10 texts at once is the latency script's p50 25.5s / p90 29.6s (2026-10-25
+10:28, own atomized texts); the eval's 47s / 62s is the same pipeline on a slow server hour with 2x the claims.
