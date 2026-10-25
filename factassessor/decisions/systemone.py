@@ -38,6 +38,7 @@ class SystemOneRunner(DecisionRunner):
     """
 
     URL = "https://openrouter.ai/api/v1/systemone"
+    PRICE_PER_INPUT_TOKEN = 0.042 / 1e6  # Jev 1.13 / 1.14 on OpenRouter and ZenMux; output tokens are free
 
     def __init__(
         self,
@@ -94,7 +95,9 @@ class SystemOneRunner(DecisionRunner):
         body, routes = pack(requests, self.model)
         data = await post_with_retries(self._http, self.url, body)  # type: ignore[arg-type]
         usage = {k: float(v) for k, v in (data.get("usage") or {}).items() if isinstance(v, (int, float))}
-        self.cost += usage.get("cost", 0.0)
+        if "cost" not in usage:  # ZenMux reports tokens only: estimate the spend at the input price
+            usage["cost"] = usage.get("input_tokens", usage.get("prompt_tokens", 0.0)) * self.PRICE_PER_INPUT_TOKEN
+        self.cost += usage["cost"]
         share = {k: v / len(requests) for k, v in usage.items()}
         return [
             DecisionResponse(answers={key: Answer.model_validate(data["answers"][packed]) for key, packed in route.items()}, usage=share)

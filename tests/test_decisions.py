@@ -26,6 +26,18 @@ def answer(label, prob):
     return {"type": "choice", "choice": label, "probabilities": {label: prob, others[0]: round(1 - prob, 3), others[1]: 0.0}}
 
 
+async def test_a_provider_that_reports_tokens_but_no_cost_is_priced_from_input_tokens():
+    """ZenMux reports `input_tokens` and no `cost`: the spend is estimated at Jev's input price."""
+    def handler(req):
+        body = json.loads(req.content)
+        return httpx.Response(200, json={"answers": {k: answer("supports", 0.9) for k in body["questions"]},
+                                         "usage": {"input_tokens": 1_000_000, "output_tokens": 50}})
+
+    r = runner(handler)
+    await r.predict([request("1903")])
+    assert r.cost == pytest.approx(SystemOneRunner.PRICE_PER_INPUT_TOKEN * 1_000_000)
+
+
 def jev(bodies, cost=0.00001, fail_first=0):
     """A fake System One server: 'supports' when the evidence a question refers to mentions 1903."""
     calls = 0
