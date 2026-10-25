@@ -725,7 +725,8 @@ laya / gliner / llm runs on it, with a comparison and plots in `data/results/` (
 `scripts/eval_atoms.py` scores a labelled long-form set atom by atom with the SciELF paper's metric (per-answer
 precision / recall / F1, macro-averaged; live run with cached evidence, then free replays of other judging settings),
 which is how the comparison against FactReasoner in [issue #1](https://github.com/NISH1001/fact-assessor/issues/1) is
-produced; that dataset is not in the repo.
+produced; that dataset is not in the repo. Its manual (modes, flags, output files, batching, costs, the measured
+setups' commands) is the "End-to-end harness" section of [docs/EVALS.md](docs/EVALS.md).
 
 ## Roadmap
 

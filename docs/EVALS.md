@@ -4,6 +4,84 @@ Component benchmarks, each with its script and full tables. End-to-end accuracy 
 are in [issue #1](https://github.com/NISH1001/fact-assessor/issues/1); measured trade-offs behind the defaults are in
 [design/decisions.md](design/decisions.md).
 
+## End-to-end harness: `scripts/eval_atoms.py`
+
+The product on a labelled long-form set: every labelled atom goes through `FactAssessor` (search, resolve, crawl,
+judge; the claim filter runs on the atomizer's atoms for timing only, so every labelled atom gets a verdict) and is
+scored with the SciELF paper's metric. This produced the FactReasoner comparison in issue #1 and every end-to-end
+number in design/decisions.md since 2026-09-30. `uv run python scripts/eval_atoms.py --help` lists every flag.
+
+**Data.** `tmp/scielf_paired.jsonl` (external, gitignored): pairs of an `original` and a `corrupted` long-form
+answer, each with human-labelled atoms (`S` true, `NS` false); rows marked `is_synthetic` are skipped, leaving 50
+pairs. Answers are named by the pair's position, `p000-original` / `p000-corrupted`, so `--limit N` (the first N
+pairs, 2N answers) and `--sample N` (N random pairs, `--seed`) name the same answers as a full run.
+
+**Modes.**
+
+- `live`: the whole pipeline, with the atomizer writing `--source-queries` (2) per text. Every search is cached in
+  `hits.json.gz` and every page the judge saw in `pages.json.gz`. Resumable: answers already in `results.json.gz` are
+  skipped, so a run goes in batches by growing `--limit` with the same `--tag`, and a corrupted answer reuses its
+  original's cached searches.
+- `replay`: the cached evidence of `--tag`, judged again with another setup, written to `--out`. No network (free of
+  Serper and AKD, minutes long; the judge's runner is the only cost). Knobs: `--passages`, `--passage-words`,
+  `--pages-per-claim`, `--hit-order`, `--hits N` (first N hits of every query), `--source-hits N`,
+  `--no-source-query`, `--judge`, `--strong`, `--strong-refute`; `--live-crawl` re-crawls live from the run's searches.
+- `synth`: our own atoms (originals atomized, one-detail corruptions written by an LLM) through the product path;
+  it measures atomization in the loop and is not comparable to the paper's table.
+- `report --tag`: the table and timings of a run.
+
+**Output.** `tmp/eval_atoms/<tag>/`: `hits.json.gz`, `pages.json.gz`, `results.json.gz` (per answer: its atoms with
+verdict, label, error and per-component times) and `meta.json` (when, commit, argv and every argument; appended per
+invocation, so a batched run lists each batch). The table is per-answer accuracy, precision, recall and F1 with S as
+the positive class, macro-averaged over answers, on the corrupted split and on original + corrupted combined;
+`supported` counts as S, every other verdict as NS; the paper's Table 3 row (web, combined F1 0.731) is printed for
+reference. Then verdict counts, false atoms caught, timeouts, per-claim component percentiles, and per-answer times
+for the originals whose searches were live.
+
+**Judges and keys.** `--judge laya` (the flag's default; local), `decision` (Jev on OpenRouter through System One;
+`--judge-model`, whose default is the pinned 1.13: pass `typesafe/jev-1.14-20261014` for 1.14), `openai` (gpt-6-luna
+through OpenAI's Decisions API: `OPENAI_API_KEY` only, no Jev anywhere), `llm` (a chat model, `--llm-model`). The
+atomizer always needs `OPENAI_API_KEY`. `--searcher serper` needs `SERPER_API_KEY` (10 results = 1 credit, about
+1,530 per full live run); `akd` needs `AKD_SCHOLAR_SEARCH_URL` / `AKD_SCHOLAR_SEARCH_API_KEY` (no credits, and the
+index doesn't change between runs); `searxng` a local instance (small probes only: a full run gets it suspended).
+
+**The flag defaults are not the library's**: `--passages 1`, `--passage-words 90`, `--overfetch 0`, `--timeout 15`
+(live), `--judge laya`, `--hit-order original`. The measured setups pass theirs explicitly:
+
+```bash
+# the issue #1 baseline (2026-09-30, tag web-serper): Serper + Jev, 10 readable pages per claim, 3 windows per page
+uv run python scripts/eval_atoms.py live --data tmp/scielf_paired.jsonl --tag web-serper --searcher serper \
+  --overfetch 1.0 --passages 3 --timeout 42 --judge decision --parallel 6
+
+# the same evidence judged by Jev 1.14 at 512-word windows (combined F1 0.834; 90 words 0.806)
+uv run python scripts/eval_atoms.py replay --tag web-serper --out web-serper-j114-w512 --passage-words 512 \
+  --passages 3 --pages-per-claim 10 --judge decision --judge-model typesafe/jev-1.14-20261014 --parallel 10
+
+# AKD Scholar Search, full text from the index, cap 10 interleaved (0.810 on the clean subset, Serper 0.840 there)
+uv run python scripts/eval_atoms.py live --data tmp/scielf_paired.jsonl --tag live-akd-top20-j114-w512-p10-il \
+  --searcher akd --akd-top 20 --crawler akd-doi+web --pages-per-claim 10 --hit-order interleaved \
+  --passages 3 --passage-words 512 --judge decision --judge-model typesafe/jev-1.14-20261014 --parallel 10
+#   gpt-6-luna judging instead (OpenAI key only): --judge openai and no --judge-model
+#   in batches: --limit 5 (10 answers) first, check the table, then --limit 10, 15, ... with the same --tag
+#   (the AKD numbers of 2026-10-23/24 came from the top-10 live run `web-akd`, re-searched at top 20 by
+#   tmp/eval_atoms/akd_top20.py and given /doi pages by backfill_doi.py --first, then replayed; this command
+#   is the first-class way to produce that evidence now)
+
+uv run python scripts/eval_atoms.py report --tag live-akd-top20-j114-w512-p10-il
+```
+
+**Cost and time, 100 answers.** Jev at 512 words x 3 windows: $3.2-3.7, 4-6 min for a replay, 6-10 min live at
+`--parallel 10`; at 90 x 3 about $0.5. gpt-6-luna judging: about 2.4x Jev (about $9). Atomizer: about $0.03 per
+live run. OpenRouter keys carry a daily limit (`GET https://openrouter.ai/api/v1/key`: `limit_remaining`); once it
+is hit every Jev call is a 403, the run stops with `InvalidAPIKeyError`, and it resumes by tag after the reset.
+Compare setups on replays of the same evidence; a live run's number moves with the web.
+
+**Recording.** Every run's numbers, flags and findings go in `tmp/eval_atoms/RESULTS-<date>.md` as they finish
+(gitignored, on disk); a conclusion that changes a default goes in [design/decisions.md](design/decisions.md) with
+its date, and comparisons against FactReasoner in issue #1 (chart style: the issue's latest comment). Latency traces
+(N texts at once, a per-component timing table) come from `tmp/eval_atoms/akd_e2e.py`, kept next to the other
+one-off scripts there (`akd_trace.py`, `backfill_doi.py`, `window_chart.py`).
+
 ## Atomizers: `LLMAtomizer` vs `SpanAtomizer` (2026-10-13)
 
 `LLMAtomizer` (gpt-6-luna, the default prompt) against `SpanAtomizer` (our span model,
