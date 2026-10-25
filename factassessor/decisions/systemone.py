@@ -1,4 +1,4 @@
-"""SystemOneRunner: Jev's System One protocol over HTTP (OpenRouter, or a remote `python -m laya.serve`)."""
+"""SystemOneRunner: Jev's System One protocol over HTTP (ZenMux, OpenRouter, or a remote `python -m laya.serve`)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from factassessor.utils import http_pool
 
 
 class SystemOneRunner(DecisionRunner):
-    """Jev's System One protocol over HTTP: OpenRouter's Jev by default, or a remote `python -m laya.serve`.
+    """Jev's System One protocol over HTTP: ZenMux's Jev by default, OpenRouter's, or a remote `python -m laya.serve`.
 
     Jev is a hosted decision model of the same kind as Laya: no local GPU floor, calls run in parallel (~0.5s
     each), priced per input token ($0.042 per million for jev-1.13 at the time of writing, output free): a
@@ -33,16 +33,22 @@ class SystemOneRunner(DecisionRunner):
     `DecisionPacking.ALL` (every caller's requests in flight, more throughput, claims mixed), `DecisionPacking.NONE` (one request
     per call).
 
-    URL: `url`, else `OPENROUTER_DECISIONS_URL`, else OpenRouter. Key: `api_key`, else `OPENROUTER_API_KEY`
-    (env or .env); a Laya server needs none.
+    Host: `url`, else `OPENROUTER_DECISIONS_URL`, else ZenMux. Key: `api_key`, else the host's variable
+    (`HOSTS`: ZenMux `ZENMUX_API_KEY`, OpenRouter `OPENROUTER_API_KEY`; env or .env); a Laya server needs none.
+    Model ids differ by host: ZenMux `typesafe/jev-1.13` / `typesafe/jev-1.14`, OpenRouter the dated ids
+    (`typesafe/jev-1.13-20260917`, `typesafe/jev-1.14-20261014`). On OpenRouter:
+    `SystemOneRunner(url=SystemOneRunner.OPENROUTER, model="typesafe/jev-1.13-20260917")` with OPENROUTER_API_KEY set.
+    ZenMux reports tokens but no cost: the spend is estimated from input tokens (`PRICE_PER_INPUT_TOKEN`).
     """
 
-    URL = "https://openrouter.ai/api/v1/systemone"
+    URL = "https://zenmux.ai/api/v1/systemone"  # the default host
+    OPENROUTER = "https://openrouter.ai/api/v1/systemone"
+    HOSTS = {"zenmux.ai": "ZENMUX_API_KEY", "openrouter.ai": "OPENROUTER_API_KEY"}  # host -> its key variable
     PRICE_PER_INPUT_TOKEN = 0.042 / 1e6  # Jev 1.13 / 1.14 on OpenRouter and ZenMux; output tokens are free
 
     def __init__(
         self,
-        model: str = "typesafe/jev-1.13-20260917",  # pinned: ~typesafe/jev-latest is jev-1.14 since 2026-10-14
+        model: str = "typesafe/jev-1.13",  # ZenMux's id (OpenRouter: typesafe/jev-1.13-20260917); 1.14 is typesafe/jev-1.14
         url: str | None = None,
         api_key: str | None = None,
         batch_size: int = 40,  # requests per call
@@ -53,8 +59,9 @@ class SystemOneRunner(DecisionRunner):
     ) -> None:
         self.model = model
         self.url = url or os.environ.get("OPENROUTER_DECISIONS_URL", "").strip() or self.URL
-        if "openrouter.ai" in self.url:  # a local Laya server needs no key
-            api_key = require_key("OPENROUTER_API_KEY", api_key, needed_by="Jev (SystemOneRunner, on OpenRouter)",
+        self.key_env = next((env for host, env in self.HOSTS.items() if host in self.url), None)  # None: a Laya server, no key
+        if self.key_env:
+            api_key = require_key(self.key_env, api_key, needed_by=f"Jev (SystemOneRunner, on {self.url.split('/')[2]})",
                                   instead=RUN_LOCALLY)
         self.api_key = api_key
         self.batch_size = batch_size
@@ -67,11 +74,11 @@ class SystemOneRunner(DecisionRunner):
 
     def _headers(self) -> dict[str, str]:
         headers = {"X-OpenRouter-Title": "fact-assessor"}
-        key = self.api_key or os.environ.get("OPENROUTER_API_KEY", "").strip()
+        key = self.api_key or (os.environ.get(self.key_env, "").strip() if self.key_env else "")
         if key:
             headers["Authorization"] = f"Bearer {key}"
-        elif "openrouter.ai" in self.url:
-            raise RuntimeError("OPENROUTER_API_KEY is missing (set it in the environment or .env)")
+        elif self.key_env:
+            raise RuntimeError(f"{self.key_env} is missing (set it in the environment or .env)")
         return headers
 
     async def aload(self) -> None:

@@ -8,12 +8,16 @@ from factassessor.atomizers import LLMAtomizer
 from factassessor.decisions.utils import RUN_LOCALLY
 
 
-def test_jev_without_an_openrouter_key_fails_at_creation_and_points_to_local_laya(monkeypatch, logs):
+def test_jev_without_its_hosts_key_fails_at_creation_and_points_to_local_laya(monkeypatch, logs):
+    monkeypatch.delenv("ZENMUX_API_KEY")
+    with pytest.raises(MissingAPIKeyError, match="ZENMUX_API_KEY") as err:
+        SystemOneRunner()  # ZenMux by default
+    assert "LayaRunner()" in str(err.value) and any(line.startswith("ERROR") and "ZENMUX_API_KEY" in line for line in logs)  # logged too
+    SystemOneRunner(api_key="zm-...")  # passed in: fine
+    SystemOneRunner(url=SystemOneRunner.OPENROUTER)  # OpenRouter: its own key (set)
     monkeypatch.delenv("OPENROUTER_API_KEY")
-    with pytest.raises(MissingAPIKeyError, match="OPENROUTER_API_KEY") as err:
-        SystemOneRunner()
-    assert "LayaRunner()" in str(err.value) and any(line.startswith("ERROR") and "OPENROUTER_API_KEY" in line for line in logs)  # logged too
-    SystemOneRunner(api_key="sk-or-...")  # passed in: fine
+    with pytest.raises(MissingAPIKeyError, match="OPENROUTER_API_KEY"):
+        SystemOneRunner(url=SystemOneRunner.OPENROUTER)
     SystemOneRunner(url="http://localhost:8000/v1/systemone", model="english")  # a local Laya server needs none
 
 
@@ -35,17 +39,17 @@ def test_serper_without_a_key_fails_at_creation_and_points_to_searxng(monkeypatc
     assert "SearxngSearcher" in str(err.value)
 
 
-def test_fact_assessor_defaults_to_jev_and_runs_on_laya_with_no_openrouter_key(monkeypatch):
+def test_fact_assessor_defaults_to_jev_and_runs_on_laya_with_no_jev_key(monkeypatch):
     fa = FactAssessor()
     assert isinstance(fa.judge.runner, SystemOneRunner) and fa.claim_filter.runner is fa.judge.runner
-    monkeypatch.delenv("OPENROUTER_API_KEY")
+    monkeypatch.delenv("ZENMUX_API_KEY")
     with pytest.raises(MissingAPIKeyError, match="LayaRunner"):
         FactAssessor()  # at creation, not at the first check
-    fa = FactAssessor(runner=LayaRunner())  # local: no OpenRouter key needed
+    fa = FactAssessor(runner=LayaRunner())  # local: no Jev key needed
     assert isinstance(fa.judge.runner, LayaRunner) and fa.claim_filter.runner is fa.judge.runner
 
 
-@pytest.mark.parametrize("make, env", [(lambda: SystemOneRunner(), "OPENROUTER_API_KEY"), (lambda: LLMRunner(), "OPENAI_API_KEY"),
+@pytest.mark.parametrize("make, env", [(lambda: SystemOneRunner(), "ZENMUX_API_KEY"), (lambda: LLMRunner(), "OPENAI_API_KEY"),
                                        (lambda: OpenAIDecisionRunner(), "OPENAI_API_KEY")])
 def test_every_api_runner_without_its_key_points_to_the_same_local_alternative(monkeypatch, make, env):
     monkeypatch.delenv(env, raising=False)

@@ -255,7 +255,7 @@ class CachedCrawler(Crawler):
 # --- runs ---------------------------------------------------------------------------------------------------------
 
 def make_judge(args: argparse.Namespace) -> DecisionJudge:
-    """The same judge on `--judge laya` (local, the default) or `--judge decision` (Jev on OpenRouter: `--judge-model`,
+    """The same judge on `--judge laya` (local, the default) or `--judge decision` (Jev on ZenMux: `--judge-model`,
     `--batch-size` requests per call); the live run's claim filter shares the judge's runner."""
     ranker = HybridRanker(alpha=args.alpha) if args.ranker == "hybrid" else None
     if args.judge == "decision":
@@ -780,7 +780,7 @@ def main() -> None:
         p.add_argument("--judge", default="decision" if p is sy else "laya", choices=["laya", "decision", "openai", "llm"], help="the judge's runner: local Laya, Jev on OpenRouter, OpenAI's Decisions API, or a chat LLM (--llm-model)")
         p.add_argument("--llm-model", default="openai:gpt-6-luna", help="model for --judge llm (pydantic-ai model id)")
         p.add_argument("--strong-refute", type=float, default=0.9, help="a refutation counts from this probability (supports: --strong)")
-        p.add_argument("--judge-model", default="typesafe/jev-1.13-20260917", help="model id for --judge decision")
+        p.add_argument("--judge-model", default="typesafe/jev-1.13", help="model id for --judge decision (Jev on ZenMux: typesafe/jev-1.13, typesafe/jev-1.14)")
         p.add_argument("--pack", default="call", choices=[p.value for p in DecisionPacking],
                        help="--judge decision: what shares a call: one claim's passages (call, the default), every claim in flight (all), nothing (none)")
         p.add_argument("--batch-size", type=int, help="--judge decision: requests packed per call (the runner's default is 40)")

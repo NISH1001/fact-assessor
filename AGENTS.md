@@ -30,10 +30,11 @@ Async fact assessment: text → LLM atomizer → claim filter → search → cra
   connection pools) belong in wrappers around a component, not in the orchestrator.
 - Laya is the local model for classification (filter, judge). It can't generate text. Question wording and state
   field order matter a lot for its accuracy: benchmark changes.
-- Keys live in `.env` (gitignored): `SERPER_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`; AKD Scholar Search
+- Keys live in `.env` (gitignored): `SERPER_API_KEY`, `OPENAI_API_KEY`, `ZENMUX_API_KEY` (Jev; `OPENROUTER_API_KEY` only
+  for Jev on OpenRouter); AKD Scholar Search
   (`AKDScholarSearcher`, `AKDDoiCrawler`): `AKD_SCHOLAR_SEARCH_URL`, `AKD_SCHOLAR_SEARCH_API_KEY`. Never write that
   server's address in code, tests or docs: refer to the variable.
-- Paid runs (OpenRouter, OpenAI, Serper credits) are the user's call: state the cost and check the key's remaining
+- Paid runs (ZenMux, OpenAI, Serper credits) are the user's call: state the cost and check the key's remaining
   daily limit before a live run or a replay, and run small batches first (`--limit`, resumable by tag).
 - Notebooks are marimo (`notebooks/`). Run them with `uv run marimo edit --no-sandbox notebooks/<name>.py`
   (`fa.py` has a PEP 723 header for the no-clone one-liner; in the repo, `--no-sandbox` uses the local code).

@@ -24,7 +24,7 @@ PROVIDER_KEYS = {
 
 # the hosts whose 401/403 means our key was rejected -> its environment variable. A crawled website's 401/403 (a
 # paywall, a bot block) is not about our keys, so it fails only its own claim.
-PROVIDER_HOSTS = {"openrouter.ai": "OPENROUTER_API_KEY", "api.openai.com": "OPENAI_API_KEY", "google.serper.dev": "SERPER_API_KEY"}
+PROVIDER_HOSTS = {"zenmux.ai": "ZENMUX_API_KEY", "openrouter.ai": "OPENROUTER_API_KEY", "api.openai.com": "OPENAI_API_KEY", "google.serper.dev": "SERPER_API_KEY"}
 
 
 def provider_hosts() -> dict[str, str]:

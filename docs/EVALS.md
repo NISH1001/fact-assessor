@@ -38,8 +38,8 @@ the positive class, macro-averaged over answers, on the corrupted split and on o
 reference. Then verdict counts, false atoms caught, timeouts, per-claim component percentiles, and per-answer times
 for the originals whose searches were live.
 
-**Judges and keys.** `--judge laya` (the flag's default; local), `decision` (Jev on OpenRouter through System One;
-`--judge-model`, whose default is the pinned 1.13: pass `typesafe/jev-1.14-20261014` for 1.14), `openai` (gpt-6-luna
+**Judges and keys.** `--judge laya` (the flag's default; local), `decision` (Jev on ZenMux through System One, `ZENMUX_API_KEY`; OpenRouter: see the README's "Jev on OpenRouter";
+`--judge-model`, default `typesafe/jev-1.13`: pass `typesafe/jev-1.14` for 1.14), `openai` (gpt-6-luna
 through OpenAI's Decisions API: `OPENAI_API_KEY` only, no Jev anywhere), `llm` (a chat model, `--llm-model`). The
 atomizer always needs `OPENAI_API_KEY`. `--searcher serper` needs `SERPER_API_KEY` (10 results = 1 credit, about
 1,530 per full live run); `akd` needs `AKD_SCHOLAR_SEARCH_URL` / `AKD_SCHOLAR_SEARCH_API_KEY` (no credits, and the
@@ -55,12 +55,12 @@ uv run python scripts/eval_atoms.py live --data tmp/scielf_paired.jsonl --tag we
 
 # the same evidence judged by Jev 1.14 at 512-word windows (combined F1 0.834; 90 words 0.806)
 uv run python scripts/eval_atoms.py replay --tag web-serper --out web-serper-j114-w512 --passage-words 512 \
-  --passages 3 --pages-per-claim 10 --judge decision --judge-model typesafe/jev-1.14-20261014 --parallel 10
+  --passages 3 --pages-per-claim 10 --judge decision --judge-model typesafe/jev-1.14 --parallel 10
 
 # AKD Scholar Search, full text from the index, cap 10 interleaved (0.810 on the clean subset, Serper 0.840 there)
 uv run python scripts/eval_atoms.py live --data tmp/scielf_paired.jsonl --tag live-akd-top20-j114-w512-p10-il \
   --searcher akd --akd-top 20 --crawler akd-doi+web --pages-per-claim 10 --hit-order interleaved \
-  --passages 3 --passage-words 512 --judge decision --judge-model typesafe/jev-1.14-20261014 --parallel 10
+  --passages 3 --passage-words 512 --judge decision --judge-model typesafe/jev-1.14 --parallel 10
 #   gpt-6-luna judging instead (OpenAI key only): --judge openai and no --judge-model
 #   in batches: --limit 5 (10 answers) first, check the table, then --limit 10, 15, ... with the same --tag
 #   (the AKD numbers of 2026-10-23/24 came from the top-10 live run `web-akd`, re-searched at top 20 by
@@ -72,8 +72,9 @@ uv run python scripts/eval_atoms.py report --tag live-akd-top20-j114-w512-p10-il
 
 **Cost and time, 100 answers.** Jev at 512 words x 3 windows: $3.2-3.7, 4-6 min for a replay, 6-10 min live at
 `--parallel 10`; at 90 x 3 about $0.5. gpt-6-luna judging: about 2.4x Jev (about $9). Atomizer: about $0.03 per
-live run. OpenRouter keys carry a daily limit (`GET https://openrouter.ai/api/v1/key`: `limit_remaining`); once it
-is hit every Jev call is a 403, the run stops with `InvalidAPIKeyError`, and it resumes by tag after the reset.
+live run. Jev runs on ZenMux (cost estimated from input tokens; ZenMux's dashboard shows the real spend). A
+rejected or out-of-credit key stops the run with `InvalidAPIKeyError`, and it resumes by tag. The commands above
+from before 2026-10-25 ran on OpenRouter, with its dated ids (`typesafe/jev-1.14-20261014`).
 Compare setups on replays of the same evidence; a live run's number moves with the web.
 
 **Recording.** Every run's numbers, flags and findings go in `tmp/eval_atoms/RESULTS-<date>.md` as they finish

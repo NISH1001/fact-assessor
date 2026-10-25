@@ -49,7 +49,7 @@ text
 | Step | What does it | Where it runs |
 |---|---|---|
 | Atomize + decontextualize | `LLMAtomizer`: [pydantic-ai](https://ai.pydantic.dev) → `openai:gpt-5.6-luna` (reasoning as low as the model allows) | API, ~2s |
-| Claim filter | `DecisionClaimFilter`: one `choice` decision per atom (is this a factual claim?) on a decision runner: Jev (OpenRouter) by default, or [Laya](https://github.com/NandhaKishorM/laya) locally | API, or local (MPS / CUDA / CPU) |
+| Claim filter | `DecisionClaimFilter`: one `choice` decision per atom (is this a factual claim?) on a decision runner: Jev (ZenMux) by default, or [Laya](https://github.com/NandhaKishorM/laya) locally | API, or local (MPS / CUDA / CPU) |
 | Search | [Serper](https://serper.dev); social media and video sites excluded in the query (`-site:`, so Google fills those slots) and filtered after | API, ~1s |
 | Resolve (optional) | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())`: a paper's full text from its free copies | network, ~0.2s/paper |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text; or `HTTPXCrawler` (HTML and PDF) | network, ~1s/page |
@@ -68,7 +68,7 @@ there, the rest crawl their pages in parallel and judge each page as it lands.
 
 Jev and Laya are decision models (they classify instead of generating), so the filter and the judge ask one
 question per passage, not a chat. They ask it through a **decision runner** (`DecisionRunner`), the one place a
-model is wired in: `SystemOneRunner` (the default) sends a claim's passages to TypeSafe's Jev on OpenRouter in one
+model is wired in: `SystemOneRunner` (the default) sends a claim's passages to TypeSafe's Jev on ZenMux in one
 call (no GPU); `LayaRunner` runs Laya in-process instead, merging every request that arrives within a few
 milliseconds into one batch on the local GPU; `OpenAIDecisionRunner` uses OpenAI's Decisions API. `FactAssessor()`
 gives the filter and the judge one shared runner; see [Decision runners](#decision-runners-the-model-behind-the-filter-and-the-judge).
@@ -119,7 +119,8 @@ uv run marimo edit --no-sandbox notebooks/fa_walk.py    # guided walk: building 
 |---|---|
 | `SERPER_API_KEY` | web search ([serper.dev](https://serper.dev)) |
 | `OPENAI_API_KEY` | the atomizer (swap in any [pydantic-ai model](https://ai.pydantic.dev/models/), see below) |
-| `OPENROUTER_API_KEY` | the claim filter and the judge: Jev on [OpenRouter](https://openrouter.ai) (`runner=LayaRunner()` needs none) |
+| `ZENMUX_API_KEY` | the claim filter and the judge: Jev on [ZenMux](https://zenmux.ai) (`runner=LayaRunner()` needs none) |
+| `OPENROUTER_API_KEY` | only for Jev on [OpenRouter](https://openrouter.ai) instead of ZenMux (see "Jev on OpenRouter" below) |
 | `AKD_SCHOLAR_SEARCH_URL`, `AKD_SCHOLAR_SEARCH_API_KEY` | AKD Scholar Search (optional): `AKDScholarSearcher` and `AKDDoiCrawler`, full-text papers (see "Scholarly search over full-text papers" below) |
 
 A `.env` in the working directory (or a parent) is loaded when `factassessor` is imported; variables already set
@@ -290,7 +291,7 @@ All keyword arguments to `FactAssessor`:
 ```python
 from factassessor import FactAssessor, LayaRunner, LLMRunner, OpenAIDecisionRunner
 
-FactAssessor()                                  # the measured setup: Jev on OpenRouter filters and judges (OPENROUTER_API_KEY)
+FactAssessor()                                  # the measured setup: Jev on ZenMux filters and judges (ZENMUX_API_KEY)
 FactAssessor(runner=LayaRunner())               # local: Laya on your GPU/CPU, no model API key (F1 0.624 vs 0.821 for Jev 1.13)
 FactAssessor(runner=OpenAIDecisionRunner())     # gpt-6-luna through OpenAI's Decisions API (OPENAI_API_KEY): faster
                                                 # than Jev and lets fewer false claims through, but confirms fewer true
@@ -486,7 +487,7 @@ runner's job: it merges the requests of every claim, page and component in fligh
 from factassessor import DecisionClaimFilter, DecisionJudge, FactAssessor, LayaRunner, SystemOneRunner
 
 laya = LayaRunner()                       # in-process Laya: 32-row passes on the local GPU
-jev = SystemOneRunner()                   # the default, TypeSafe's Jev on OpenRouter (OPENROUTER_API_KEY): no GPU, ~0.5s a call,
+jev = SystemOneRunner()                   # the default, TypeSafe's Jev on ZenMux (ZENMUX_API_KEY): no GPU, ~0.5s a call,
                                           # a claim's passages in one call (up to 40), 16 calls in flight, $0.042 per 1M input tokens
 FactAssessor(claim_filter=DecisionClaimFilter(laya), judge=DecisionJudge(jev, passages_per_page=3))
 FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/systemone", model="english")))  # a remote `python -m laya.serve`
@@ -495,8 +496,28 @@ FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/sys
 | Runner | Model | Where | Batching |
 |---|---|---|---|
 | `LayaRunner(model="english")` | Laya: `english`, `multilingual` (~2.2x faster), `typed-decisions` | local GPU / CPU, one model per device per process | requests merged across callers, 32 rows per pass |
-| `SystemOneRunner(model="typesafe/jev-1.13-20260917")` (default) | Jev 1.13, pinned (`~typesafe/jev-latest` for the newest; System One protocol), or a `laya.serve` server | OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
+| `SystemOneRunner(model="typesafe/jev-1.13")` (default) | Jev 1.13 (`typesafe/jev-1.14` for 1.14; System One protocol), or a `laya.serve` server | ZenMux (default), OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
 | `OpenAIDecisionRunner(model="gpt-6-luna")` | gpt-6-luna (OpenAI's Decisions API, `OPENAI_API_KEY`) | OpenAI | like Jev: one claim's passages per call (up to 40), 16 calls in flight, 429s and 5xx retried; input tokens only, $0.10 per 1M. `packing="none"` (one passage per call, as OpenAI's docs show): +0.03 F1 on 10 answers but 3x slower at 16 in flight; raise `max_concurrent` with it |
+
+**Jev on OpenRouter instead of ZenMux.** The same System One protocol; three things change: the URL, the model id
+(OpenRouter's are dated snapshots) and the key.
+
+```python
+import os
+from factassessor import FactAssessor, SystemOneRunner
+
+jev = SystemOneRunner(
+    url=SystemOneRunner.OPENROUTER,                  # https://openrouter.ai/api/v1/systemone (default: ZenMux's)
+    model="typesafe/jev-1.13-20260917",              # or typesafe/jev-1.14-20261014 (ZenMux: typesafe/jev-1.13, typesafe/jev-1.14)
+    api_key=os.environ["OPENROUTER_API_KEY"],        # optional: read from the environment for an OpenRouter URL
+)
+fa = FactAssessor(runner=jev)
+```
+
+The key is picked by host (`SystemOneRunner.HOSTS`): `ZENMUX_API_KEY` for zenmux.ai, `OPENROUTER_API_KEY` for
+openrouter.ai, none for any other URL (a `laya.serve` server). OpenRouter reports each call's cost; ZenMux reports
+tokens only, so `runner.cost` is estimated at `SystemOneRunner.PRICE_PER_INPUT_TOKEN` ($0.042 per million input
+tokens, output free).
 
 A runner is a `Protocol`: anything with `batch_size` and `async predict(requests)` works, and
 `isinstance(x, DecisionRunner)` checks it. `factassessor.decisions` has the request and response models.
