@@ -38,4 +38,7 @@ Async fact assessment: text → LLM atomizer → claim filter → search → cra
   daily limit before a live run or a replay, and run small batches first (`--limit`, resumable by tag).
 - Notebooks are marimo (`notebooks/`). Run them with `uv run marimo edit --no-sandbox notebooks/<name>.py`
   (`fa.py` has a PEP 723 header for the no-clone one-liner; in the repo, `--no-sandbox` uses the local code).
+- When a live run misbehaves, trace components (calls, outcomes, in flight) before changing anything; a `ps` CPU
+  figure is a decaying average, and "untimed" helper work must never share a live component's pool
+  (the 2026-10-25 eval collapses were the harness's own replay-cache fill).
 - Commit messages: plain subject and body, no attribution trailers.
