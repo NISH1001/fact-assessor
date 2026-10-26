@@ -786,6 +786,18 @@ Inspired by factuality pipelines such as [FActScore](https://github.com/shmsw25/
 independent, latency-focused implementation. Built on [Laya](https://github.com/NandhaKishorM/laya), [crawl4ai](https://github.com/unclecode/crawl4ai),
 [pydantic-ai](https://ai.pydantic.dev), and [Serper](https://serper.dev).
 
+## Citation
+
+```bibtex
+@software{nishparadox_fact_assessor_2026,
+  author  = {nishparadox},
+  title   = {fact-assessor: an opinionated fact-assessment tool that balances latency and accuracy},
+  year    = {2026},
+  version = {0.5.0},
+  url     = {https://github.com/NISH1001/fact-assessor}
+}
+```
+
 ## License
 
 MIT
