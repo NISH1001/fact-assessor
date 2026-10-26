@@ -71,8 +71,9 @@ def runner(handler, **kwargs):
 
 
 def test_the_default_jev_is_pinned_to_the_version_we_measured():
-    # a named version, not jev-latest (which moved to 1.14 on 2026-10-14), keeps measured numbers reproducible
-    assert SystemOneRunner(api_key="test-key").model == "typesafe/jev-1.13"  # ZenMux's 1.13 (OpenRouter: jev-1.13-20260917)
+    # a named version, not jev-latest, keeps measured numbers reproducible: 1.14 since 2026-10-25, the version every
+    # number from 2026-10-23 on was measured with (1.13's 0.779 on Serper, 2026-09-30, had older settings: not comparable)
+    assert SystemOneRunner(api_key="test-key").model == "typesafe/jev-1.14"  # ZenMux's 1.14 (OpenRouter: jev-1.14-20261014)
 
 
 async def test_one_request_goes_out_verbatim_as_layas_request():

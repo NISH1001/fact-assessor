@@ -165,6 +165,9 @@ def test_defaults_are_the_measured_best_setup():
     assert isinstance(fa.crawler, CascadedCrawler) and [type(c) for c in fa.crawler.crawlers] == [HTTPXCrawler, ImpitCrawler, Crawl4AICrawler]
     assert fa.crawler.crawlers[0].max_pdf_bytes == 50_000_000  # a cut PDF can't be read at all: theses run 25-35 MB
     assert fa.judge.passages_per_page == 3 and isinstance(fa.judge.runner, SystemOneRunner)  # Jev: the measured judge
+    # Serper evidence judged by Jev 1.14: 512-word windows 0.834 vs 0.806 at 90 (2026-10-23); 1.14 is the version every
+    # number since then was measured with
+    assert fa.judge.passage_words == 512 and fa.judge.runner.model == "typesafe/jev-1.14"
     assert fa.verify.timeout == 30
     assert FactAssessor(resolver=None).verify.resolver is None  # opt out
 

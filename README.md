@@ -54,7 +54,7 @@ text
 | Resolve (optional) | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())`: a paper's full text from its free copies | network, ~0.2s/paper |
 | Crawl | [crawl4ai](https://github.com/unclecode/crawl4ai), one shared headless browser, cleaned plain text; or `HTTPXCrawler` (HTML and PDF) | network, ~1s/page |
 | Rank passages | `Ranker`: which chunks of a page the judge sees. `BM25Ranker` (default, word overlap); `HybridRanker` adds 8M-parameter static embeddings for paraphrase (`fact-assessor[embed]`) | local, ms |
-| Evidence judge | `DecisionJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages cut into 90-word windows, the ranker's top passages per page, one decision each on the same runner | API, or local |
+| Evidence judge | `DecisionJudge`: claim and evidence in one Unicode form (`ha⁻¹` = `ha−1`), pages cut into 512-word windows (90 for Laya), the ranker's top passages per page, one decision each on the same runner | API, or local |
 | Verdicts, score, graph | strong evidence weighed per side: `supported` / `refuted` / `contested` / `unverified` | local |
 
 Every box above is a swappable, chainable step (`SerperSearcher() >> not_blocked() >> Take(5)`), and the whole
@@ -276,6 +276,7 @@ All keyword arguments to `FactAssessor`:
 | `pages_per_claim` | 10 | readable pages judged per claim (2 x `top_k`); 15 tripled the claims hitting the deadline |
 | `hit_order` | `original` | how a claim's searches (its text, then each source query) merge into the list its pages are read in (`HitOrder`): `original` (the claim's hits, then each source query's), `interleaved` (rank 1 of every search, then rank 2: the page cap reaches every search), `rrf` (reciprocal rank fusion: a paper several searches return comes first). With every page readable (AKD's full text), cap 10 interleaved matched cap 30 at a third of the pages judged |
 | `passages_per_page` | 3 | windows of each page the judge sees |
+| `passage_words` | 512 | words per window: on the same Serper evidence with Jev 1.14, F1 0.834 vs 0.806 at 90 and 0.823 at 1024 (2x the judge tokens of 90, ~1 cent per answer). Laya: 90, its rows hold 512 tokens |
 | `crawl_timeout` | 2.5 | seconds per page (a hard limit; a page that takes longer is dropped and the claim goes on without it) |
 | `search_hedge_after` | 1.2 | if a search hasn't answered by then, send the same request again and use whichever reply comes first (fixes Serper's occasional 3s+ outliers; only slow searches cost a second credit; `None` turns it off) |
 | `blocked_domains` | social + video | hosts never used as evidence (subdomains included): dropped after search and, with Serper, excluded in the query; `()` to allow all |
@@ -292,7 +293,8 @@ All keyword arguments to `FactAssessor`:
 from factassessor import FactAssessor, LayaRunner, LLMRunner, OpenAIDecisionRunner
 
 FactAssessor()                                  # the measured setup: Jev on ZenMux filters and judges (ZENMUX_API_KEY)
-FactAssessor(runner=LayaRunner())               # local: Laya on your GPU/CPU, no model API key (F1 0.624 vs 0.821 for Jev 1.13)
+FactAssessor(runner=LayaRunner(), passage_words=90)  # local: Laya on your GPU/CPU, no model API key (F1 0.624 vs 0.821 for
+                                                # Jev 1.13); 90-word windows, Laya's rows hold 512 tokens
 FactAssessor(runner=OpenAIDecisionRunner())     # gpt-6-luna through OpenAI's Decisions API (OPENAI_API_KEY): faster
                                                 # than Jev and lets fewer false claims through, but confirms fewer true
                                                 # ones (paper eval, same pages: F1 0.678 vs 0.832, recall 0.55 vs 0.76)
@@ -344,7 +346,7 @@ come for free.
 | `searcher=` | `Searcher` (or a chain) | `search(query) -> list[hit]`, hits `{"url", "title", "snippet"}` | `SerperSearcher() >> not_blocked() >> Take(top_k)` |
 | `resolver=` | `Resolver` (a Protocol) | `resolve(url) -> list[str]`: where the hit can be read in full, best first | `CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver())`; `None` turns it off |
 | `crawler=` | `Crawler` | `crawl(url) -> Fetch`: the page `{"url", "title", "text"}`, the status, and `usable` (its `accept` rule) | `CascadedCrawler(HTTPXCrawler(), ImpitCrawler(), Crawl4AICrawler(), when=~(StatusIn(404, 410) \| ContentType("pdf")))`: plain HTTP, then HTTP that looks like Firefox (gets past many 403s), then a real browser; gone pages and PDFs skip the browser |
-| `judge=` | `Judge` (a Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()`: Jev, 3 passages per page (the same defaults as `FactAssessor()`); `DecisionJudge(LayaRunner())` local, `DecisionJudge(OpenAIDecisionRunner())`, `DecisionJudge(LLMRunner())`, `DecisionJudge(GlinerRunner())` for other models. Takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
+| `judge=` | `Judge` (a Protocol) | `judge(claim, docs) -> list[Evidence]` | `DecisionJudge()`: Jev, 3 passages per page, 512-word windows (the same defaults as `FactAssessor()`); `DecisionJudge(LayaRunner())` local, `DecisionJudge(OpenAIDecisionRunner())`, `DecisionJudge(LLMRunner())`, `DecisionJudge(GlinerRunner())` for other models. Takes `ranker=` (a `Ranker`: `top(claim, chunks, k)`), default `BM25Ranker()`; `HybridRanker()` mixes in embeddings |
 | `policy=` | `Policy` (a Protocol) | `settled(evidence)`, `verdict(evidence) -> (verdict, confidence)` | `WeightedPolicy()` |
 
 A new crawler, for example, is just:
@@ -496,7 +498,7 @@ FactAssessor(judge=DecisionJudge(SystemOneRunner(url="http://gpu-box:8000/v1/sys
 | Runner | Model | Where | Batching |
 |---|---|---|---|
 | `LayaRunner(model="english")` | Laya: `english`, `multilingual` (~2.2x faster), `typed-decisions` | local GPU / CPU, one model per device per process | requests merged across callers, 32 rows per pass |
-| `SystemOneRunner(model="typesafe/jev-1.13")` (default) | Jev 1.13 (`typesafe/jev-1.14` for 1.14; System One protocol), or a `laya.serve` server | ZenMux (default), OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
+| `SystemOneRunner(model="typesafe/jev-1.14")` (default) | Jev 1.14 (`typesafe/jev-1.13` for 1.13; System One protocol), or a `laya.serve` server | ZenMux (default), OpenRouter, or any URL | one claim's passages per call as a list field (up to 40; Jev's "ask every question about the same state in one request"), 16 calls in flight, 429s retried; `packing="all"` fills calls with every claim in flight instead, `"none"` sends each request alone |
 | `OpenAIDecisionRunner(model="gpt-6-luna")` | gpt-6-luna (OpenAI's Decisions API, `OPENAI_API_KEY`) | OpenAI | like Jev: one claim's passages per call (up to 40), 16 calls in flight, 429s and 5xx retried; input tokens only, $0.10 per 1M. `packing="none"` (one passage per call, as OpenAI's docs show): +0.03 F1 on 10 answers but 3x slower at 16 in flight; raise `max_concurrent` with it |
 
 **Jev on OpenRouter instead of ZenMux.** The same System One protocol; three things change: the URL, the model id
@@ -666,7 +668,7 @@ fa = FactAssessor(
     resolver=None,                            # the ResolvingCrawler already resolves: nothing is resolved twice
     pages_per_claim=10,
     hit_order=HitOrder.INTERLEAVED,           # rank 1 of every search first, so the cap reaches the source query's papers
-    runner=jev, judge=DecisionJudge(jev, passage_words=512),  # 512-word windows: +0.03 F1 over 90 on Jev (Serper evidence)
+    runner=jev,                               # 512-word windows, the default: +0.03 F1 over 90 on Jev (Serper evidence)
 )
 ```
 

@@ -125,7 +125,7 @@ async def test_no_passage_is_longer_than_passage_chars_even_on_a_page_without_sp
     # characters, over Jev's input limit: the whole packed request was rejected (max_tokens_exceeded)
     runner = FakeRunner()
     judge = DecisionJudge(runner, passages_per_page=3)
-    assert judge.passage_chars == 22 * 90  # by default about 3.4x a typical 90-word window (580 chars)
+    assert judge.passage_chars == 22 * 512  # by default about 3.4x a typical window of the default 512 words
     page = {"url": "https://gist.github.com/x", "title": "gist", "text": "1903 " + "A" * 800_000 + " end"}
     snippet = {"url": "https://s.org", "title": "s", "snippet": "B" * 50_000}
     await judge.judge(CLAIM, [page, snippet])

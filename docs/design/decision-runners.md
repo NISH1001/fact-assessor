@@ -82,7 +82,7 @@ class DecisionRunner(Protocol):
   from all concurrent callers, cuts them into `batch_size` pieces and caps its own concurrency, so 100 incoming
   requests become 4 GPU passes (Laya) or 3 HTTP calls (Jev), never 100 parallel anything. `batch_size` is an
   attribute set in each runner's own `__init__`, not a `predict` argument: a per-call size would defeat the merging.
-- **No tokenizer on the protocol.** Passages are cut by words in the judge (90 words, about Laya's 128 tokens, well
+- **No tokenizer on the protocol.** Passages are cut by words in the judge (512 words by default; 90 for Laya, about its 128 tokens, well
   inside the ~300-token state budget); a token-exact chunker stays available as `DecisionJudge(chunk=...)` for those
   who want it with Laya. The tokenizer is Laya's private business.
 - Our runners subclass the Protocol explicitly (`class LayaRunner(DecisionRunner)`) so the type checker verifies

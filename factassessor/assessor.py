@@ -31,7 +31,7 @@ from factassessor.atomizers import LLMAtomizer
 from factassessor.claim_filters import ClaimFilter, DecisionClaimFilter
 from factassessor.crawlers import CascadedCrawler, ContentType, Crawl4AICrawler, HTTPXCrawler, ImpitCrawler, StatusIn
 from factassessor.judges import DecisionJudge, Judge
-from factassessor.judges.decision import PASSAGES_PER_PAGE
+from factassessor.judges.decision import PASSAGE_WORDS, PASSAGES_PER_PAGE
 from factassessor.decisions import DecisionRunner, SystemOneRunner
 from factassessor.keys import InvalidAPIKeyError, auth_error
 from factassessor.pipeline import Cache, Map, Slots, Step, Take, dropped, once, unchecked
@@ -73,6 +73,7 @@ class FactAssessor:
         atomizer_model: str = DEFAULT_ATOMIZER_MODEL,
         source_queries: int = 2,  # searches for the text's source document: the paper found for 88/100 answers vs 77 with one (70 with the old prompt)
         passages_per_page: int = PASSAGES_PER_PAGE,  # windows of each page the judge sees (3 vs 1: +0.10 F1 on the paper eval)
+        passage_words: int = PASSAGE_WORDS,  # words per window (512: F1 0.834 vs 0.806 at 90 on Serper evidence with Jev; Laya: 90)
         pages_per_claim: int | None | Any = _DEFAULT,  # readable pages judged per claim; default 2 x top_k (with overfetch)
         hit_order: HitOrder | str = HitOrder.ORIGINAL,  # how the claim's and the source queries' hits merge (which pages the cap keeps)
         atomizer: Step | None = None,  # an Atomizer, or any chain starting with one (text -> atoms)
@@ -105,7 +106,7 @@ class FactAssessor:
             when=~(StatusIn(404, 410) | ContentType("pdf")),  # not for a page that is gone, or a PDF (no browser reads those)
         )
         resolver = CompositeResolver(ArxivResolver(), OpenAlexResolver(), PMCResolver()) if resolver is _DEFAULT else resolver
-        self.judge = judge or DecisionJudge(runner, passages_per_page=passages_per_page)
+        self.judge = judge or DecisionJudge(runner, passages_per_page=passages_per_page, passage_words=passage_words)
         self.policy = policy or WeightedPolicy(strong=strong_evidence, early_exit=early_exit_conf, strong_refute=strong_refutation)
         self.verify = Verify(
             self.searcher, self.crawler, self.judge, self.policy, timeout=timeout, resolver=resolver, hit_order=hit_order,

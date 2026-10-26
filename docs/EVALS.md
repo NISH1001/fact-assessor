@@ -40,7 +40,7 @@ for the originals whose searches were live. Every live run records each claim's 
 search, snippet judging, resolve, crawl, page judging, total): a slow run is explained from `results.json.gz`.
 
 **Judges and keys.** `--judge laya` (the flag's default; local), `decision` (Jev on ZenMux through System One, `ZENMUX_API_KEY`; OpenRouter: see the README's "Jev on OpenRouter";
-`--judge-model`, default `typesafe/jev-1.13`: pass `typesafe/jev-1.14` for 1.14), `openai` (gpt-6-luna
+`--judge-model`, default `typesafe/jev-1.14`: pass `typesafe/jev-1.13` for 1.13), `openai` (gpt-6-luna
 through OpenAI's Decisions API: `OPENAI_API_KEY` only, no Jev anywhere), `llm` (a chat model, `--llm-model`). The
 atomizer always needs `OPENAI_API_KEY`. `--searcher serper` needs `SERPER_API_KEY` (10 results = 1 credit, about
 1,530 per full live run); `akd` needs `AKD_SCHOLAR_SEARCH_URL` / `AKD_SCHOLAR_SEARCH_API_KEY` (no credits, and the

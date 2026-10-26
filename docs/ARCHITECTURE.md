@@ -168,8 +168,8 @@ Without a resolver, the crawler just crawls each hit's URL.
 
 **e. Passages** (inside the judge, through its `Ranker`: `BM25Ranker` by default; `HybridRanker` mixes in static
 embeddings to catch paraphrase). Claim and page text are put in one Unicode form (`normalize_text`: NFKC,
-minus signs as `-`, so `ha⁻¹` and `ha−1` match). The page is cut into 90-word windows (about 128 Laya tokens, the
-size that measured best; 25% overlap; `DecisionJudge(chunk=...)` swaps the cutter), the text's own words, so every
+minus signs as `-`, so `ha⁻¹` and `ha−1` match). The page is cut into 512-word windows (F1 0.834 vs 0.806 at 90 on
+Serper evidence with Jev 1.14; `passage_words=90` for Laya, about 128 of its tokens; 25% overlap; `DecisionJudge(chunk=...)` swaps the cutter), the text's own words, so every
 runner sees the same passages, and the ranker picks the top `passages_per_page` (1 by default; 3 measured +0.10 F1
 on the paper eval).
 

@@ -25,7 +25,7 @@ class SystemOneRunner(DecisionRunner):
     passages) are packed into one call, up to `batch_size`: a field with the same value in every request (the
     claim) is sent once, a field that differs (the evidence) becomes a list, and each question names its own entry
     (`evidence[2]`). Every request gets its own answers back; a single request goes out verbatim. Jev's window is
-    32k tokens: 40 passages of 90 words plus a claim are ~6k. `cost` is the USD spent so far (`usage.cost`, summed).
+    32k tokens: 40 passages of 512 words plus a claim are ~27k (the measured cap-30 runs packed exactly that). `cost` is the USD spent so far (`usage.cost`, summed).
 
     What shares a call is the model's context, and it changes answers (on a 4-answer sample, 13% of passage
     labels differed between one request per call and 40 mixed from every claim in flight; alone, Jev was less
@@ -48,7 +48,7 @@ class SystemOneRunner(DecisionRunner):
 
     def __init__(
         self,
-        model: str = "typesafe/jev-1.13",  # ZenMux's id (OpenRouter: typesafe/jev-1.13-20260917); 1.14 is typesafe/jev-1.14
+        model: str = "typesafe/jev-1.14",  # ZenMux's id (OpenRouter: typesafe/jev-1.14-20261014); 1.13 is typesafe/jev-1.13
         url: str | None = None,
         api_key: str | None = None,
         batch_size: int = 40,  # requests per call

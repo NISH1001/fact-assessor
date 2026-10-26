@@ -12,6 +12,7 @@ from factassessor.rankers import BM25Ranker, Ranker
 from factassessor.schema import Evidence
 
 PASSAGES_PER_PAGE = 3  # windows of each page the judge sees: 3 vs 1 gave +0.10 F1 on the paper eval
+PASSAGE_WORDS = 512  # words per window: Serper evidence judged by Jev 1.14, 0.834 vs 0.806 at 90 and 0.823 at 1024 (2026-10-23)
 
 # Evidence-first state: 13/15 on our judge benchmark with Laya; claim-first variants topped out at 9/15.
 # Refuting needs the same study or subject (2026-10-25, 25 answers of AKD evidence): with "says something different",
@@ -32,14 +33,15 @@ QUESTION = {
 class DecisionJudge(Judge):
     """Every (claim, passage) pair is one decision; the runner batches them across all claims and pages.
 
-    Pages are cut into `passage_words`-word windows (90 ~ Laya's 128 tokens, the size that measured best; the
-    text's own words, so any runner sees the same passages) and the ranker picks `passages_per_page` of them (3:
+    Pages are cut into `passage_words`-word windows (512 by default, the best of 90 / 512 / 1024 on Jev; pass 90
+    for Laya, about 128 of its 512-token rows; the text's own words, so any runner sees the same passages) and
+    the ranker picks `passages_per_page` of them (3:
     +0.10 F1 on the paper eval, ~3s more per text). A snippet is judged whole unless it is really a page (some
     DuckDuckGo ones run to 3,000 tokens; the claim came after the evidence and got truncated), then cut the same
     way. `chunk` replaces the window cutter (text -> passages), e.g. a token-exact one for a specific model.
     `passage_chars`: a window longer than this is cut into pieces (words are counted by whitespace, so a page with
     almost none, like an 800,000-character gist, made one "90-word" window over Jev's input limit). The default,
-    22 x `passage_words`, is about 3.4x a typical 90-word window (580 characters); 0.06% of 1M real windows are longer.
+    22 x `passage_words`, is about 3.4x a typical window (a 90-word one is 580 characters); 0.06% of 1M real windows are longer.
     `concurrency` (claims at once) comes from the runner when it sets one (GLiNER: 3).
     """
 
@@ -47,10 +49,10 @@ class DecisionJudge(Judge):
         self,
         runner: DecisionRunner | None = None,  # default: Jev (SystemOneRunner, OPENROUTER_API_KEY); LayaRunner() runs locally
         passages_per_page: int = PASSAGES_PER_PAGE,
-        passage_words: int = 90,
+        passage_words: int = PASSAGE_WORDS,  # Laya: 90 (its rows hold 512 tokens)
         ranker: Ranker | None = None,  # which passages of a page the judge sees; default BM25 (word overlap)
         chunk: Callable[[str], list[str]] | None = None,
-        passage_chars: int | None = None,  # a passage's most characters; default 22 x passage_words (~2,000 for 90)
+        passage_chars: int | None = None,  # a passage's most characters; default 22 x passage_words
     ) -> None:
         self.runner = runner or SystemOneRunner()
         self.passages_per_page = passages_per_page

@@ -1,8 +1,8 @@
 # Decisions and measurements
 
 What we tried while building the prototype, what we measured, and what we picked. Numbers are from an M-series
-Mac (MPS), Sept 2026. Every Jev number is jev-1.13 (`~typesafe/jev-latest` until it moved to
-jev-1.14 on 2026-10-14; the default now pins `typesafe/jev-1.13-20260917`). Revisit a decision when its evidence changes.
+Mac (MPS), Sept 2026. Jev numbers before 2026-10-23 are jev-1.13 (`~typesafe/jev-latest` until it moved to
+jev-1.14 on 2026-10-14), later ones jev-1.14, the default since 2026-10-25. Revisit a decision when its evidence changes.
 
 ## Atomization
 
@@ -436,3 +436,16 @@ failed). So the reader's throughput from this Mac is the AKD server's at the tim
 per-answer latency moves with it: at 350 reads/s ten answers' claims (160-410 claims x 10 pages) take 5-12s of reads.
 The number to quote for Jev + AKD at 10 texts at once is the latency script's p50 25.5s / p90 29.6s (2026-10-25
 10:28, own atomized texts); the eval's 47s / 62s is the same pipeline on a slow server hour with 2x the claims.
+
+## Defaults: 512-word windows and Jev 1.14 (2026-10-25)
+
+The library's defaults move to the measured setup: `DecisionJudge(passage_words=512)` (a `FactAssessor(passage_words=)`
+knob next to `passages_per_page`) and `SystemOneRunner(model="typesafe/jev-1.14")`; `eval_atoms --judge-model` follows.
+The window: the same frozen Serper evidence (web-serper, crawled 2026-09-30) replayed on 2026-10-23 by Jev 1.14, 3
+passages per page, 10 pages per claim, 100 answers: 90 words combined F1 0.806 (corrupted 0.766, $0.59), **512 words
+0.834 (0.817, $1.17)**, 1024 words 0.823 (0.793, $1.87). The model: every number from 2026-10-23 on is Jev 1.14
+(1.13's 0.779 on Serper, 2026-09-30, had older settings; not a same-settings comparison). Laya keeps 90 by argument
+(`FactAssessor(runner=LayaRunner(), passage_words=90)`): its rows hold 512 tokens, a 512-word window would lose its
+tail. `HitOrder.ORIGINAL` stays the default: the 0.834 was measured with it, and Serper has not been replayed with
+the other orders. The eval's own flag defaults (`--passage-words 90`, ...) are unchanged, so earlier replay commands
+reproduce; the measured commands in docs/EVALS.md pass the window explicitly.
