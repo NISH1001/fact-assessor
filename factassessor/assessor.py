@@ -57,7 +57,7 @@ class FactAssessor:
         *,
         overfetch: float = 1.0,  # keep twice as many hits as pages; the first readable ones are judged (+0.015 F1, same credits)
         serper_api_key: str | None = None,
-        runner: DecisionRunner | None = None,  # behind the filter and the judge; default Jev (OPENROUTER_API_KEY), LayaRunner() local
+        runner: DecisionRunner | None = None,  # behind the filter and the judge; default Jev (ZENMUX_API_KEY), LayaRunner() local
         claim_threshold: float = 0.4,  # min claim_score to check an atom; low on purpose: a dropped real claim is never checked
         early_exit_conf: float = 0.9,  # 2+ passages this sure, none against -> stop gathering evidence
         strong_evidence: float = 0.7,  # a supporting passage counts toward a verdict at or above this prob

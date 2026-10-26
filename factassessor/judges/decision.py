@@ -47,7 +47,7 @@ class DecisionJudge(Judge):
 
     def __init__(
         self,
-        runner: DecisionRunner | None = None,  # default: Jev (SystemOneRunner, OPENROUTER_API_KEY); LayaRunner() runs locally
+        runner: DecisionRunner | None = None,  # default: Jev (SystemOneRunner, ZENMUX_API_KEY); LayaRunner() runs locally
         passages_per_page: int = PASSAGES_PER_PAGE,
         passage_words: int = PASSAGE_WORDS,  # Laya: 90 (its rows hold 512 tokens)
         ranker: Ranker | None = None,  # which passages of a page the judge sees; default BM25 (word overlap)
