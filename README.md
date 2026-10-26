@@ -150,7 +150,7 @@ asyncio.run(main())
 
 In Jupyter or marimo, `await` works at the top level: `result = await fa.assess(text)`.
 
-Keys (in `.env` or the environment): `OPENAI_API_KEY` (the atomizer), `SERPER_API_KEY` (search), `OPENROUTER_API_KEY`
+Keys (in `.env` or the environment): `OPENAI_API_KEY` (the atomizer), `SERPER_API_KEY` (search), `ZENMUX_API_KEY`
 (the judge, Jev). A missing one is an error when `FactAssessor()` is created, saying what to use instead:
 `FactAssessor(runner=LayaRunner())` runs the judge locally with no key, `searcher=SearxngSearcher(url)` searches
 without one.
@@ -284,7 +284,7 @@ All keyword arguments to `FactAssessor`:
 | `max_concurrent_claims` | 50 | claims verified at once, **shared by every text on the assessor** (a rolling queue: the next claim starts when one finishes; nothing is dropped). A claim's `timeout` starts when it gets its slot. A judge with its own limit keeps it (GLiNER: 3). `None` = no limit. About 50 in flight measured fine on a laptop; about 170 ran 63% of claims into the deadline |
 | `max_concurrent_crawls` | 10 | pages the browser crawler loads at once (shared by all claims) |
 | `search_timeout` | 5 | seconds per Serper request |
-| `runner` | Jev (`SystemOneRunner()`) | the model behind the claim filter and the judge (one shared runner): `LayaRunner("english", device="auto")` local, `LLMRunner("openai:gpt-6-luna")` any chat LLM. Needs `OPENROUTER_API_KEY` by default |
+| `runner` | Jev (`SystemOneRunner()`) | the model behind the claim filter and the judge (one shared runner): `LayaRunner("english", device="auto")` local, `LLMRunner("openai:gpt-6-luna")` any chat LLM. Needs `ZENMUX_API_KEY` by default |
 | `serper_api_key` | `SERPER_API_KEY` | Serper key (from `.env` or the environment if not given) |
 
 ### Recommended setups
