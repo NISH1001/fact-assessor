@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import collections
 import contextvars
 import gzip
 import json
@@ -54,7 +53,7 @@ from factassessor import (
     LLMRunner,
     FactAssessor,
     ArxivResolver, Atom, CompositeResolver, Crawl4AICrawler, Crawler, DecisionClaimFilter, DecisionJudge, DecisionRequest,
-    CascadedCrawler, Fetch, HTTPXCrawler, ImpitCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, Question, SearxngSearcher,
+    CascadedCrawler, Fetch, HTTPXCrawler, LayaRunner, LLMAtomizer, OpenAlexResolver, DecisionPacking, Question, SearxngSearcher,
     SerperSearcher, Step, SystemOneRunner, Take, Verify, WeightedPolicy, collect, not_blocked, once,
 )
 from factassessor._llm import reasoning_off
@@ -171,93 +170,6 @@ def instrument(fa: FactAssessor) -> dict[int, dict[str, list[tuple[float, float]
     if not isinstance(verify.judge, TimedJudge):
         verify.judge = TimedJudge(verify.judge, {})
     return timings
-
-
-# --- component trace (--trace) -----------------------------------------------------------------------------------
-
-TRACED = ((AKDDoiCrawler, "crawl"), (AKDScholarSearcher, "_request"), (ResolvingCrawler, "crawl"), (HTTPXCrawler, "crawl"),
-          (ImpitCrawler, "crawl"), (Crawl4AICrawler, "crawl"), (CompositeResolver, "resolve"),
-          (SystemOneRunner, "_post"), (SystemOneRunner, "predict"), (OpenAIDecisionRunner, "_post"), (OpenAIDecisionRunner, "predict"))
-_traced = False
-
-
-def start_trace(path: Path | None = None, every: float = 30.0) -> asyncio.Task[None]:
-    """Every component call of the run, by class.method: in flight now (queued for a slot counts), calls finished in
-    the last window with their p50 / p90 / max seconds and outcomes (ok, an HTTP status, an exception's name,
-    cancelled), and the event loop's worst lag. A table on stdout every `every` seconds and, with `path`, one JSON
-    line per window. This is how the 2026-10-25 collapses were found (reads cancelled at exactly their timeout, zero
-    successes, while the judge stayed under a second): read it before changing any setting."""
-    global _traced
-    t0 = time.monotonic()
-    finished: dict[str, list[tuple[float, float, str]]] = collections.defaultdict(list)  # label -> (end, secs, outcome)
-    in_flight: collections.Counter[str] = collections.Counter()
-    lag = [0.0]
-
-    def outcome_of(out: Any) -> str:
-        if err := getattr(out, "error", None):
-            return str(err)[:28]
-        status = getattr(out, "status", None)
-        return f"status {status}" if status not in (None, 200) else "ok"
-
-    def wrap(cls: type, method: str) -> None:
-        original = getattr(cls, method)
-
-        async def traced(self: Any, *a: Any, **kw: Any) -> Any:
-            label = f"{type(self).__name__}.{method}"
-            in_flight[label] += 1
-            start, outcome = time.monotonic(), "cancelled"
-            try:
-                out = await original(self, *a, **kw)
-                outcome = outcome_of(out)
-                return out
-            except Exception as exc:
-                outcome = type(exc).__name__
-                raise
-            finally:
-                in_flight[label] -= 1
-                finished[label].append((time.monotonic(), time.monotonic() - start, outcome))
-
-        setattr(cls, method, traced)
-
-    if not _traced:  # the classes are wrapped once per process
-        for cls, method in TRACED:
-            wrap(cls, method)
-        _traced = True
-
-    async def heartbeat() -> None:
-        last = time.monotonic()
-        while True:
-            await asyncio.sleep(0.25)
-            now = time.monotonic()
-            lag[0] = max(lag[0], now - last - 0.25)
-            last = now
-
-    async def report() -> None:
-        while True:
-            await asyncio.sleep(every)
-            cutoff = time.monotonic() - every
-            rows = []
-            for label in sorted(set(finished) | set(in_flight)):
-                recent = [(s, o) for end, s, o in finished[label] if end >= cutoff]
-                secs = sorted(s for s, _ in recent)
-                q = lambda f: round(secs[min(len(secs) - 1, int(len(secs) * f))], 2) if secs else None  # noqa: E731
-                rows.append({"component": label, "in_flight": in_flight[label], "done": len(recent), "p50": q(0.5), "p90": q(0.9),
-                             "max": q(1.0), "outcomes": dict(collections.Counter(o for _, o in recent).most_common(4))})
-                finished[label] = [d for d in finished[label] if d[0] >= cutoff]
-            t = time.monotonic() - t0
-            print(f"--- t={t:5.0f}s loop lag max {lag[0]:.1f}s | {'component':34s} {'in-flight':>9s} {'done':>6s} {'p50':>6s} {'p90':>6s} {'max':>6s}  outcomes")
-            for r in rows:
-                cell = lambda x: f"{x:6.2f}" if x is not None else "     -"  # noqa: E731
-                print(f"    {r['component']:34s} {r['in_flight']:9d} {r['done']:6d} {cell(r['p50'])} {cell(r['p90'])} {cell(r['max'])}  {r['outcomes']}", flush=True)
-            if path is not None:
-                with path.open("a") as out:
-                    out.write(json.dumps({"t": round(t), "loop_lag_max": round(lag[0], 2), "components": rows}) + "\n")
-            lag[0] = 0.0
-
-    async def both() -> None:
-        await asyncio.gather(heartbeat(), report())
-
-    return asyncio.create_task(both())
 
 
 class TimedSearch(Step):
@@ -585,7 +497,6 @@ async def live(args: argparse.Namespace) -> None:
     )
     await fa.aload()  # the model (or the HTTP pool), the browser, before timing
     timings = instrument(fa)  # every claim's seconds per component, in its result record
-    trace = start_trace(run_dir / "trace.jsonl") if args.trace else None
     _write_meta(run_dir, args)
     slots = asyncio.Semaphore(args.parallel)  # answers at once; their claims share the assessor's claim queue
     todo = [a for a in answers if a["id"] not in done]
@@ -620,8 +531,6 @@ async def live(args: argparse.Namespace) -> None:
         print("filling the replay cache with the hits the run didn't judge...", flush=True)
         await fill_pages(hits, pages, fa.verify.resolver, fa.crawler, fill_queries)
         pipe.saver.save(run_dir / "pages.json.gz", pages)
-    if trace is not None:
-        trace.cancel()
     await pipe.saver.flush()
     await fa.aclose()
 
@@ -858,7 +767,6 @@ def main() -> None:
     lv.add_argument("--atomizer", default="openai:gpt-6-luna", help="pydantic-ai model for the atomizer (timed only)")
     lv.add_argument("--no-resolver", action="store_true")
     lv.add_argument("--no-fill", action="store_true", help="don't read the hits the run didn't judge at the end (the replay cache then holds judged pages only)")
-    lv.add_argument("--trace", action="store_true", help="every 30s, each component's calls in flight, durations and outcomes (also saved to trace.jsonl in the run folder)")
     lv.add_argument("--crawler", default="default", choices=["default", "akd-doi", "akd-doi+web", "none"],
                     help="akd-doi: pages only from AKD Scholar Search's full text by DOI (no web crawl, no resolver); "
                          "akd-doi+web: AKD first, else free copies resolved once + the web cascade; none: snippets only")

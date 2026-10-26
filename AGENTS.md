@@ -39,9 +39,8 @@ Async fact assessment: text → LLM atomizer → claim filter → search → cra
 - Notebooks are marimo (`notebooks/`). Run them with `uv run marimo edit --no-sandbox notebooks/<name>.py`
   (`fa.py` has a PEP 723 header for the no-clone one-liner; in the repo, `--no-sandbox` uses the local code).
 - Every live eval run records each claim's seconds per component (search, resolve, crawl, judge) in its results
-  file, and `--trace` adds the per-component call table (in flight, durations, outcomes, every 30s, saved as
-  `trace.jsonl`). Run paid evals with `--trace` the first time a setup is tried: a slow or collapsed run then
-  explains itself from its own files, and nothing is re-run to find out. A `ps` CPU figure is a decaying average,
-  and "untimed" helper work must never share a live component's pool (the 2026-10-25 eval collapses were the
-  harness's own replay-cache fill).
+  file: read a slow run's own files before anything is re-run. When a live run misbehaves, trace components
+  (calls, outcomes, in flight) before changing anything; a `ps` CPU figure is a decaying average, and "untimed"
+  helper work must never share a live component's pool (the 2026-10-25 eval collapses were the harness's own
+  replay-cache fill).
 - Commit messages: plain subject and body, no attribution trailers.

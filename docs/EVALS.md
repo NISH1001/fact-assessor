@@ -38,11 +38,6 @@ the positive class, macro-averaged over answers, on the corrupted split and on o
 reference. Then verdict counts, false atoms caught, timeouts, per-claim component percentiles, and per-answer times
 for the originals whose searches were live. Every live run records each claim's seconds per component (search wait,
 search, snippet judging, resolve, crawl, page judging, total): a slow run is explained from `results.json.gz`.
-`--trace` (live) adds a table every 30s of every component's calls in flight (queued for a slot included), the last
-window's p50 / p90 / max and outcomes (ok, HTTP status, exception, cancelled) and the event loop's worst lag, saved
-as `trace.jsonl` in the run folder. Use it the first time a setup is tried, so nothing has to be re-run to see what
-held the claims (2026-10-25: Serper's deadline claims were queued behind the browser crawler; the AKD collapses
-were the harness's own replay-cache fill).
 
 **Judges and keys.** `--judge laya` (the flag's default; local), `decision` (Jev on ZenMux through System One, `ZENMUX_API_KEY`; OpenRouter: see the README's "Jev on OpenRouter";
 `--judge-model`, default `typesafe/jev-1.13`: pass `typesafe/jev-1.14` for 1.14), `openai` (gpt-6-luna
