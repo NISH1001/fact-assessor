@@ -1,5 +1,4 @@
 from factassessor import DocumentSearcher, Take, collect, once
-from factassessor.passages import BM25Index, top_passages
 
 FILLER = " ".join(f"background{i} sentence about forests and carbon." for i in range(300))
 DOCS = [
@@ -30,9 +29,3 @@ async def test_it_is_a_searcher_step_that_chains():
 async def test_no_documents_or_no_match_is_empty():
     assert await DocumentSearcher([]).search("anything") == []
     assert await DocumentSearcher(DOCS).search("zzzz qqqq") == []  # no shared words: nothing is relevant
-
-
-def test_bm25_index_matches_top_passages():
-    chunks = [f"plot {i} forest" for i in range(20)] + ["Poorter analyzed 1,468 plots", "lunar pits"]
-    index = BM25Index(chunks)
-    assert [chunks[i] for i in index.top("1,468 plots Poorter", 3)] == top_passages("1,468 plots Poorter", chunks, 3)

@@ -9,7 +9,6 @@ import math
 import re
 import unicodedata
 from collections import Counter
-from typing import Any
 
 _WORD = re.compile(r"\w+")
 _CITATION = re.compile(r"\[(?:\d+|[a-z]{1,2})\]")  # [6], [c]
@@ -86,31 +85,6 @@ def word_windows(text: str, size: int, overlap: int, max_chars: int | None = Non
     if max_chars is None:
         return windows
     return [w[i : i + max_chars] for w in windows for i in range(0, len(w), max_chars)]
-
-
-def chunk(text: str, tokenizer: Any, max_tokens: int, overlap: int) -> list[str]:
-    """Overlapping windows of at most `max_tokens` real tokens, as exact slices of `text`.
-
-    The page is tokenized once; offsets map each window back to the original characters.
-    """
-    offsets = tokenizer(text, add_special_tokens=False, return_offsets_mapping=True)["offset_mapping"]
-    if not offsets:
-        return []
-    step = max(1, max_tokens - overlap)
-    chunks = []
-    for start in range(0, len(offsets), step):
-        window = offsets[start : start + max_tokens]
-        chunks.append(text[window[0][0] : window[-1][1]])
-        if start + max_tokens >= len(offsets):
-            break
-    return chunks
-
-
-def top_passages(claim: str, chunks: list[str], k: int, k1: float = 1.5, b: float = 0.75) -> list[str]:
-    """The `k` chunks with the highest BM25 score against `claim`, best first."""
-    if len(chunks) <= k:
-        return chunks
-    return [chunks[i] for i in BM25Index(chunks, k1, b).top(claim, k)]
 
 
 class BM25Index:

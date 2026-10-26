@@ -38,7 +38,6 @@ class AKDScholarSearcher(Searcher):
         num: int = 10,
         context_words: int = 40,  # words on either side of each passage (server default 20)
         max_matches: int = 3,  # passages per paper in the snippet
-        index: str = "all",  # all = title + body, text = body only, title = title only
         timeout: float = 10.0,
         hedge_after: float | None = None,
         max_connections: int = 32,  # keep-alive connections, reused (utils.http_pool)
@@ -47,7 +46,6 @@ class AKDScholarSearcher(Searcher):
         self.num = num
         self.context_words = context_words
         self.max_matches = max_matches
-        self.index = index
         self.timeout = timeout
         self.hedge_after = hedge_after
         self.max_connections = max_connections
@@ -69,7 +67,7 @@ class AKDScholarSearcher(Searcher):
 
     async def _request(self, query: str) -> list[Hit]:
         await self.start()
-        params = {"q": query, "top_k": min(100, 2 * self.num), "index": self.index,
+        params = {"q": query, "top_k": min(100, 2 * self.num), "index": "all",  # title + body
                   "context_words": self.context_words, "max_matches": self.max_matches}
         response = await self._http.get(f"{self.url}/search", params=params, headers={"Authorization": f"Bearer {self.api_key}"})
         response.raise_for_status()  # a 401/403 from this server: keys.auth_error names AKD_SCHOLAR_SEARCH_API_KEY

@@ -516,7 +516,7 @@ jev = SystemOneRunner(
 fa = FactAssessor(runner=jev)
 ```
 
-The key is picked by host (`SystemOneRunner.HOSTS`): `ZENMUX_API_KEY` for zenmux.ai, `OPENROUTER_API_KEY` for
+The key is picked by host (`keys.PROVIDER_HOSTS`): `ZENMUX_API_KEY` for zenmux.ai, `OPENROUTER_API_KEY` for
 openrouter.ai, none for any other URL (a `laya.serve` server). OpenRouter reports each call's cost; ZenMux reports
 tokens only, so `runner.cost` is estimated at `SystemOneRunner.PRICE_PER_INPUT_TOKEN` ($0.042 per million input
 tokens, output free).

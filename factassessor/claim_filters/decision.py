@@ -1,4 +1,4 @@
-"""DecisionClaimFilter: a `DecisionRunner` (Laya by default) decides the kind of statement (the default filter)."""
+"""DecisionClaimFilter: a `DecisionRunner` (Jev by default) decides the kind of statement (the default filter)."""
 
 from __future__ import annotations
 

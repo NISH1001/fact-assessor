@@ -1,4 +1,4 @@
-"""LayaRunner: in-process Laya on the local GPU, the default `DecisionRunner`.
+"""LayaRunner: in-process Laya on the local GPU, a `DecisionRunner` (the default is Jev, `SystemOneRunner`).
 
 - The model (a laya `Router`) and the one thread it runs on are loaded once per device, per process, however many
   runners or assessors use them. `model` picks the checkpoint: english (421M, 512 tokens), multilingual (322M,

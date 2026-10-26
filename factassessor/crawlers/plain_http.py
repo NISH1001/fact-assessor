@@ -23,7 +23,7 @@ class HTTPXCrawler(Crawler):
     Less than `min_words` is not a page: on 2,748 crawled pages, those under 100 words were login walls,
     "Loading..." shells and browser checks. (Scripts written without spaces, like Chinese, count low.)
 
-    Timeouts: `connect_timeout` makes dead hosts fail fast, and `timeout` is a hard deadline on the whole fetch
+    Timeouts: a 1s connect timeout makes dead hosts fail fast, and `timeout` is a hard deadline on the whole fetch
     (httpx's own timeout is per phase, e.g. per read, so a server that drips bytes could otherwise run far past it).
     Once the response turns out to be a PDF, the deadline becomes `pdf_timeout`: a paper is several MB.
     """
@@ -34,7 +34,6 @@ class HTTPXCrawler(Crawler):
     def __init__(
         self,
         timeout: float = 2.5,
-        connect_timeout: float = 1.0,
         max_concurrent: int = 50,  # connections only (text is extracted after): 600 URLs at once, 50 had 319-327 pages by 20s vs 275 at 20
         max_bytes: int = 3_000_000,
         max_pdf_bytes: int = 50_000_000,  # a PDF cut short can't be read at all; theses run 25-35 MB
@@ -45,7 +44,6 @@ class HTTPXCrawler(Crawler):
     ) -> None:
         super().__init__(accept or HasPage() & MinWords(min_words))
         self.timeout = timeout
-        self.connect_timeout = connect_timeout
         self.max_bytes = max_bytes  # stop reading huge pages; the useful text is near the top anyway
         self.max_pdf_bytes = max_pdf_bytes  # a cut-off PDF can't be read at all, so PDFs get a larger limit
         self.pdf_timeout = pdf_timeout
@@ -85,7 +83,7 @@ class HTTPXCrawler(Crawler):
     async def start(self) -> None:
         if self._http is None:
             self._http = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.timeout, connect=self.connect_timeout),
+                timeout=httpx.Timeout(self.timeout, connect=1.0),
                 follow_redirects=True,
                 headers={"User-Agent": self.USER_AGENT},
             )

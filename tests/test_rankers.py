@@ -1,4 +1,3 @@
-from factassessor.passages import top_passages
 from factassessor.rankers import BM25Ranker, EmbeddingRanker, HybridRanker, Ranker
 
 CLAIM = "WorldView-3 has a saturation point at 247 Mg ha-1 for forest aboveground biomass."
@@ -22,12 +21,10 @@ class Fixed:
         return np.array([self.vectors.get(t, [0.0, 0.0, 1.0]) for t in texts], dtype=float)
 
 
-def test_rankers_are_runtime_checkable_and_bm25_matches_top_passages():
+def test_rankers_are_runtime_checkable():
     for r in (BM25Ranker(), EmbeddingRanker(model=Fixed({})), HybridRanker(BM25Ranker(), EmbeddingRanker(model=Fixed({})))):
         assert isinstance(r, Ranker)
     assert not isinstance(object(), Ranker)
-    for k in (1, 2, 4):
-        assert BM25Ranker().top(CLAIM, CHUNKS, k) == top_passages(CLAIM, CHUNKS, k)
 
 
 def test_bm25_prefers_the_chunk_sharing_the_words_even_when_the_meaning_is_elsewhere():

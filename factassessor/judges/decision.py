@@ -1,4 +1,4 @@
-"""DecisionJudge: every (claim, passage) pair is one decision of a `DecisionRunner` (Laya by default)."""
+"""DecisionJudge: every (claim, passage) pair is one decision of a `DecisionRunner` (Jev by default)."""
 
 from __future__ import annotations
 

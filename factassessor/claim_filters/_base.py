@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from factassessor.pipeline import Map, Step, report_dropped
 from factassessor.schema import Atom
 
-# the four kinds of statement both model-backed filters choose between; P(factual_claim) is the score
+# the four kinds of statement the model-backed filter chooses between; P(factual_claim) is the score
 KINDS = {
     "factual_claim": "asserts something about the world that can be verified as true or false "
     "(people, places, dates, numbers, events)",
