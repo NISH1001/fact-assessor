@@ -325,4 +325,4 @@ async def test_claims_in_flight_are_capped_across_all_texts_of_an_assessor():
 def test_the_package_reports_its_version():
     import factassessor
 
-    assert factassessor.__version__ == "0.4.2"
+    assert factassessor.__version__ == "0.5.0"
